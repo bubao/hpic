@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractImageFilename, getImageAspectRatio } from './imageMeta';
+import { extractImageFilename, getImageAspectRatio, getImageQualityBadge, extractTargetDimensions } from './imageMeta';
 
 describe('imageMeta utility tests', () => {
   describe('extractImageFilename', () => {
@@ -73,6 +73,52 @@ describe('imageMeta utility tests', () => {
       expect(getImageAspectRatio(2000, 1000)).toBe('横屏');
       expect(getImageAspectRatio(1000, 2000)).toBe('竖屏');
       expect(getImageAspectRatio(1000, 900)).toBe('方形');
+    });
+  });
+
+  describe('getImageQualityBadge', () => {
+    it('should identify 4K, 2K, 1080P and HD resolutions', () => {
+      expect(getImageQualityBadge(3840, 2160)).toBe('4K');
+      expect(getImageQualityBadge(4096, 2160)).toBe('4K');
+      expect(getImageQualityBadge(2560, 1440)).toBe('2K');
+      expect(getImageQualityBadge(1920, 1080)).toBe('1080P');
+      expect(getImageQualityBadge(1280, 720)).toBe('HD');
+      expect(getImageQualityBadge(800, 600)).toBe('');
+    });
+
+    it('should identify quality for portrait/vertical images', () => {
+      expect(getImageQualityBadge(2160, 3840)).toBe('4K');
+      expect(getImageQualityBadge(1080, 1920)).toBe('1080P');
+      expect(getImageQualityBadge(720, 1280)).toBe('HD');
+    });
+  });
+
+  describe('extractTargetDimensions', () => {
+    it('should prefer explicit width and height with quality badge', () => {
+      const result = extractTargetDimensions('https://example.com/img.jpg', 3840, 2160);
+      expect(result).toEqual({ width: 3840, height: 2160, quality: '4K' });
+    });
+
+    it('should parse dimensions from URL search parameters if omitted', () => {
+      const result = extractTargetDimensions('https://images.unsplash.com/photo-123?w=2560&h=1440');
+      expect(result).toEqual({ width: 2560, height: 1440, quality: '2K' });
+    });
+
+    it('should parse alternative width and height query parameters', () => {
+      const result = extractTargetDimensions('https://images.unsplash.com/photo-123?width=1920&height=1080');
+      expect(result).toEqual({ width: 1920, height: 1080, quality: '1080P' });
+    });
+
+    it('should handle partial or invalid parameters gracefully', () => {
+      expect(extractTargetDimensions('https://example.com/test.jpg?w=invalid&h=invalid')).toBeNull();
+      expect(extractTargetDimensions('https://example.com/test.jpg?w=1920')).toBeNull();
+      expect(extractTargetDimensions('https://example.com/test.jpg?h=1080')).toBeNull();
+      expect(extractTargetDimensions('')).toBeNull();
+      expect(extractTargetDimensions(undefined)).toBeNull();
+    });
+
+    it('should return null if dimensions cannot be determined', () => {
+      expect(extractTargetDimensions('https://example.com/test.jpg')).toBeNull();
     });
   });
 });

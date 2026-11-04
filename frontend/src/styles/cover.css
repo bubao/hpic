@@ -263,6 +263,35 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
+.image-dimension-badge .quality-sub-badge {
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.5px;
+}
+
+.image-dimension-badge .quality-sub-badge.quality-4k {
+  background: #f59e0b;
+  color: #0f172a;
+}
+
+.image-dimension-badge .quality-sub-badge.quality-2k {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.image-dimension-badge .quality-sub-badge.quality-1080p {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.image-dimension-badge .quality-sub-badge.quality-hd {
+  background: #64748b;
+  color: #ffffff;
+}
+
 .image-dimension-badge .ratio-sub-badge {
   color: #38bdf8;
   font-weight: 600;

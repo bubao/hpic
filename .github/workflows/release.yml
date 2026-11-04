@@ -45,7 +45,7 @@ jobs:
         run: go test -race -v ./...
 
   # ==============================================================================
-  # 1. macOS 打包 Job (生成原生 DMG 与 Darwin 压缩包)
+  # 1. macOS 打包 Job (dmgbuild 方案，稳定构造DS_Store，无appdmg)
   # ==============================================================================
   build-mac:
     name: Build macOS (DMG & Tar.gz)
@@ -81,26 +81,61 @@ jobs:
         run: |
           node scripts/build-icons.mjs
           node scripts/generate-dmg-bg.mjs
+          test -s native_macos/AppIcon.icns || (echo "[ERROR] 缺失 native_macos/AppIcon.icns 图标产物" && exit 1)
+          test -s assets/dmg-background.png || (echo "[ERROR] 缺失 assets/dmg-background.png 产物" && exit 1)
 
-      - name: Build macOS Artifacts & DMG
+      # ========== 替换：安装 dmgbuild 依赖，不再装 appdmg ==========
+      - name: Install dmgbuild python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install dmgbuild ds_store mac_alias
+
+      - name: Clean old build artifacts
+        run: |
+          rm -rf dist .stage hpic.app
+          mkdir -p dist
+
+      - name: Build macOS Artifacts & DMG (dmgbuild)
         env:
           VERSION: ${{ github.ref_name }}
         run: |
-          mkdir -p dist
           RAW_VER="${VERSION#v}"
+          if [ -z "$RAW_VER" ] || [ "$RAW_VER" = "master" ] || [ "$RAW_VER" = "main" ]; then
+            RAW_VER="0.0.1"
+          fi
           GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "${{ github.sha }}")
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           LDFLAGS="-w -s -X main.Version=${RAW_VER} -X main.GitCommit=${GIT_COMMIT} -X main.BuildDate=${BUILD_DATE}"
 
-          # 1. 在真实 macOS runner 上制作 Universal 双架构 App Bundle 与 DMG
-          VERSION="${RAW_VER}" make app
-          chmod +x scripts/package-dmg.sh
-          VERSION="${RAW_VER}" ./scripts/package-dmg.sh
-          if [ -d "hpic.app" ]; then
-            zip -q -r "dist/hpic-v${RAW_VER}-macOS.zip" "hpic.app"
-          fi
+          # 构建 hpic.app
+          make app
+          test -d "hpic.app" || (echo "[ERROR] make app 未产出 hpic.app" && exit 1)
 
-          # 2. 编译 Apple Silicon (arm64)
+          # ========== dmgbuild 打包，使用你 scripts/dmgbuild-settings.py ==========
+          DMG_OUT="dist/hpic-v${RAW_VER}-macOS.dmg"
+          python3 -m dmgbuild \
+            -s scripts/dmgbuild-settings.py \
+            -D app="./hpic.app" \
+            -D ver="${RAW_VER}" \
+            "hpic" \
+            "${DMG_OUT}"
+          test -s "${DMG_OUT}" || (echo "[ERROR] dmgbuild DMG 打包失败" && exit 1)
+
+          # ✅ 校验：必须存在 .DS_Store
+          TMP_MNT=$(mktemp -d)
+          hdiutil attach "${DMG_OUT}" -mountpoint "${TMP_MNT}" -noverify -nobrowse
+          if [ ! -f "${TMP_MNT}/.DS_Store" ]; then
+            echo "[ERROR] DMG 内缺少 .DS_Store，背景布局失效！"
+            hdiutil detach "${TMP_MNT}"
+            exit 1
+          fi
+          hdiutil detach "${TMP_MNT}"
+          rmdir "${TMP_MNT}"
+
+          # 打包 hpic.app 为 zip
+          zip -q -r "dist/hpic-v${RAW_VER}-macOS.zip" "hpic.app"
+
+          # 2. 编译 Apple Silicon (arm64) 独立二进制包
           mkdir -p .stage/hpic-darwin-arm64
           GOOS=darwin GOARCH=arm64 go build -ldflags="$LDFLAGS" -o .stage/hpic-darwin-arm64/hpic .
           cp install.sh .stage/hpic-darwin-arm64/
@@ -109,7 +144,7 @@ jobs:
           fi
           tar -czf "dist/hpic-v${RAW_VER}-darwin-arm64.tar.gz" -C .stage hpic-darwin-arm64
 
-          # 3. 编译 Intel (amd64)
+          # 3. 编译 Intel (amd64) 独立二进制包
           mkdir -p .stage/hpic-darwin-amd64
           GOOS=darwin GOARCH=amd64 go build -ldflags="$LDFLAGS" -o .stage/hpic-darwin-amd64/hpic .
           cp install.sh .stage/hpic-darwin-amd64/
@@ -233,7 +268,7 @@ jobs:
       - name: Install NSIS Compiler & SVG Tools
         shell: pwsh
         run: |
-          choco install nsis rsvg-convert -y --no-progress
+          choco install nsis rsvg-convert -y --no-progress --timeout 300
           "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "C:\Program Files\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
@@ -356,14 +391,15 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: hpic ${{ github.ref_name }}
+          fail_on_unmatched_files: true
           body: |
             ## hpic ${{ github.ref_name }} 正式发布
 
             Hexo 博客封面与文章配图管理工具。
 
             ### 多系统原生安装包推荐
-            - **macOS (Apple Silicon / Intel)**: 下载 `hpic-${{ github.ref_name }}-macOS.dmg` 拖拽安装，或下载便携 `hpic-${{ github.ref_name }}-macOS.zip` 解压使用。
-            - **Windows (x64)**: 下载 `hpic-${{ github.ref_name }}-setup-amd64.exe` 一键单文件安装向导；或下载 `hpic-${{ github.ref_name }}-windows-amd64.zip` 解压便携使用。
+            - **macOS (Apple Silicon / Intel)**: 下载 `hpic-v${{ env.RAW_VER }}-macOS.dmg` 拖拽安装，或下载便携 `hpic-v${{ env.RAW_VER }}-macOS.zip` 解压使用。
+            - **Windows (x64)**: 下载 `hpic-v${{ env.RAW_VER }}-setup-amd64.exe` 一键单文件安装向导；或下载 `hpic-v${{ env.RAW_VER }}-windows-amd64.zip` 解压便携使用。
             - **Ubuntu / Debian (Linux)**: 下载 `hpic_${{ env.RAW_VER }}_amd64.deb`，通过 `sudo dpkg -i` 或 `sudo apt install ./hpic_*.deb` 安装。
             - **全平台绿色归档**: 亦可下载对应系统的 `.tar.gz` 纯净二进制包。
 

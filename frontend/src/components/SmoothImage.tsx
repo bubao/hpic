@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, ImageOff } from 'lucide-react';
-import { getImageAspectRatio } from '../utils/imageMeta';
+import { getImageAspectRatio, getImageQualityBadge } from '../utils/imageMeta';
 
 export interface SmoothImageProps {
   src: string;
@@ -11,6 +11,7 @@ export interface SmoothImageProps {
   placeholderClassName?: string;
   showSpinner?: boolean;
   showMetaBadge?: boolean;
+  badgeDimensions?: { width: number; height: number; quality?: string } | null;
   onDimensionsLoaded?: (width: number, height: number) => void;
   onClick?: (e: React.MouseEvent<HTMLImageElement>) => void;
   referrerPolicy?: React.HTMLAttributeReferrerPolicy;
@@ -32,6 +33,7 @@ export const SmoothImage: React.FC<SmoothImageProps> = ({
   placeholderClassName = '',
   showSpinner = false,
   showMetaBadge = false,
+  badgeDimensions,
   onDimensionsLoaded,
   onClick,
   referrerPolicy = 'no-referrer',
@@ -114,16 +116,27 @@ export const SmoothImage: React.FC<SmoothImageProps> = ({
             onClick={onClick}
             referrerPolicy={referrerPolicy}
           />
-          {showMetaBadge && dimensions && (
-            <div className="image-dimension-badge">
-              <span>{dimensions.width}×{dimensions.height}</span>
-              {getImageAspectRatio(dimensions.width, dimensions.height) && (
-                <span className="ratio-sub-badge">
-                  {getImageAspectRatio(dimensions.width, dimensions.height)}
-                </span>
-              )}
-            </div>
-          )}
+          {showMetaBadge && (badgeDimensions || dimensions) && (() => {
+            const displayDim = badgeDimensions || dimensions!;
+            const explicitQuality = 'quality' in displayDim && typeof displayDim.quality === 'string' ? displayDim.quality : '';
+            const quality = explicitQuality || getImageQualityBadge(displayDim.width, displayDim.height);
+            const ratio = getImageAspectRatio(displayDim.width, displayDim.height);
+            return (
+              <div className="image-dimension-badge">
+                {quality && (
+                  <span className={`quality-sub-badge quality-${quality.toLowerCase()}`}>
+                    {quality}
+                  </span>
+                )}
+                <span>{displayDim.width}×{displayDim.height}</span>
+                {ratio && (
+                  <span className="ratio-sub-badge">
+                    {ratio}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

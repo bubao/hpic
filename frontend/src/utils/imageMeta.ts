@@ -86,3 +86,47 @@ export function getImageAspectRatio(width: number, height: number): string {
 
   return ratio > 1.2 ? '横屏' : ratio < 0.85 ? '竖屏' : '方形';
 }
+
+/**
+ * 根据物理分辨率判断清晰度等级 (4K, 2K, 1080P, HD)
+ */
+export function getImageQualityBadge(width: number, height: number): string {
+  if (!width || !height || width <= 0 || height <= 0) return '';
+  const maxDim = Math.max(width, height);
+  const minDim = Math.min(width, height);
+
+  if (maxDim >= 3840 || minDim >= 2160) return '4K';
+  if (maxDim >= 2560 || minDim >= 1440) return '2K';
+  if (maxDim >= 1920 || minDim >= 1080) return '1080P';
+  if (maxDim >= 1280 || minDim >= 720) return 'HD';
+  return '';
+}
+
+/**
+ * 从 URL 参数或显式宽高推导大图真实物理分辨率
+ */
+export function extractTargetDimensions(
+  url?: string,
+  explicitWidth?: number,
+  explicitHeight?: number
+): { width: number; height: number; quality?: string } | null {
+  let w = explicitWidth || 0;
+  let h = explicitHeight || 0;
+
+  if ((!w || !h) && url) {
+    try {
+      const parsed = new URL(url, 'http://localhost');
+      const wQuery = parsed.searchParams.get('w') || parsed.searchParams.get('width');
+      const hQuery = parsed.searchParams.get('h') || parsed.searchParams.get('height');
+      if (wQuery) w = parseInt(wQuery, 10);
+      if (hQuery) h = parseInt(hQuery, 10);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (isNaN(w) || isNaN(h) || w <= 0 || h <= 0) return null;
+
+  const quality = getImageQualityBadge(w, h);
+  return { width: w, height: h, quality };
+}

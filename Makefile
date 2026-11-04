@@ -110,7 +110,7 @@ app: build
 	@echo "   [OK] $(APP_NAME) 原生独立应用打包完成"
 
 dmg: app
-	@./scripts/package-dmg.sh
+	@./scripts/package-dmg.sh $(VERSION)
 
 dist:
 	@./scripts/build-all.sh

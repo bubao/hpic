@@ -264,16 +264,39 @@ func fetchBingUnsplash(query string, page int, orientation string, size string, 
 				height = 1080
 			}
 
+			rawURL := baseURL + "?auto=format&fit=crop&w=2560&h=1440&q=90"
+			fullURL := baseURL + "?auto=format&fit=crop&w=1920&h=1080&q=85"
+			regularURL := baseURL + "?auto=format&fit=crop&w=1920&h=1080&q=85"
+
+			targetWidth := 2560
+			targetHeight := 1440
+			if width > targetWidth {
+				targetWidth = width
+				targetHeight = height
+			}
+
+			if size == "wallpaper" {
+				rawURL = baseURL + "?auto=format&fit=crop&w=3840&h=2160&q=90"
+				fullURL = baseURL + "?auto=format&fit=crop&w=2560&h=1440&q=85"
+				regularURL = baseURL + "?auto=format&fit=crop&w=1920&h=1080&q=85"
+				targetWidth = 3840
+				targetHeight = 2160
+				if width > targetWidth {
+					targetWidth = width
+					targetHeight = height
+				}
+			}
+
 			list = append(list, Photo{
 				ID:          cleanPhotoID,
-				Width:       width,
-				Height:      height,
+				Width:       targetWidth,
+				Height:      targetHeight,
 				Description: title,
 				Source:      "unsplash",
 				Urls: PhotoURLs{
-					Raw:     baseURL + "?auto=format&fit=crop&w=1920&h=1080&q=85",
-					Full:    baseURL + "?auto=format&fit=crop&w=1600&h=900&q=80",
-					Regular: baseURL + "?auto=format&fit=crop&w=1200&h=675&q=80",
+					Raw:     rawURL,
+					Full:    fullURL,
+					Regular: regularURL,
 					Small:   thumb,
 					Thumb:   thumb,
 				},

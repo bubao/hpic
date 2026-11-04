@@ -8,6 +8,7 @@ import { TagFilterModal } from './TagFilterModal';
 import { useFavorites } from '../context/FavoritesContext';
 import { useToast } from '../context/ToastContext';
 import { PhotoCard } from './PhotoCard';
+import { extractTargetDimensions } from '../utils/imageMeta';
 
 interface PhotoGalleryProps {
   post: PostInfo;
@@ -461,6 +462,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                   const isUsedByCurrent =
                     currentPostCoverUrls.has(it.url.trim()) ||
                     currentPostCoverKeys.has(getCanonicalImageKey(it.url));
+                  const targetDim = extractTargetDimensions(it.url);
 
                   return (
                     <PhotoCard
@@ -489,6 +491,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                       isBroken={!!brokenUrls?.has(it.url)}
                       tags={it.tags}
                       coverFields={coverFields}
+                      dimensions={targetDim}
                       onToggleFavorite={() => toggleFavorite({ url: it.url, thumbUrl: it.thumb_url, title: it.title, source: it.source })}
                       onOpenLightbox={() => onOpenLightbox(it.url, it.title || '收藏图片', it.thumb_url || it.url)}
                       onApplyImage={onApplyImage}
@@ -530,8 +533,9 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                 </div>
               ) : (
                 photos.map(p => {
-                  const fullUrl = p.urls.regular || p.urls.raw || p.urls.full;
-                  const thumbUrl = p.urls.small || p.urls.thumb || fullUrl;
+                  const fullUrl = p.urls.raw || p.urls.full || p.urls.regular;
+                  const thumbUrl = p.urls.small || p.urls.thumb || p.urls.regular || fullUrl;
+                  const targetDim = extractTargetDimensions(fullUrl, p.width, p.height);
                   const author = p.user?.name || (p.source === 'wallhaven' ? 'Wallhaven' : 'Unsplash');
                   const photoTitle = p.description || p.alt_description || `${author} (${p.id})`;
                   const isFav = favoritedUrls.has(fullUrl);
@@ -557,6 +561,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                       isUsedByCurrent={isUsedByCurrent}
                       isBroken={isBroken}
                       coverFields={coverFields}
+                      dimensions={targetDim}
                       onToggleFavorite={() => toggleFavorite({ url: fullUrl, thumbUrl, title: photoTitle, source: p.source })}
                       onOpenLightbox={() => onOpenLightbox(fullUrl, photoTitle, thumbUrl)}
                       onApplyImage={onApplyImage}

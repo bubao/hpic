@@ -134,6 +134,11 @@ func SearchWallhaven(query string, page int, orientation string, size string, pr
 
 	var results []Photo
 	for _, it := range whResp.Data {
+		thumbsLarge := it.Thumbs.Large
+		if thumbsLarge == "" {
+			thumbsLarge = it.Thumbs.Small
+		}
+
 		results = append(results, Photo{
 			ID:          it.ID,
 			Width:       it.DimensionX,
@@ -143,8 +148,8 @@ func SearchWallhaven(query string, page int, orientation string, size string, pr
 			Urls: PhotoURLs{
 				Raw:     it.Path,
 				Full:    it.Path,
-				Regular: it.Thumbs.Large,
-				Small:   it.Thumbs.Small,
+				Regular: it.Path,
+				Small:   thumbsLarge,
 				Thumb:   it.Thumbs.Small,
 			},
 			User: User{

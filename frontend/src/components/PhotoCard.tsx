@@ -15,6 +15,7 @@ export interface PhotoCardProps {
   isBroken?: boolean;
   tags?: string[];
   coverFields: string[];
+  dimensions?: { width: number; height: number; quality?: string } | null;
   onToggleFavorite: () => void;
   onOpenLightbox: () => void;
   onApplyImage: (url: string, fields: string[]) => void;
@@ -38,6 +39,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({
   isBroken = false,
   tags,
   coverFields,
+  dimensions,
   onToggleFavorite,
   onOpenLightbox,
   onApplyImage,
@@ -62,6 +64,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({
           alt={title}
           className="thumb-image"
           showMetaBadge={true}
+          badgeDimensions={dimensions}
           onClick={onOpenLightbox}
         />
 

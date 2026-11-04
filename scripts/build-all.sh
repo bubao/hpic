@@ -56,17 +56,23 @@ else
     exit 1
 fi
 
-# 3. 检查多平台图标资源
+# 3. 检查多平台图标与视觉资源
 echo ""
-echo -e "${CYAN}[2/5] 检查多平台图标资源 (ICO / PNG / SVG / Desktop)...${NC}"
-if [ ! -f "assets/app.ico" ] || [ ! -f "assets/hpic.desktop" ]; then
-    if command -v node >/dev/null 2>&1; then
+echo -e "${CYAN}[2/5] 检查多平台图标与视觉资源 (ICO / PNG / SVG / Desktop / DMG)...${NC}"
+if command -v node >/dev/null 2>&1; then
+    if [ ! -f "assets/app.ico" ] || [ ! -f "assets/hpic.desktop" ]; then
         echo -e "   [INFO] 运行 scripts/build-icons.mjs 衍生跨平台图标..."
         node scripts/build-icons.mjs >/dev/null 2>&1 || true
     fi
-    if [ ! -f "assets/hpic.desktop" ]; then
-        mkdir -p "assets"
-        cat << 'EOF' > "assets/hpic.desktop"
+    if [ ! -f "assets/dmg-background.png" ]; then
+        echo -e "   [INFO] 运行 scripts/generate-dmg-bg.mjs 衍生 DMG 安装包背景..."
+        node scripts/generate-dmg-bg.mjs >/dev/null 2>&1 || true
+    fi
+fi
+
+if [ ! -f "assets/hpic.desktop" ]; then
+    mkdir -p "assets"
+    cat << 'EOF' > "assets/hpic.desktop"
 [Desktop Entry]
 Name=hpic
 Comment=Hexo Blog Cover and Drafts Image Manager (HexoPic)
@@ -77,9 +83,8 @@ Type=Application
 Categories=Development;Utility;
 Keywords=hpic;hexo;blog;cover;banner;picture;
 EOF
-    fi
 fi
-echo -e "   ${GREEN}[OK] 图标与桌面配置文件就绪${NC}"
+echo -e "   ${GREEN}[OK] 图标与视觉配置文件就绪${NC}"
 
 # 4. 初始化 dist 目录
 rm -rf "$DIST_DIR"
@@ -189,9 +194,12 @@ echo -e "     ${GREEN}-> dist/hpic-v${VERSION}-darwin-amd64.tar.gz${NC}"
 if [ "$(uname -s)" = "Darwin" ]; then
     echo ""
     echo -e "${CYAN}[4/5] 宿主机为 macOS，制作原生 hpic-v${VERSION}-macOS.dmg 与 App 归档...${NC}"
-    make app >/dev/null 2>&1 || true
-    VERSION="${VERSION}" ./scripts/package-dmg.sh >/dev/null 2>&1 || true
-    echo -e "   ${GREEN}-> dist/hpic-v${VERSION}-macOS.dmg${NC}"
+    make app
+    if bash ./scripts/package-dmg.sh "${VERSION}"; then
+        echo -e "   ${GREEN}-> dist/hpic-v${VERSION}-macOS.dmg${NC}"
+    else
+        echo -e "   ${RED}[WARN] macOS DMG 安装包制作失败，请检查 dmgbuild 配置${NC}"
+    fi
     if [ -d "hpic.app" ]; then
         zip -q -r "${DIST_DIR}/hpic-v${VERSION}-macOS.zip" "hpic.app"
         echo -e "   ${GREEN}-> dist/hpic-v${VERSION}-macOS.zip${NC}"
