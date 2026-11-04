@@ -262,6 +262,9 @@ async function main() {
   console.log('[2/5] 同步前端矢量 favicon.svg...');
   const faviconPath = path.join(rootDir, 'frontend', 'public', 'favicon.svg');
   const webFaviconPath = path.join(rootDir, 'web', 'favicon.svg');
+  if (!fs.existsSync(path.dirname(faviconPath))) {
+    fs.mkdirSync(path.dirname(faviconPath), { recursive: true });
+  }
   fs.writeFileSync(faviconPath, svgContent, 'utf8');
   if (fs.existsSync(path.dirname(webFaviconPath))) {
     fs.writeFileSync(webFaviconPath, svgContent, 'utf8');

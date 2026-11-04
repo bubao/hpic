@@ -41,16 +41,9 @@ SetCompressor /SOLID lzma
 ; --------------------------------
 !define MUI_ABORTWARNING
 
-!ifndef ICON_FILE
-  !define ICON_FILE "assets\app.ico"
-!endif
-
-!ifFileExists "${ICON_FILE}"
+!ifdef ICON_FILE
   !define MUI_ICON "${ICON_FILE}"
   !define MUI_UNICON "${ICON_FILE}"
-!else ifFileExists "..\${ICON_FILE}"
-  !define MUI_ICON "..\${ICON_FILE}"
-  !define MUI_UNICON "..\${ICON_FILE}"
 !endif
 
 ; 欢迎页面
