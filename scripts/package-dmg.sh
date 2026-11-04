@@ -68,10 +68,13 @@ if [ -n "$ICON_PATH" ] && [ -f "$ICON_PATH" ]; then
     fi
 fi
 
-# 4. 配置专用背景图
+# 4. 配置专用背景图 (并设置隐形属性，防止用户在 Finder 中看到 .background 文件夹)
 if [ -f "$BG_PATH" ]; then
     mkdir -p "$MOUNT_DIR/.background"
     cp -f "$BG_PATH" "$MOUNT_DIR/.background/background.png"
+    if command -v SetFile >/dev/null 2>&1; then
+        SetFile -a V "$MOUNT_DIR/.background" 2>/dev/null || true
+    fi
 fi
 
 # 5. 调用 AppleScript 调校 Finder 视图布局、居中窗口尺寸与图标坐标
@@ -100,6 +103,12 @@ tell application "Finder"
     end tell
 end tell
 EOF
+fi
+
+# 清理系统残留的隐形索引与事件日志目录 (杜绝 .fseventsd / .Trashes 等 dot 文件夹被看到)
+rm -rf "$MOUNT_DIR/.fseventsd" "$MOUNT_DIR/.Trashes" "$MOUNT_DIR/.Spotlight-V100" 2>/dev/null || true
+if command -v SetFile >/dev/null 2>&1; then
+    SetFile -a V "$MOUNT_DIR/.background" 2>/dev/null || true
 fi
 
 sync 2>/dev/null || true

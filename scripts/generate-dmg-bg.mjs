@@ -90,15 +90,12 @@ export function buildDmgBackground() {
     return true;
   } catch (_) {}
 
-  // 备用：macOS qlmanage
+  // 备用：macOS AppKit 原生渲染 (零依赖、高保真)
   if (process.platform === 'darwin') {
     try {
-      execSync(`qlmanage -t -s 600 -o "${path.dirname(outPng)}" "${outSvg}"`, { stdio: 'ignore' });
-      const qlOut = path.join(path.dirname(outPng), 'dmg-background.svg.png');
-      if (fs.existsSync(qlOut)) {
-        fs.renameSync(qlOut, outPng);
-        return true;
-      }
+      const code = `import AppKit;let u=URL(fileURLWithPath:"${outSvg}");guard let i=NSImage(contentsOf:u) else{exit(1)};let r=NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:600,pixelsHigh:420,bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.calibratedRGB,bytesPerRow:0,bitsPerPixel:0)!;NSGraphicsContext.saveGraphicsState();NSGraphicsContext.current=NSGraphicsContext(bitmapImageRep:r);i.draw(in:NSRect(x:0,y:0,width:600,height:420));NSGraphicsContext.restoreGraphicsState();if let d=r.representation(using:.png,properties:[:]){try? d.write(to:URL(fileURLWithPath:"${outPng}"))}`;
+      execSync(`swift -e '${code}'`, { stdio: 'ignore' });
+      if (fs.existsSync(outPng)) return true;
     } catch (_) {}
   }
 

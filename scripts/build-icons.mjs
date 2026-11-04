@@ -31,13 +31,15 @@ const h = (tag, attrs = {}, ...children) => {
 
 /** 图标几何与视觉系统配置 */
 const ICON_THEME = {
-  canvas: { size: 1024, center: { x: 512, y: 512 } },
+  canvas: { size: 1024, center: { x: 512, y: 504 } },
+  card: { size: 880, radius: 200, originX: 72, originY: 64, stroke: '#e2e8f0', strokeWidth: 3 },
   shutter: {
     // 1. 被盖的主体部分 (Base: 严格 60° 扇区，6 块刚好拼满 360° 无缝大圆环)
     basePath: 'M -63.5,-110 L -63.5,-425.3 A 430 430 0 0 1 336.6,-267.6 L 63.5,-110 Z',
     // 2. 盖别人的搭接部分 (Flap: 向内延伸融合同色基底消除发丝缝，向外压在下一瓣主体上，形成完美莫比乌斯环形互锁)
     flapPath: 'M 20,-110 L 290,-315 A 430 430 0 0 1 355,-243 L 150,-110 Z',
     shadowRect: { x: -63.5, y: -425.3, width: 24, height: 315.3 },
+    outerTrackRadius: 436,
     // 6 瓣顺时针高饱和纯色调色板
     colors: [
       '#ef4444', // 0°:   Red
@@ -48,11 +50,17 @@ const ICON_THEME = {
       '#8b5cf6', // 300°: Purple
     ],
   },
+  // 3 层自然漫反射物理投影
+  elevationShadows: [
+    { dy: 26, opacity: 0.06 },
+    { dy: 18, opacity: 0.10 },
+    { dy: 10, opacity: 0.15 },
+  ],
 };
 
-/** 代码生成 1024x1024 矢量母版 SVG (透明背景、高对比度六色莫比乌斯快门光圈) */
+/** 代码生成 1024x1024 矢量母版 SVG (经典苹果大圆角 Squircle 倒角卡片，四角外围透明) */
 export function generateIconSvg() {
-  const { canvas, shutter } = ICON_THEME;
+  const { canvas, card, shutter, elevationShadows } = ICON_THEME;
 
   // 1. Defs: 接触阴影渐变、Base (被盖底片)、Flap (盖人搭接片) 与阴影 Rect
   const defs = h('defs', {},
@@ -73,18 +81,50 @@ export function generateIconSvg() {
     })
   );
 
-  // 2. 6 叶快门光圈旋转图层装配 (Base + Shadow + Flap 三层架构，C6 纯数学统一旋转)
-  // 层 1: 6 个 Base 底板 (各以 60° 步长旋转，刚好平铺拼接成 360° 大圆环)
+  // 2. 外部白色大圆角卡片的物理层叠弥散阴影
+  const diffuseShadows = elevationShadows.map(({ dy, opacity }) =>
+    h('rect', {
+      x: card.originX,
+      y: card.originY + dy,
+      width: card.size,
+      height: card.size,
+      rx: card.radius,
+      fill: '#000000',
+      'fill-opacity': opacity,
+    })
+  );
+
+  // 3. 纯白 Squircle 倒角主卡片底板 (radius: 200)
+  const whiteCard = h('rect', {
+    x: card.originX,
+    y: card.originY,
+    width: card.size,
+    height: card.size,
+    rx: card.radius,
+    fill: '#ffffff',
+    stroke: card.stroke,
+    'stroke-width': card.strokeWidth,
+  });
+
+  // 4. 快门外环定位细轨道
+  const trackRing = h('circle', {
+    cx: canvas.center.x,
+    cy: canvas.center.y,
+    r: shutter.outerTrackRadius,
+    fill: 'none',
+    stroke: '#f1f5f9',
+    'stroke-width': 12,
+  });
+
+  // 5. 6 叶快门光圈旋转图层装配 (Base + Shadow + Flap 三层架构，C6 纯数学统一旋转)
   const baseNodes = shutter.colors.map((c, i) =>
     h('use', { href: '#bladeBase', fill: c, transform: `rotate(${i * 60})` })
   );
 
-  // 层 2: 6 道统一环形接触阴影 (各以 60° 步长旋转，紧贴切线落在被覆盖的下层叶片表面)
   const shadowNodes = shutter.colors.map((_, i) =>
     h('use', { href: '#bladeShadow', transform: `rotate(${i * 60 + 60})` })
   );
 
-  // 层 3: 6 个 Flap 搭接顶片 (各以 60° 步长旋转，盖在下一瓣的主体上，实现 100% 完美的莫比乌斯环形互锁)
   const flapNodes = shutter.colors.map((c, i) =>
     h('use', { href: '#bladeFlap', fill: c, transform: `rotate(${i * 60})` })
   );
@@ -104,6 +144,9 @@ export function generateIconSvg() {
       height: canvas.size,
     },
     defs,
+    ...diffuseShadows,
+    whiteCard,
+    trackRing,
     apertureGroup
   );
 }
@@ -115,7 +158,7 @@ export function generateIconSvg() {
 const SIZES = [16, 32, 48, 64, 128, 256, 512, 1024];
 
 function renderPng(size, outFilePath) {
-  // 1. 尝试使用 rsvg-convert (Linux/macOS 常见)
+  // 1. 优先尝试使用 rsvg-convert (Linux/macOS 常见，完全支持 Alpha 透明背景)
   try {
     execSync(`rsvg-convert -w ${size} -h ${size} "${svgPath}" -o "${outFilePath}"`, { stdio: 'ignore' });
     return true;
@@ -127,16 +170,12 @@ function renderPng(size, outFilePath) {
     return true;
   } catch (_) {}
 
-  // 3. 在 macOS 上使用 sips / QuickLook / qlmanage 原生转换
+  // 3. 在 macOS 上使用原生 AppKit (NSImage) 进行无损透明矢量光栅化，确保大圆角倒角外围 100% 透明
   if (process.platform === 'darwin') {
     try {
-      execSync(`qlmanage -t -s ${size} -o "${outDir}" "${svgPath}"`, { stdio: 'ignore' });
-      const qlOut = path.join(outDir, 'icon.svg.png');
-      if (fs.existsSync(qlOut)) {
-        fs.copyFileSync(qlOut, outFilePath);
-        fs.unlinkSync(qlOut);
-        return true;
-      }
+      const code = `import AppKit;let u=URL(fileURLWithPath:"${svgPath}");guard let i=NSImage(contentsOf:u) else{exit(1)};let r=NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:${size},pixelsHigh:${size},bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.calibratedRGB,bytesPerRow:0,bitsPerPixel:0)!;NSGraphicsContext.saveGraphicsState();NSGraphicsContext.current=NSGraphicsContext(bitmapImageRep:r);i.draw(in:NSRect(x:0,y:0,width:${size},height:${size}));NSGraphicsContext.restoreGraphicsState();if let d=r.representation(using:.png,properties:[:]){try? d.write(to:URL(fileURLWithPath:"${outFilePath}"))}`;
+      execSync(`swift -e '${code}'`, { stdio: 'ignore' });
+      if (fs.existsSync(outFilePath)) return true;
     } catch (_) {}
   }
 
