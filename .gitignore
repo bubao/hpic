@@ -1,0 +1,63 @@
+# Go 编译产物与各平台二进制
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# HexoPic 二进制与本地 Native App Bundle (install.sh / make 生成)
+hpic
+hpic-desktop
+*.app
+*.app/
+native_macos/*-ui
+native_macos/*.o
+
+# 跨平台分发产物与压缩镜像 (build-all.sh / package-dmg.sh / build-deb.sh)
+dist/
+.stage/
+dmg_build/
+*.dmg
+*.deb
+*.zip
+*.tar.gz
+*.tgz
+
+# 前端依赖与构建产物 (install.sh / install.ps1 增量构建生成)
+node_modules/
+.npm/
+*.log
+.vite/
+frontend/dist/
+web/*
+!web/.gitkeep
+
+# 自动衍生与构建的图标与桌面配置 (由 scripts/build-icons.mjs 与 scripts/generate-dmg-bg.mjs 动态生成)
+assets/icon.svg
+assets/dmg-background.svg
+assets/dmg-background.png
+assets/dist/
+assets/*.png
+assets/*.ico
+assets/app.ico
+assets/hpic.desktop
+native_macos/AppIcon.iconset/
+native_macos/app_icon_1024.png
+native_macos/AppIcon.icns
+*.icns
+frontend/public/favicon.svg
+
+# Windows 安装与桌面快捷方式
+*.lnk
+
+# 系统隐形文件、本地配置文件与用户个人收藏夹
+.DS_Store
+*.tmp
+*.temp
+*~
+.hpicrc
+.hpic_favorites.json
+*.local

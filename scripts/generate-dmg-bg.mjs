@@ -1,0 +1,115 @@
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, '..');
+
+const outSvg = path.join(rootDir, 'assets', 'dmg-background.svg');
+const outPng = path.join(rootDir, 'assets', 'dmg-background.png');
+
+export function generateDmgBackgroundSvg() {
+  const width = 600;
+  const height = 420;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
+  <defs>
+    <!-- 背景平滑微渐变 -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#edf2f7" />
+    </linearGradient>
+
+    <!-- 箭头微光渐变 -->
+    <linearGradient id="arrowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#94a3b8" stop-opacity="0.5" />
+      <stop offset="50%" stop-color="#3b82f6" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#60a5fa" stop-opacity="1" />
+    </linearGradient>
+
+    <!-- 图标底座柔和光环渐变 -->
+    <radialGradient id="ringGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e2e8f0" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#e2e8f0" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- 1. 窗口背景与内边框 -->
+  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bgGrad)" />
+  <rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" fill="none" stroke="#e2e8f0" stroke-width="1" />
+
+  <!-- 2. 顶部主标题与副标题 -->
+  <text x="300" y="70" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="700" fill="#0f172a" text-anchor="middle" letter-spacing="-0.3">
+    hpic (HexoPic)
+  </text>
+  <text x="300" y="96" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="500" fill="#64748b" text-anchor="middle">
+    Hexo 博客封面与文章配图极简管理工具
+  </text>
+
+  <!-- 3. 左侧与右侧图标底座光环 (左: 160, 240 / 右: 440, 240) -->
+  <ellipse cx="160" cy="245" rx="72" ry="72" fill="url(#ringGlow)" />
+  <circle cx="160" cy="245" r="62" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 4" />
+
+  <ellipse cx="440" cy="245" rx="72" ry="72" fill="url(#ringGlow)" />
+  <circle cx="440" cy="245" r="62" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 4" />
+
+  <!-- 4. 中间指示拖拽箭头 -->
+  <g transform="translate(0, 0)">
+    <!-- 装饰虚线轨道 -->
+    <line x1="242" y1="245" x2="350" y2="245" stroke="url(#arrowGrad)" stroke-width="3" stroke-linecap="round" />
+    <!-- 箭头尖端 -->
+    <path d="M 346,236 L 360,245 L 346,254" fill="none" stroke="#60a5fa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- 5. 底部操作提示 -->
+  <g transform="translate(300, 360)">
+    <rect x="-140" y="-18" width="280" height="34" rx="17" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.04))" />
+    <text x="0" y="4" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="500" fill="#334155" text-anchor="middle">
+      拖拽左侧图标至 Applications 文件夹即可安装
+    </text>
+  </g>
+</svg>
+`;
+}
+
+export function buildDmgBackground() {
+  const svg = generateDmgBackgroundSvg();
+  fs.writeFileSync(outSvg, svg, 'utf8');
+
+  // 尝试使用 rsvg-convert 渲染高分辨率 Retina @2x (1200x840)
+  try {
+    execSync(`rsvg-convert -w 600 -h 420 "${outSvg}" -o "${outPng}"`, { stdio: 'ignore' });
+    return true;
+  } catch (_) {}
+
+  // 备用：inkscape
+  try {
+    execSync(`inkscape -w 600 -h 420 "${outSvg}" -o "${outPng}"`, { stdio: 'ignore' });
+    return true;
+  } catch (_) {}
+
+  // 备用：macOS qlmanage
+  if (process.platform === 'darwin') {
+    try {
+      execSync(`qlmanage -t -s 600 -o "${path.dirname(outPng)}" "${outSvg}"`, { stdio: 'ignore' });
+      const qlOut = path.join(path.dirname(outPng), 'dmg-background.svg.png');
+      if (fs.existsSync(qlOut)) {
+        fs.renameSync(qlOut, outPng);
+        return true;
+      }
+    } catch (_) {}
+  }
+
+  return false;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const ok = buildDmgBackground();
+  if (ok) {
+    console.log('[OK] 成功生成 assets/dmg-background.png');
+  } else {
+    console.warn('[WARN] 未能生成 assets/dmg-background.png');
+  }
+}

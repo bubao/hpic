@@ -1,0 +1,328 @@
+name: Release & Multi-Platform Packaging
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ==============================================================================
+  # 0. 自动化测试防线 Job (Go 竞态检测 + 前端 Vitest 单元测试)
+  # ==============================================================================
+  test:
+    name: Run Test Suite & Race Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Run Backend Tests with Race Detector
+        run: go test -race -v ./...
+
+      - name: Run Frontend Tests
+        run: |
+          cd frontend
+          npm ci || npm install
+          npm test
+
+  # ==============================================================================
+  # 1. macOS 打包 Job (生成原生 DMG 与 Darwin 压缩包)
+  # ==============================================================================
+  build-mac:
+    name: Build macOS (DMG & Tar.gz)
+    needs: [test]
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Build Clean Frontend
+        run: |
+          cd frontend
+          npm ci || npm install
+          npm run build
+
+      - name: Build macOS Artifacts & DMG
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          RAW_VER="${VERSION#v}"
+          GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "${{ github.sha }}")
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-w -s -X main.Version=${RAW_VER} -X main.GitCommit=${GIT_COMMIT} -X main.BuildDate=${BUILD_DATE}"
+
+          # 1. 在真实 macOS runner 上制作 Universal 双架构 App Bundle 与 DMG
+          VERSION="${RAW_VER}" make app
+          chmod +x scripts/package-dmg.sh
+          VERSION="${RAW_VER}" ./scripts/package-dmg.sh
+          if [ -d "hpic.app" ]; then
+            zip -q -r "dist/hpic-v${RAW_VER}-macOS.zip" "hpic.app"
+          fi
+
+          # 2. 编译 Apple Silicon (arm64)
+          mkdir -p .stage/hpic-darwin-arm64
+          GOOS=darwin GOARCH=arm64 go build -ldflags="$LDFLAGS" -o .stage/hpic-darwin-arm64/hpic .
+          cp install.sh .stage/hpic-darwin-arm64/
+          if [ -f "native_macos/hpic-mac-ui" ]; then
+            cp "native_macos/hpic-mac-ui" .stage/hpic-darwin-arm64/
+          fi
+          tar -czf "dist/hpic-v${RAW_VER}-darwin-arm64.tar.gz" -C .stage hpic-darwin-arm64
+
+          # 3. 编译 Intel (amd64)
+          mkdir -p .stage/hpic-darwin-amd64
+          GOOS=darwin GOARCH=amd64 go build -ldflags="$LDFLAGS" -o .stage/hpic-darwin-amd64/hpic .
+          cp install.sh .stage/hpic-darwin-amd64/
+          if [ -f "native_macos/hpic-mac-ui" ]; then
+            cp "native_macos/hpic-mac-ui" .stage/hpic-darwin-amd64/
+          fi
+          tar -czf "dist/hpic-v${RAW_VER}-darwin-amd64.tar.gz" -C .stage hpic-darwin-amd64
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-macos
+          path: dist/*
+          retention-days: 1
+
+  # ==============================================================================
+  # 2. Linux 打包 Job (生成 Tar.gz 与 Debian .deb 安装包)
+  # ==============================================================================
+  build-linux:
+    name: Build Linux (Tar.gz & Deb)
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Build Clean Frontend
+        run: |
+          cd frontend
+          npm ci || npm install
+          npm run build
+
+      - name: Build Linux Artifacts & Deb Packages
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          RAW_VER="${VERSION#v}"
+          GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "${{ github.sha }}")
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-w -s -X main.Version=${RAW_VER} -X main.GitCommit=${GIT_COMMIT} -X main.BuildDate=${BUILD_DATE}"
+          chmod +x scripts/build-deb.sh
+
+          # 1. 编译 Linux amd64
+          mkdir -p .stage/hpic-linux-amd64
+          GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o .stage/hpic-linux-amd64/hpic .
+          cp install.sh .stage/hpic-linux-amd64/
+          [ -f "assets/hpic.desktop" ] && cp assets/hpic.desktop .stage/hpic-linux-amd64/
+          [ -f "assets/icon.png" ] && cp assets/icon.png .stage/hpic-linux-amd64/
+          tar -czf "dist/hpic-v${RAW_VER}-linux-amd64.tar.gz" -C .stage hpic-linux-amd64
+          bash scripts/build-deb.sh "amd64" ".stage/hpic-linux-amd64/hpic" "${RAW_VER}" "dist"
+
+          # 2. 编译 Linux arm64
+          mkdir -p .stage/hpic-linux-arm64
+          GOOS=linux GOARCH=arm64 go build -ldflags="$LDFLAGS" -o .stage/hpic-linux-arm64/hpic .
+          cp install.sh .stage/hpic-linux-arm64/
+          [ -f "assets/hpic.desktop" ] && cp assets/hpic.desktop .stage/hpic-linux-arm64/
+          [ -f "assets/icon.png" ] && cp assets/icon.png .stage/hpic-linux-arm64/
+          tar -czf "dist/hpic-v${RAW_VER}-linux-arm64.tar.gz" -C .stage hpic-linux-arm64
+          bash scripts/build-deb.sh "arm64" ".stage/hpic-linux-arm64/hpic" "${RAW_VER}" "dist"
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-linux
+          path: dist/*
+          retention-days: 1
+
+  # ==============================================================================
+  # 3. Windows 打包 Job (生成绿色 Zip 与 NSIS 单文件 Setup.exe)
+  # ==============================================================================
+  build-windows:
+    name: Build Windows (Zip & Setup.exe)
+    needs: [test]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install NSIS Compiler
+        run: |
+          choco install nsis -y --no-progress
+
+      - name: Build Clean Frontend
+        shell: bash
+        run: |
+          cd frontend
+          npm ci || npm install
+          npm run build
+
+      - name: Build Windows Binaries & Installers
+        shell: pwsh
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          $RawVer = $env:VERSION.TrimStart('v')
+          $GitCommit = try { (git rev-parse --short HEAD 2>$null).Trim() } catch { "dev" }
+          $BuildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $LdFlags = "-w -s -X main.Version=$RawVer -X main.GitCommit=$GitCommit -X main.BuildDate=$BuildDate"
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          New-Item -ItemType Directory -Path .stage\hpic-windows-amd64 -Force | Out-Null
+
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          go build -ldflags="$LdFlags" -o .stage\hpic-windows-amd64\hpic.exe .
+          Copy-Item .stage\hpic-windows-amd64\hpic.exe .stage\hpic-windows-amd64\hpic-desktop.exe -Force
+          Copy-Item install.ps1 .stage\hpic-windows-amd64\ -Force
+          Copy-Item uninstall.ps1 .stage\hpic-windows-amd64\ -Force
+          if (Test-Path assets\app.ico) { Copy-Item assets\app.ico .stage\hpic-windows-amd64\ -Force }
+
+          $UninstallCmd = @"
+          @echo off
+          title hpic 卸载程序
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1"
+          pause
+          "@
+          Set-Content -Path .stage\hpic-windows-amd64\uninstall.cmd -Value $UninstallCmd -Encoding ASCII
+
+          # 打包 zip 便携安装包
+          Compress-Archive -Path .stage\hpic-windows-amd64\* -DestinationPath "dist\hpic-v$RawVer-windows-amd64.zip" -Force
+
+          # 编译 NSIS 原生安装向导
+          makensis /DPRODUCT_VERSION="$RawVer" /DSOURCE_DIR=".stage\hpic-windows-amd64" /DOUTPUT_EXE="dist\hpic-v$RawVer-setup-amd64.exe" scripts\installer.nsi
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-windows
+          path: dist/*
+          retention-days: 1
+
+  # ==============================================================================
+  # 4. 聚合分发 Job (聚合全平台产物、生成校验和并正式发布 GitHub Release)
+  # ==============================================================================
+  publish-release:
+    name: Aggregate & Publish Release
+    needs: [build-mac, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate Checksums & Changelog
+        id: prep
+        run: |
+          cd release-assets
+          rm -f checksums.txt
+          sha256sum * > checksums.txt
+          echo "SHA256 Checksums:"
+          cat checksums.txt
+          cd ..
+
+          # 自动使用规范生成器分析 commit 生成专业分类的 release notes
+          chmod +x scripts/generate-changelog.sh
+          PREV_TAG=$(git describe --tags --abbrev=0 ${{ github.ref_name }}^ 2>/dev/null || echo "")
+          NOTES=$(bash scripts/generate-changelog.sh "$PREV_TAG" "${{ github.ref_name }}")
+
+          RAW_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          echo "RAW_VER=${RAW_VER}" >> $GITHUB_ENV
+          echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+          echo "$NOTES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Publish Official GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: hpic ${{ github.ref_name }}
+          body: |
+            ## hpic ${{ github.ref_name }} 正式发布
+
+            Hexo 博客封面与文章配图管理工具。
+
+            ### 多系统原生安装包推荐
+            - **macOS (Apple Silicon / Intel)**: 下载 `hpic-${{ github.ref_name }}-macOS.dmg` 拖拽安装，或下载便携 `hpic-${{ github.ref_name }}-macOS.zip` 解压使用。
+            - **Windows (x64)**: 下载 `hpic-${{ github.ref_name }}-setup-amd64.exe` 一键单文件安装向导；或下载 `hpic-${{ github.ref_name }}-windows-amd64.zip` 解压便携使用。
+            - **Ubuntu / Debian (Linux)**: 下载 `hpic_${{ env.RAW_VER }}_amd64.deb`，通过 `sudo dpkg -i` 或 `sudo apt install ./hpic_*.deb` 安装。
+            - **全平台绿色归档**: 亦可下载对应系统的 `.tar.gz` 纯净二进制包。
+
+            ### 更新日志 (Changelog)
+            ${{ env.CHANGELOG }}
+
+            ---
+            *完整 SHA256 校验清单已收录于 `checksums.txt`*
+          files: release-assets/*
+          draft: false
+          prerelease: false

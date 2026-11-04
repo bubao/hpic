@@ -1,0 +1,372 @@
+/* ==========================================================================
+   文章封面区与卡片 (Post Cover Area, Cards, Smooth Image, Meta Badges)
+   ========================================================================== */
+
+/* 封面区卡片容器 */
+.post-cover-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.section-head-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.current-post-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.current-post-path {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: monospace;
+  margin-top: 2px;
+}
+
+.broken-alert-banner {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.broken-icon {
+  color: #ef4444;
+  flex-shrink: 0;
+}
+
+.broken-field-tag {
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin: 0 4px;
+}
+
+.cover-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.cover-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cover-card.card-broken {
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.cover-card-header {
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field-tag-name {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.broken-badge {
+  font-size: 10px;
+  background: #ef4444;
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.cover-img-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #090c13;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+}
+
+.cover-frosted-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 2;
+  gap: 10px;
+  overflow: hidden;
+  user-select: none;
+}
+
+.cover-frosted-shine {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  animation: skeleton-sweep 1.4s infinite ease-in-out;
+}
+
+.cover-error-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.07);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px dashed rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  padding: 16px;
+  text-align: center;
+  gap: 6px;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.cover-fade-in {
+  animation: coverFadeIn 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform, filter;
+}
+
+@keyframes coverFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.975);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0px);
+  }
+}
+
+.cover-img-display {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s;
+}
+
+.cover-img-display:hover {
+  transform: scale(1.02);
+}
+
+.cover-img-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+/* 通用平滑过渡图片容器与骨架微光 */
+.smooth-image-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.smooth-image-skeleton {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.skeleton-shimmer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: skeletonShimmer 1.4s infinite ease-in-out;
+}
+
+@keyframes skeletonShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.smooth-image-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.05);
+  color: var(--text-muted);
+}
+
+.image-dimension-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(6px);
+  color: #f1f5f9;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.image-dimension-badge .ratio-sub-badge {
+  color: #38bdf8;
+  font-weight: 600;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+  padding-left: 4px;
+}
+
+/* 顶部大图弹窗的文件名与物理分辨率微标 */
+.lightbox-filename-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lightbox-dim-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #38bdf8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+}
+
+/* 卡片文件名展示条与统一胶囊组件 */
+.card-filename-row {
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+.image-filename-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-secondary);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.image-filename-tag .filename-icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.image-filename-tag .filename-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-filename-tag.empty {
+  color: var(--text-muted);
+  border-style: dashed;
+}
+
+/* 统一封面应用按钮组 */
+.apply-buttons-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.cover-card-actions {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.cover-url-display {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+  flex: 1;
+}
+
+.action-buttons-group {
+  display: flex;
+  gap: 4px;
+}

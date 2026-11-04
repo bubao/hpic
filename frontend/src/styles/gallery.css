@@ -1,0 +1,256 @@
+/* ==========================================================================
+   图库与瀑布流卡片 (Photo Gallery, Masonry Grid, Favorite Stars, Tags)
+   ========================================================================== */
+
+.gallery-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.filter-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: -6px;
+}
+
+.filter-item-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctrl-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.fav-tags-filter-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.gallery-search-form {
+  display: flex;
+  gap: 10px;
+}
+
+/* 瀑布流容器 */
+.masonry-grid-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.gallery-card-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.gallery-card-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.gallery-card-item.card-broken {
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.gallery-card-item.card-broken .thumb-image {
+  filter: grayscale(40%) brightness(0.85);
+}
+
+.badge-broken-corner {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(239, 68, 68, 0.9);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  backdrop-filter: blur(4px);
+  z-index: 3;
+}
+
+.thumb-container {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #090c13;
+  position: relative;
+  overflow: hidden;
+}
+
+.thumb-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  cursor: zoom-in;
+  transition: transform 0.3s;
+}
+
+.thumb-image:hover {
+  transform: scale(1.03);
+}
+
+.fav-star-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 3;
+}
+
+.fav-star-btn:hover {
+  transform: scale(1.1);
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #f1f5f9;
+}
+
+.fav-star-btn.active {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #f59e0b;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
+}
+
+.fav-star-btn.active svg {
+  filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.8));
+}
+
+.used-badge-tag {
+  font-size: 10px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.card-detail-info {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card-main-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 65%;
+}
+
+.card-author-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.source-pill-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+
+.fav-tags-display {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.fav-tag-pill {
+  font-size: 10px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.card-bottom-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.card-extra-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.action-buttons-wrap {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.gallery-footer-more {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.btn-load-more {
+  padding: 8px 24px;
+  border-radius: 20px;
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+}
+
+.empty-hint {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 36px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.01);
+}
