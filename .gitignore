@@ -33,7 +33,7 @@ node_modules/
 .vite/
 frontend/dist/
 web/*
-!web/.gitkeep
+!web/placeholder.txt
 
 # 自动衍生与构建的图标与桌面配置 (由 scripts/build-icons.mjs 与 scripts/generate-dmg-bg.mjs 动态生成)
 assets/icon.svg

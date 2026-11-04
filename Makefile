@@ -120,7 +120,7 @@ release:
 install: build
 	@./install.sh
 
-test:
+test: build-frontend
 	@echo "[INFO] 正在执行后端 Go 全量自动化单元测试与竞态检测..."
 	@go test -race -v ./...
 	@if [ -d frontend/node_modules ]; then \
@@ -134,3 +134,4 @@ clean:
 	rm -rf dist
 	rm -rf $(APP_NAME)
 	rm -rf web
+	@mkdir -p web && touch web/placeholder.txt
