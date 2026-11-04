@@ -40,8 +40,18 @@ SetCompressor /SOLID lzma
 ; 界面风格定制
 ; --------------------------------
 !define MUI_ABORTWARNING
-!define MUI_ICON "..\assets\app.ico"
-!define MUI_UNICON "..\assets\app.ico"
+
+!ifndef ICON_FILE
+  !define ICON_FILE "assets\app.ico"
+!endif
+
+!ifFileExists "${ICON_FILE}"
+  !define MUI_ICON "${ICON_FILE}"
+  !define MUI_UNICON "${ICON_FILE}"
+!else ifFileExists "..\${ICON_FILE}"
+  !define MUI_ICON "..\${ICON_FILE}"
+  !define MUI_UNICON "..\${ICON_FILE}"
+!endif
 
 ; 欢迎页面
 !insertmacro MUI_PAGE_WELCOME

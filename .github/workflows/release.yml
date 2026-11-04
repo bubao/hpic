@@ -29,7 +29,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: 'frontend/package-lock.json'
 
@@ -65,7 +65,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: 'frontend/package-lock.json'
 
@@ -140,7 +140,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: 'frontend/package-lock.json'
 
@@ -208,7 +208,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: 'frontend/package-lock.json'
 
@@ -244,6 +244,11 @@ jobs:
           Copy-Item .stage\hpic-windows-amd64\hpic.exe .stage\hpic-windows-amd64\hpic-desktop.exe -Force
           Copy-Item install.ps1 .stage\hpic-windows-amd64\ -Force
           Copy-Item uninstall.ps1 .stage\hpic-windows-amd64\ -Force
+
+          # 确保 Windows 图标等跨平台资产已构建
+          if (-not (Test-Path assets\app.ico)) {
+              node scripts\build-icons.mjs
+          }
           if (Test-Path assets\app.ico) { Copy-Item assets\app.ico .stage\hpic-windows-amd64\ -Force }
 
           $UninstallCmd = @"
@@ -266,7 +271,7 @@ jobs:
                   $makensisBin = "C:\Program Files\NSIS\makensis.exe"
               }
           }
-          & $makensisBin /DPRODUCT_VERSION="$RawVer" /DSOURCE_DIR=".stage\hpic-windows-amd64" /DOUTPUT_EXE="dist\hpic-v$RawVer-setup-amd64.exe" scripts\installer.nsi
+          & $makensisBin /DPRODUCT_VERSION="$RawVer" /DSOURCE_DIR=".stage\hpic-windows-amd64" /DICON_FILE="assets\app.ico" /DOUTPUT_EXE="dist\hpic-v$RawVer-setup-amd64.exe" scripts\installer.nsi
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
