@@ -44,7 +44,8 @@ web/index.html: $(FRONTEND_SOURCES)
 build-frontend: web/index.html
 
 build-frontend-force:
-	@rm -rf web
+	@rm -rf web/assets web/index.html web/favicon.svg
+	@touch web/placeholder.txt
 	@$(MAKE) web/index.html
 
 version:
@@ -133,5 +134,5 @@ clean:
 	rm -f native_macos/hpic-mac-ui
 	rm -rf dist
 	rm -rf $(APP_NAME)
-	rm -rf web
+	rm -rf web/assets web/index.html web/favicon.svg
 	@mkdir -p web && touch web/placeholder.txt

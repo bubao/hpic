@@ -41,7 +41,8 @@ echo -e "构建版本: ${GREEN}${DISPLAY_VERSION}${NC}"
 # 2. 编译生产前端
 echo ""
 echo -e "${CYAN}[1/5] 清理并全量编译前端 Web 静态资源 (Clean Build)...${NC}"
-rm -rf web
+rm -rf web/assets web/index.html web/favicon.svg
+mkdir -p web && touch web/placeholder.txt
 if command -v npm >/dev/null 2>&1; then
     if [ ! -d "frontend/node_modules" ]; then
         echo -e "   [INFO] 安装前端依赖 (npm install)..."
