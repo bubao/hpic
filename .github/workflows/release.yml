@@ -25,6 +25,7 @@ jobs:
         with:
           go-version: '1.22'
           check-latest: true
+          cache: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -61,6 +62,7 @@ jobs:
         with:
           go-version: '1.22'
           check-latest: true
+          cache: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -141,6 +143,7 @@ jobs:
         with:
           go-version: '1.22'
           check-latest: true
+          cache: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -218,6 +221,7 @@ jobs:
         with:
           go-version: '1.22'
           check-latest: true
+          cache: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -287,13 +291,17 @@ jobs:
                   $makensisBin = "C:\Program Files\NSIS\makensis.exe"
               }
           }
+          $RepoRoot = (Get-Location).Path
+          $StageDir = Join-Path $RepoRoot ".stage\hpic-windows-amd64"
+          $OutExe = Join-Path $RepoRoot "dist\hpic-v$RawVer-setup-amd64.exe"
           $makensisArgs = @(
               "/DPRODUCT_VERSION=$RawVer",
-              "/DSOURCE_DIR=.stage\hpic-windows-amd64",
-              "/DOUTPUT_EXE=dist\hpic-v$RawVer-setup-amd64.exe"
+              "/DSOURCE_DIR=$StageDir",
+              "/DOUTPUT_EXE=$OutExe"
           )
           if (Test-Path "assets\app.ico") {
-              $makensisArgs += "/DICON_FILE=assets\app.ico"
+              $IcoAbs = (Resolve-Path "assets\app.ico").Path
+              $makensisArgs += "/DICON_FILE=$IcoAbs"
           }
           & $makensisBin @makensisArgs scripts\installer.nsi
 
