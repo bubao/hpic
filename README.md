@@ -1,10 +1,10 @@
 # hpic
 
-[![GitHub Release](https://img.shields.io/github/v/release/bubao/hpic?include_prereleases&style=flat-square&color=blue&logo=github)](https://github.com/bubao/hpic/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/bubao/hpic)](https://goreportcard.com/report/github.com/bubao/hpic)
+[![GitHub Release](https://img.shields.io/github/v/release/bubao/hpic?style=flat-square&color=3b82f6&logo=github)](https://github.com/bubao/hpic/releases)
+[![Release Packaging](https://img.shields.io/github/actions/workflow/status/bubao/hpic/release.yml?label=release%20build&style=flat-square&logo=githubactions)](https://github.com/bubao/hpic/actions)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/bubao/hpic?style=flat-square&logo=go&logoColor=white)](go.mod)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](#安装与卸载)
-[![Release Packaging](https://img.shields.io/github/actions/workflow/status/bubao/hpic/release.yml?branch=master&label=release%20build&style=flat-square&logo=githubactions)](https://github.com/bubao/hpic/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
 hpic 是一个用于 Hexo 博客的轻量桌面配图管理工具。它通过读取和修改博文 Frontmatter 的元数据参数，帮助博主快速检索、挑选网络图片，并一键更新到指定的博文图片字段中，以便更轻松地美化博客文章。
 
