@@ -55,12 +55,10 @@ export function generateDmgBackgroundSvg() {
   <ellipse cx="440" cy="245" rx="72" ry="72" fill="url(#ringGlow)" />
   <circle cx="440" cy="245" r="62" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 4" />
 
-  <!-- 4. 中间指示拖拽箭头 -->
+  <!-- 4. 中间指示拖拽箭头 (高饱和纯色 #3b82f6，圆角加粗线条与尖端) -->
   <g transform="translate(0, 0)">
-    <!-- 装饰虚线轨道 -->
-    <line x1="242" y1="245" x2="350" y2="245" stroke="url(#arrowGrad)" stroke-width="3" stroke-linecap="round" />
-    <!-- 箭头尖端 -->
-    <path d="M 346,236 L 360,245 L 346,254" fill="none" stroke="#60a5fa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+    <line x1="240" y1="245" x2="358" y2="245" stroke="#3b82f6" stroke-width="3.5" stroke-linecap="round" />
+    <path d="M 344,235 L 358,245 L 344,255" fill="none" stroke="#3b82f6" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
   </g>
 
   <!-- 5. 底部操作提示 -->
