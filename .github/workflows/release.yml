@@ -87,8 +87,7 @@ jobs:
       # ========== 替换：安装 dmgbuild 依赖，不再装 appdmg ==========
       - name: Install dmgbuild python dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install dmgbuild ds_store mac_alias
+          python3 -m pip install --break-system-packages dmgbuild ds_store mac_alias || python3 -m pip install dmgbuild ds_store mac_alias
 
       - name: Clean old build artifacts
         run: |

@@ -7,8 +7,12 @@ SETTING_FILE="./scripts/dmgbuild-settings.py"
 APP_PATH="./hpic.app"
 OUTPUT="./dist/hpic-v${VERSION}-macOS.dmg"
 
-echo "🧰 Install dmgbuild..."
-pip3 install --upgrade dmgbuild ds_store mac_alias
+if ! command -v dmgbuild >/dev/null 2>&1 && ! python3 -m dmgbuild --version >/dev/null 2>&1; then
+  echo "🧰 Install dmgbuild..."
+  pip3 install --break-system-packages dmgbuild ds_store mac_alias 2>/dev/null || \
+  pip3 install dmgbuild ds_store mac_alias 2>/dev/null || \
+  python3 -m pip install --break-system-packages dmgbuild ds_store mac_alias || true
+fi
 
 # 资源检查与按需衍生
 if [ ! -f "./assets/dmg-background.png" ]; then
