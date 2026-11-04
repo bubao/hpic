@@ -21,7 +21,8 @@ fi
 mkdir -p "$DIST_DIR"
 DMG_TEMP="${DIST_DIR}/hpic_temp.dmg"
 DMG_OUTPUT="${DIST_DIR}/hpic-v${VERSION}-macOS.dmg"
-MOUNT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/hpic_mount.XXXXXX")
+VOL_NAME="hpic"
+MOUNT_DIR="/Volumes/${VOL_NAME}"
 
 # 准备图标与背景资源
 ICON_PATH=""
@@ -38,12 +39,18 @@ fi
 
 rm -f "$DMG_TEMP" "$DMG_OUTPUT"
 
+# 如果已有残留卷，先行卸载
+hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
+
 echo "[2/4] 创建可读写磁盘镜像并挂载..."
 # 创建 250MB 临时读写镜像并格式化为 HFS+
-hdiutil create -size 250m -volname "hpic" -fs HFS+ -ov "$DMG_TEMP" >/dev/null
+hdiutil create -size 250m -volname "${VOL_NAME}" -fs HFS+ -ov "$DMG_TEMP" >/dev/null
 
-# 挂载临时镜像
-hdiutil attach "$DMG_TEMP" -mountpoint "$MOUNT_DIR" -nobrowse -noverify -noautoopen >/dev/null
+# 挂载到 /Volumes/hpic (不加 -nobrowse，使 Finder 能够完全感知并配置 .DS_Store 视觉布局)
+DEV_NAME=$(hdiutil attach "$DMG_TEMP" -noverify -noautoopen | grep "${MOUNT_DIR}" | awk '{print $1}')
+if [ -z "$DEV_NAME" ]; then
+    DEV_NAME=$(hdiutil attach "$DMG_TEMP" -mountpoint "$MOUNT_DIR" -noverify -noautoopen | awk '{print $1}')
+fi
 
 echo "[3/4] 装配应用、快捷方式、卷图标与视觉背景..."
 # 1. 复制 App Bundle
@@ -89,7 +96,7 @@ tell application "Finder"
         close
         open
         update without registering applications
-        delay 1
+        delay 2
     end tell
 end tell
 EOF
@@ -99,8 +106,11 @@ sync 2>/dev/null || true
 chmod -Rf go-w "$MOUNT_DIR" 2>/dev/null || true
 
 # 卸载挂载卷
-hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
-rm -rf "$MOUNT_DIR"
+if [ -n "$DEV_NAME" ]; then
+    hdiutil detach "$DEV_NAME" -force >/dev/null 2>&1 || hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
+else
+    hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
+fi
 
 echo "[4/4] 压缩生成最终发布版 DMG 镜像..."
 # 转换为高压缩只读 UDZO 镜像

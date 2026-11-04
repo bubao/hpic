@@ -31,15 +31,13 @@ const h = (tag, attrs = {}, ...children) => {
 
 /** 图标几何与视觉系统配置 */
 const ICON_THEME = {
-  canvas: { size: 1024, center: { x: 512, y: 504 } },
-  card: { size: 880, radius: 200, originX: 72, originY: 64, stroke: '#e2e8f0', strokeWidth: 3 },
+  canvas: { size: 1024, center: { x: 512, y: 512 } },
   shutter: {
     // 1. 被盖的主体部分 (Base: 严格 60° 扇区，6 块刚好拼满 360° 无缝大圆环)
     basePath: 'M -63.5,-110 L -63.5,-425.3 A 430 430 0 0 1 336.6,-267.6 L 63.5,-110 Z',
     // 2. 盖别人的搭接部分 (Flap: 向内延伸融合同色基底消除发丝缝，向外压在下一瓣主体上，形成完美莫比乌斯环形互锁)
     flapPath: 'M 20,-110 L 290,-315 A 430 430 0 0 1 355,-243 L 150,-110 Z',
     shadowRect: { x: -63.5, y: -425.3, width: 24, height: 315.3 },
-    outerTrackRadius: 436,
     // 6 瓣顺时针高饱和纯色调色板
     colors: [
       '#ef4444', // 0°:   Red
@@ -50,17 +48,11 @@ const ICON_THEME = {
       '#8b5cf6', // 300°: Purple
     ],
   },
-  // 3 层自然漫反射物理投影
-  elevationShadows: [
-    { dy: 26, opacity: 0.06 },
-    { dy: 18, opacity: 0.10 },
-    { dy: 10, opacity: 0.15 },
-  ],
 };
 
-/** 代码生成 1024x1024 矢量母版 SVG */
+/** 代码生成 1024x1024 矢量母版 SVG (透明背景、高对比度六色莫比乌斯快门光圈) */
 export function generateIconSvg() {
-  const { canvas, card, shutter, elevationShadows } = ICON_THEME;
+  const { canvas, shutter } = ICON_THEME;
 
   // 1. Defs: 接触阴影渐变、Base (被盖底片)、Flap (盖人搭接片) 与阴影 Rect
   const defs = h('defs', {},
@@ -81,42 +73,7 @@ export function generateIconSvg() {
     })
   );
 
-  // 2. 外部白色圆角卡片的物理层叠弥散阴影
-  const diffuseShadows = elevationShadows.map(({ dy, opacity }) =>
-    h('rect', {
-      x: card.originX,
-      y: card.originY + dy,
-      width: card.size,
-      height: card.size,
-      rx: card.radius,
-      fill: '#000000',
-      'fill-opacity': opacity,
-    })
-  );
-
-  // 3. 纯白 Squircle 主卡片底板
-  const whiteCard = h('rect', {
-    x: card.originX,
-    y: card.originY,
-    width: card.size,
-    height: card.size,
-    rx: card.radius,
-    fill: '#ffffff',
-    stroke: card.stroke,
-    'stroke-width': card.strokeWidth,
-  });
-
-  // 4. 快门外环定位细轨道
-  const trackRing = h('circle', {
-    cx: canvas.center.x,
-    cy: canvas.center.y,
-    r: shutter.outerTrackRadius,
-    fill: 'none',
-    stroke: '#f1f5f9',
-    'stroke-width': 12,
-  });
-
-  // 5. 6 叶快门光圈旋转图层装配 (Base + Shadow + Flap 三层架构，C6 纯数学统一旋转)
+  // 2. 6 叶快门光圈旋转图层装配 (Base + Shadow + Flap 三层架构，C6 纯数学统一旋转)
   // 层 1: 6 个 Base 底板 (各以 60° 步长旋转，刚好平铺拼接成 360° 大圆环)
   const baseNodes = shutter.colors.map((c, i) =>
     h('use', { href: '#bladeBase', fill: c, transform: `rotate(${i * 60})` })
@@ -147,9 +104,6 @@ export function generateIconSvg() {
       height: canvas.size,
     },
     defs,
-    ...diffuseShadows,
-    whiteCard,
-    trackRing,
     apertureGroup
   );
 }
