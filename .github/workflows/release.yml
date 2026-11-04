@@ -213,8 +213,11 @@ jobs:
           cache-dependency-path: 'frontend/package-lock.json'
 
       - name: Install NSIS Compiler
+        shell: pwsh
         run: |
           choco install nsis -y --no-progress
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "C:\Program Files\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build Clean Frontend
         shell: bash
@@ -255,7 +258,15 @@ jobs:
           Compress-Archive -Path .stage\hpic-windows-amd64\* -DestinationPath "dist\hpic-v$RawVer-windows-amd64.zip" -Force
 
           # 编译 NSIS 原生安装向导
-          makensis /DPRODUCT_VERSION="$RawVer" /DSOURCE_DIR=".stage\hpic-windows-amd64" /DOUTPUT_EXE="dist\hpic-v$RawVer-setup-amd64.exe" scripts\installer.nsi
+          $makensisBin = "makensis"
+          if (-not (Get-Command "makensis" -ErrorAction SilentlyContinue)) {
+              if (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe") {
+                  $makensisBin = "C:\Program Files (x86)\NSIS\makensis.exe"
+              } elseif (Test-Path "C:\Program Files\NSIS\makensis.exe") {
+                  $makensisBin = "C:\Program Files\NSIS\makensis.exe"
+              }
+          }
+          & $makensisBin /DPRODUCT_VERSION="$RawVer" /DSOURCE_DIR=".stage\hpic-windows-amd64" /DOUTPUT_EXE="dist\hpic-v$RawVer-setup-amd64.exe" scripts\installer.nsi
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
