@@ -2,9 +2,22 @@
 # dmgbuild setting for hpic
 import os
 
-# 从命令行 -D 传参拿到变量
+# 从命令行 -D 传参拿到变量，未传则读取项目单一真相源 VERSION 文件
 application = defines.get("app", "./hpic.app")
-version = defines.get("ver", "0.0.1")
+def read_project_version():
+    candidates = ["VERSION", "../VERSION"]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    ver = f.read().strip()
+                    if ver:
+                        return ver
+            except Exception:
+                pass
+    return "0.0.1"
+
+version = defines.get("ver") or read_project_version()
 app_name = os.path.basename(application)
 
 # ========== 你的资源路径，和项目对齐 ==========

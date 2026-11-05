@@ -2,7 +2,16 @@
 set -euo pipefail
 
 # 参数：./package-dmg.sh <version>
-VERSION="${1:-${VERSION:-0.0.1}}"
+if [ -n "${1:-}" ]; then
+  VERSION="$1"
+elif [ -n "${VERSION:-}" ]; then
+  VERSION="$VERSION"
+elif [ -f "VERSION" ]; then
+  VERSION=$(cat VERSION | tr -d '\r\n ')
+else
+  VERSION=$(git describe --tags --exact-match 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo "0.0.1")
+fi
+VERSION="${VERSION#v}"
 SETTING_FILE="./scripts/dmgbuild-settings.py"
 APP_PATH="./hpic.app"
 OUTPUT="./dist/hpic-v${VERSION}-macOS.dmg"

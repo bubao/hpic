@@ -12,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"hpic/internal/config"
+	"hpic/internal/db"
 )
 
 type FavoriteItem struct {
@@ -40,26 +43,44 @@ var (
 	once         sync.Once
 )
 
+func fileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
+}
+
+func DefaultFavoritesPath() string {
+	stdDir := config.AppConfigDir()
+	stdPath := filepath.Join(stdDir, "favorites.json")
+	if fileExists(stdPath) {
+		return stdPath
+	}
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		legacyPath := filepath.Join(home, ".hpic_favorites.json")
+		if fileExists(legacyPath) {
+			return legacyPath
+		}
+	}
+	return stdPath
+}
+
 func GetStore() *Store {
 	once.Do(func() {
-		home, _ := os.UserHomeDir()
-		p := filepath.Join(home, ".hpic_favorites.json")
-		oldPpic := filepath.Join(home, ".ppic_favorites.json")
-		oldBpic := filepath.Join(home, ".bpic_favorites.json")
-		oldHexo := filepath.Join(home, ".hexocover_favorites.json")
-		// 若新文件不存在但旧文件存在，做一次兼容读取/迁移
-		if _, err := os.Stat(p); os.IsNotExist(err) {
-			if _, errOld := os.Stat(oldPpic); errOld == nil {
-				p = oldPpic
-			} else if _, errOld := os.Stat(oldBpic); errOld == nil {
-				p = oldBpic
-			} else if _, errHexo := os.Stat(oldHexo); errHexo == nil {
-				p = oldHexo
-			}
-		}
+		p := DefaultFavoritesPath()
 		defaultStore = NewStore(p)
 	})
 	return defaultStore
+}
+
+func (s *Store) SetFilePath(p string) {
+	s.mu.Lock()
+	s.filePath = p
+	s.mu.Unlock()
+	s.load()
+}
+
+func (s *Store) Reload() {
+	s.load()
 }
 
 func NewStore(filePath string) *Store {
@@ -140,11 +161,39 @@ func (s *Store) load() {
 }
 
 func (s *Store) save() error {
+	dir := filepath.Dir(s.filePath)
+	if dir != "" && dir != "." {
+		_ = os.MkdirAll(dir, 0755)
+	}
 	data, err := json.MarshalIndent(s.items, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.filePath, data, 0644)
+	err = os.WriteFile(s.filePath, data, 0644)
+
+	// 异步持久化至 SQLite 数据库保持双重可靠性
+	go func(items []FavoriteItem) {
+		dbPath := filepath.Join(config.AppConfigDir(), "hpic.db")
+		database, dbErr := db.Init(dbPath)
+		if dbErr == nil && database != nil {
+			defer database.Close()
+			records := make([]db.FavoriteRecord, len(items))
+			for i, it := range items {
+				records[i] = db.FavoriteRecord{
+					ID:        it.ID,
+					URL:       it.URL,
+					ThumbURL:  it.ThumbURL,
+					Title:     it.Title,
+					Source:    it.Source,
+					Tags:      it.Tags,
+					CreatedAt: it.CreatedAt,
+				}
+			}
+			_ = database.SaveFavorites(records)
+		}
+	}(s.items)
+
+	return err
 }
 
 func HashURL(urlStr string) string {

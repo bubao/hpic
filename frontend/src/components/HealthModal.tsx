@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { HealthCheckResult, PostInfo } from '../types';
+import React, { useState, useMemo } from 'react';
+import { BrokenReport, HealthCheckResult, HealthProgressEvent, PostInfo } from '../types';
 import { api } from '../api';
 import { Activity, CheckCircle, RefreshCw, ArrowRight } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
@@ -25,16 +25,89 @@ export const HealthModal: React.FC<HealthModalProps> = ({
 }) => {
   const toast = useToast();
   const [isRunning, setIsRunning] = useState(false);
-  const [result, setResult] = useState<HealthCheckResult | null>(null);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [isCompleted, setIsCompleted] = useState(false);
+
+  // 估算初始总封面数 (统计已有 posts 中的 http 外链封面)
+  const initialTotalImages = useMemo(() => {
+    let count = 0;
+    for (const p of posts) {
+      if (p.images) {
+        for (const u of Object.values(p.images)) {
+          if (u && typeof u === 'string' && u.trim().startsWith('http')) {
+            count++;
+          }
+        }
+      }
+    }
+    return count;
+  }, [posts]);
+
+  // 实时体检状态数据
+  const [totalPosts, setTotalPosts] = useState(posts.length);
+  const [totalImages, setTotalImages] = useState(initialTotalImages);
+  const [scannedImages, setScannedImages] = useState(0);
+  const [healthyImages, setHealthyImages] = useState(0);
+  const [brokenCount, setBrokenCount] = useState(0);
+  const [brokenReports, setBrokenReports] = useState<BrokenReport[]>([]);
+  const [currentUrl, setCurrentUrl] = useState('');
+  const [duration, setDuration] = useState('');
 
   if (!isOpen) return null;
 
   const handleStartCheck = async () => {
     setIsRunning(true);
+    setHasStarted(true);
+    setIsCompleted(false);
     onRunningChange?.(true);
+
+    // 重置当前体检数据
+    setScannedImages(0);
+    setHealthyImages(0);
+    setBrokenCount(0);
+    setBrokenReports([]);
+    setCurrentUrl('');
+    setDuration('');
+
     try {
-      const res = await api.checkHealth();
-      setResult(res);
+      const res = await api.checkHealthStream((evt: HealthProgressEvent) => {
+        if (evt.type === 'start') {
+          setTotalPosts(evt.total_posts);
+          setTotalImages(evt.total_images);
+        } else if (evt.type === 'progress') {
+          setTotalPosts(evt.total_posts);
+          setTotalImages(evt.total_images);
+          setScannedImages(evt.scanned_images);
+          setHealthyImages(evt.healthy_images);
+          setBrokenCount(evt.broken_count);
+          if (evt.current_url) {
+            setCurrentUrl(evt.current_url);
+          }
+          if (evt.last_report) {
+            setBrokenReports(prev => {
+              // 避免重复追加
+              const exists = prev.some(
+                r => r.file_path === evt.last_report?.file_path && r.field === evt.last_report?.field
+              );
+              return exists ? prev : [...prev, evt.last_report!];
+            });
+          }
+        } else if (evt.type === 'done') {
+          setTotalPosts(evt.total_posts);
+          setTotalImages(evt.total_images);
+          setScannedImages(evt.total_images);
+          setHealthyImages(evt.healthy_images);
+          setBrokenCount(evt.broken_count);
+          setBrokenReports(evt.broken_reports || []);
+          if (evt.duration) {
+            setDuration(evt.duration);
+          }
+        }
+      });
+
+      setIsCompleted(true);
+      setDuration(res.duration);
+      setBrokenReports(res.broken_reports || []);
       if (onUpdateReports && res.broken_reports) {
         onUpdateReports(res.broken_reports);
       }
@@ -50,6 +123,8 @@ export const HealthModal: React.FC<HealthModalProps> = ({
       onRunningChange?.(false);
     }
   };
+
+  const progressPercent = totalImages > 0 ? Math.min(100, Math.round((scannedImages / totalImages) * 100)) : 0;
 
   return (
     <Modal
@@ -74,106 +149,110 @@ export const HealthModal: React.FC<HealthModalProps> = ({
           ) : (
             <RefreshCw size={14} />
           )}
-          <span>{isRunning ? '正在全力并发体检中...' : (result ? '重新开始体检' : '开始全站体检')}</span>
+          <span>{isRunning ? '正在全力并发体检中...' : (hasStarted ? '重新开始体检' : '开始全站体检')}</span>
         </button>
-        {result && !isRunning && (
+        {isCompleted && duration && (
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            耗时: {result.duration} · 检查了 {result.total_images} 张图片
+            耗时: {duration} · 共检查 {totalImages} 张封面图片
           </span>
         )}
       </div>
 
-      {/* 体检运行中：粉色发光心电波形动态流动 */}
+      {/* 1. 核心指标面板：直接显示出来，体检时动态实时跳动 */}
+      <div className="health-stats-row">
+        <div className="stat-card">
+          <span className="stat-num">{totalPosts}</span>
+          <span className="stat-label">扫描文章</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-num">
+            {isRunning ? `${scannedImages} / ${totalImages}` : totalImages}
+          </span>
+          <span className="stat-label">{isRunning ? '探测进度 (已查/总数)' : '总封面数'}</span>
+        </div>
+        <div className="stat-card stat-healthy">
+          <span className="stat-num">{healthyImages}</span>
+          <span className="stat-label">正常有效</span>
+        </div>
+        <div className={`stat-card ${brokenCount > 0 ? 'stat-broken' : ''}`}>
+          <span className="stat-num">{brokenCount}</span>
+          <span className="stat-label">失败数量</span>
+        </div>
+      </div>
+
+      {/* 2. 体检进行中：真实动态进度条与当前探测 URL (彻底替换假心跳) */}
       {isRunning && (
         <div className="probing-active-card image-fade-in">
           <div className="probing-header">
             <div className="probing-badge">
               <Activity size={15} className="pink-ecg-pulse" />
-              <span>全站博文封面存活性探针并发检测中...</span>
+              <span>全站封面存活性探针并发检测中...</span>
             </div>
-            <span className="probing-tag">HTTP HEAD</span>
+            <span className="probing-tag">{progressPercent}%</span>
           </div>
 
-          {/* 实时粉色发光心电波形流 */}
-          <div className="pink-ecg-waveform-wrap">
-            <svg className="pink-ecg-svg" viewBox="0 0 600 44" preserveAspectRatio="none">
-              <path
-                className="pink-ecg-base-line"
-                d="M 0 22 L 60 22 L 70 22 L 75 15 L 80 29 L 85 4 L 92 40 L 98 22 L 105 22 L 115 17 L 125 22 L 210 22 L 220 22 L 225 15 L 230 29 L 235 4 L 242 40 L 248 22 L 255 22 L 265 17 L 275 22 L 360 22 L 370 22 L 375 15 L 380 29 L 385 4 L 392 40 L 398 22 L 405 22 L 415 17 L 425 22 L 510 22 L 520 22 L 525 15 L 530 29 L 535 4 L 542 40 L 548 22 L 555 22 L 565 17 L 575 22 L 600 22"
-              />
-              <path
-                className="pink-ecg-pulse-line"
-                d="M 0 22 L 60 22 L 70 22 L 75 15 L 80 29 L 85 4 L 92 40 L 98 22 L 105 22 L 115 17 L 125 22 L 210 22 L 220 22 L 225 15 L 230 29 L 235 4 L 242 40 L 248 22 L 255 22 L 265 17 L 275 22 L 360 22 L 370 22 L 375 15 L 380 29 L 385 4 L 392 40 L 398 22 L 405 22 L 415 17 L 425 22 L 510 22 L 520 22 L 525 15 L 530 29 L 535 4 L 542 40 L 548 22 L 555 22 L 565 17 L 575 22 L 600 22"
-              />
-            </svg>
+          <div className="health-progress-bar-wrap">
+            <div
+              className="health-progress-bar-fill"
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
 
           <div className="probing-meta-row">
-            <span>正在并发探测全站 {posts.length} 篇博文中的封面链接</span>
-            <span className="probing-hint">实时校验 HTTP 状态码 (200 / 404 / 超时)</span>
+            {currentUrl ? (
+              <div className="probing-current-url" title={currentUrl}>
+                <span className="probing-url-prefix">正在探测:</span>
+                <span className="probing-url-text">{currentUrl}</span>
+              </div>
+            ) : (
+              <span className="probing-current-url" style={{ color: 'var(--text-muted)' }}>
+                正在并发探测全站 {totalPosts} 篇博文中的封面链接...
+              </span>
+            )}
+            <span className="probing-hint">HTTP HEAD / 1KB GET</span>
           </div>
         </div>
       )}
 
-          {/* 体检指标面板 (体检就绪后展示) */}
-          {result && !isRunning && (
-            <div className="health-stats-row">
-              <div className="stat-card">
-                <span className="stat-num">{result.total_posts}</span>
-                <span className="stat-label">扫描文章</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-num">{result.total_images}</span>
-                <span className="stat-label">总封面数</span>
-              </div>
-              <div className="stat-card stat-healthy">
-                <span className="stat-num">{result.healthy_images}</span>
-                <span className="stat-label">正常有效</span>
-              </div>
-              <div className={`stat-card ${result.broken_count > 0 ? 'stat-broken' : ''}`}>
-                <span className="stat-num">{result.broken_count}</span>
-                <span className="stat-label">404 失效</span>
-              </div>
-            </div>
-          )}
-
-          {/* 失效列表 (体检完成且非运行中时展示) */}
-          {result && !isRunning && (
-            <div className="broken-reports-list image-fade-in">
-              {result.broken_count === 0 ? (
-                <div className="all-healthy-box">
-                  <CheckCircle size={28} style={{ color: '#10b981', marginBottom: 8 }} />
-                  <div>太棒了！全站所有文章封面链接均正常存活，未发现 404 图片！</div>
+      {/* 3. 失效列表 / 正常提示 */}
+      <div style={{ marginTop: 16 }}>
+        {brokenReports.length > 0 && (
+          <div className="broken-reports-list image-fade-in">
+            {brokenReports.map((b, idx) => (
+              <div key={idx} className="broken-report-item">
+                <div className="broken-item-header">
+                  <span className="broken-post-title">{b.post_title}</span>
+                  <span className="broken-field-badge">{b.field}</span>
+                  <span className="broken-code-badge">HTTP {b.status_code || 'Err'}</span>
                 </div>
-              ) : (
-                result.broken_reports.map((b, idx) => (
-                  <div key={idx} className="broken-report-item">
-                    <div className="broken-item-header">
-                      <span className="broken-post-title">{b.post_title}</span>
-                      <span className="broken-field-badge">{b.field}</span>
-                      <span className="broken-code-badge">HTTP {b.status_code || 'Err'}</span>
-                    </div>
-                    <div style={{ margin: '6px 0' }}>
-                      <ImageFilenameTag url={b.url} maxWidth="100%" />
-                    </div>
-                    <div className="broken-action-row">
-                      <span className="broken-file-name">{b.file_name}</span>
-                      <button
-                        className="btn btn-sm btn-primary"
-                        onClick={() => {
-                          onSelectPostByPath(b.file_path);
-                          onClose();
-                        }}
-                      >
-                        <span>前往修复配图</span>
-                        <ArrowRight size={12} />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
+                <div style={{ margin: '6px 0' }}>
+                  <ImageFilenameTag url={b.url} maxWidth="100%" />
+                </div>
+                <div className="broken-action-row">
+                  <span className="broken-file-name">{b.file_name}</span>
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={() => {
+                      onSelectPostByPath(b.file_path);
+                      onClose();
+                    }}
+                  >
+                    <span>前往修复配图</span>
+                    <ArrowRight size={12} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isCompleted && brokenReports.length === 0 && (
+          <div className="all-healthy-box image-fade-in">
+            <CheckCircle size={28} style={{ color: '#10b981', marginBottom: 8 }} />
+            <div>太棒了！全站所有文章封面链接均正常存活，未发现 404 图片！</div>
+          </div>
+        )}
+      </div>
     </Modal>
   );
 };

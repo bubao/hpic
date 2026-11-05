@@ -1,6 +1,6 @@
 # 配置指南
 
-hpic 首次启动时会在用户主目录下自动生成默认配置文件 `~/.hpicrc`。你也可以通过命令行参数 `-c /path/to/config.json` 指定自定义配置文件。
+hpic 首次启动时会在集中配置目录下自动生成默认配置文件 `~/.config/hpic/config.json`（同时自动兼容旧版用户目录 `~/.hpicrc`）。你也可以通过命令行参数 `-c /path/to/config.json` 指定自定义配置文件。
 
 ---
 
@@ -56,3 +56,24 @@ hpic 首次启动时会在用户主目录下自动生成默认配置文件 `~/.h
 | `auto_search` | boolean | `false` | 切换选定文章时，是否自动以文章标题为关键词触发网络搜图。 |
 | `infinite_scroll` | boolean | `false` | 图片搜索瀑布流是否开启触底自动加载下一页。 |
 | `git_commit_template` | string | `"chore(cover): update cover for {title}"` | Git 部署时使用的默认提交信息模板。支持动态占位符：`{title}`（文章标题）、`{filename}`（文章文件名）、`{date}`（当前日期 YYYY-MM-DD）。 |
+
+---
+
+## 数据持久化与存储双轨制 (Single Source of Truth)
+
+为了保障配置的人类可读性与历史操作的高可靠审计，hpic 严格遵循**单一事实源 (SSOT)** 数据分流架构：
+
+```
+~/.config/hpic/ (或 ~/.hpicrc)
+├── config.json  ── 用户显式偏好设置 (纯 JSON 文本，由人类或设置弹窗直接修改维护)
+└── hpic.db      ── 机器运行时 SQLite 数据库 (WAL 模式，免 CGO，由后端原子读写)
+```
+
+1. **用户偏好配置 (`config.json`)**：
+   - 存储博客根路径、代理地址、图片字段映射与过滤偏好；
+   - 唯一事实源，程序绝不将其反写进 SQLite，保障用户手工格式化与 Git 追踪自由；
+2. **机器运行时数据库 (`hpic.db`)**：
+   - **`operation_logs`**：记录所有博文封面修改、正文插图与清空操作的变动前后快照（支持一键精确撤销）；
+   - **`favorites`**：存储用户收藏的高清壁纸元数据与用户自定义标签；
+   - **`search_history`**：保存常用检索关键词。
+

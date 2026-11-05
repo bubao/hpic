@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { HexoStatus, VersionInfo } from '../types';
-import { Play, Square, ExternalLink, Zap, Trash2, Send, Activity, Terminal, Settings, Image, Sparkles, ArrowUpCircle } from 'lucide-react';
+import { Play, Square, ExternalLink, Zap, Trash2, Send, Activity, Terminal, Settings, Image, Sparkles, ArrowUpCircle, Moon, Sun, Laptop, Check } from 'lucide-react';
 
 interface HeaderProps {
   hexoStatus: HexoStatus | null;
@@ -18,6 +18,9 @@ interface HeaderProps {
   isHealthChecking?: boolean;
   updateInfo?: VersionInfo | null;
   onOpenUpdate?: () => void;
+  theme?: 'dark' | 'light' | 'auto';
+  onToggleTheme?: () => void;
+  onSelectTheme?: (theme: 'dark' | 'light' | 'auto') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -36,9 +39,38 @@ export const Header: React.FC<HeaderProps> = ({
   isHealthChecking = false,
   updateInfo,
   onOpenUpdate,
+  theme = 'dark',
+  onToggleTheme,
+  onSelectTheme,
 }) => {
   const isRunning = !!(hexoStatus?.server_running || hexoStatus?.running);
   const port = hexoStatus?.port || 4000;
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const themeMenuRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部自动收起主题下拉菜单
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (themeMenuRef.current && !themeMenuRef.current.contains(e.target as Node)) {
+        setThemeMenuOpen(false);
+      }
+    };
+    if (themeMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [themeMenuOpen]);
+
+  const handlePickTheme = (t: 'dark' | 'light' | 'auto') => {
+    setThemeMenuOpen(false);
+    if (onSelectTheme) {
+      onSelectTheme(t);
+    } else if (onToggleTheme) {
+      onToggleTheme();
+    }
+  };
 
   return (
     <header className="app-header">
@@ -73,7 +105,8 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             className={`btn btn-sm ${isRunning ? 'btn-danger' : 'btn-primary'}`}
             onClick={onToggleServer}
-            title={isRunning ? '停止 Hexo 本地服务' : '启动 Hexo 本地服务 (自动 Watch 变化)'}
+            disabled={isGenerating}
+            title={isGenerating ? '正在执行静态生成，已自动锁定服务操作以防冲突' : (isRunning ? '停止 Hexo 本地服务' : '启动 Hexo 本地服务 (自动 Watch 变化)')}
           >
             {isRunning ? <Square size={13} /> : <Play size={13} />}
             <span>{isRunning ? '停止' : '启动服务'}</span>
@@ -97,10 +130,10 @@ export const Header: React.FC<HeaderProps> = ({
             className="btn btn-sm btn-ghost"
             onClick={onGenerate}
             disabled={isGenerating}
-            title={isRunning ? "服务已处于实时热渲染模式，修改封面后刷新浏览器即可直接预览；点击可全量打包静态 public 目录" : "执行 hexo generate 全量静态页面打包"}
+            title={isRunning ? "检测到服务正在运行中，点击将安全联动：先关闭服务 -> 静态编译 -> 重新恢复启动本地服务" : "执行 hexo generate 全量静态页面打包"}
           >
             <Zap size={13} />
-            <span>{isGenerating ? '生成中...' : '生成'}</span>
+            <span>{isGenerating ? '生成中 (联动服务)...' : '生成'}</span>
           </button>
 
           <button
@@ -156,6 +189,54 @@ export const Header: React.FC<HeaderProps> = ({
           <span>{updateInfo?.has_update ? `更新 (${updateInfo.latest_version})` : '更新'}</span>
           {updateInfo?.has_update && <span className="update-pulse-dot" />}
         </button>
+
+        {/* 主题选择菜单 */}
+        <div className="theme-menu-container" ref={themeMenuRef}>
+          <button
+            className={`btn btn-sm btn-ghost btn-icon-only ${themeMenuOpen ? 'active' : ''}`}
+            onClick={() => setThemeMenuOpen(prev => !prev)}
+            title={`当前主题: ${theme === 'light' ? '亮色清爽模式' : (theme === 'auto' ? '跟随系统' : '暗色黑夜模式')} (点击选择)`}
+          >
+            {theme === 'light' ? <Sun size={14} /> : (theme === 'auto' ? <Laptop size={14} /> : <Moon size={14} />)}
+          </button>
+
+          {themeMenuOpen && (
+            <div className="theme-dropdown-menu">
+              <button
+                className={`theme-dropdown-item ${theme === 'light' ? 'active' : ''}`}
+                onClick={() => handlePickTheme('light')}
+              >
+                <span className="theme-item-left">
+                  <Sun size={13} />
+                  <span>亮色清爽</span>
+                </span>
+                {theme === 'light' && <Check size={13} strokeWidth={2.5} />}
+              </button>
+
+              <button
+                className={`theme-dropdown-item ${theme === 'dark' ? 'active' : ''}`}
+                onClick={() => handlePickTheme('dark')}
+              >
+                <span className="theme-item-left">
+                  <Moon size={13} />
+                  <span>暗色黑夜</span>
+                </span>
+                {theme === 'dark' && <Check size={13} strokeWidth={2.5} />}
+              </button>
+
+              <button
+                className={`theme-dropdown-item ${theme === 'auto' ? 'active' : ''}`}
+                onClick={() => handlePickTheme('auto')}
+              >
+                <span className="theme-item-left">
+                  <Laptop size={13} />
+                  <span>跟随系统</span>
+                </span>
+                {theme === 'auto' && <Check size={13} strokeWidth={2.5} />}
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* 设置 */}
         <button className="btn btn-sm btn-ghost" onClick={onOpenSettings} title="打开配置与偏好设置">

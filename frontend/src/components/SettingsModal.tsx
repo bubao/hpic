@@ -1,9 +1,74 @@
 import React, { useState, useEffect } from 'react';
 import { Config, VersionInfo } from '../types';
 import { api } from '../api';
-import { Settings, Copy, Globe, Image, GitBranch, Terminal, Sliders, Sparkles, RefreshCw, Download, CheckCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  Globe,
+  Image,
+  FolderGit2,
+  Sparkles,
+  Info,
+  Palette,
+} from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-import { Modal } from './Modal';
+import { applyTheme, applyCustomCSS } from '../utils/useTheme';
+import { BlogTab } from './settings/BlogTab';
+import { GalleryTab } from './settings/GalleryTab';
+import { AppearanceTab, PRESET_CYBERPUNK, PRESET_MINIMAL_LIGHT } from './settings/AppearanceTab';
+import { SocialifyTab } from './settings/SocialifyTab';
+import { NetworkTab } from './settings/NetworkTab';
+import { AboutTab } from './settings/AboutTab';
+
+export type SettingsCategory = 'blog' | 'gallery' | 'appearance' | 'socialify' | 'network' | 'about';
+
+export { PRESET_CYBERPUNK, PRESET_MINIMAL_LIGHT };
+
+interface CategoryItem {
+  id: SettingsCategory;
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
+}
+
+export const CATEGORIES: CategoryItem[] = [
+  {
+    id: 'blog',
+    label: '博客与路径',
+    description: '配置 Hexo 博客根目录、博文 Frontmatter 封面字段及时间元数据映射',
+    icon: FolderGit2,
+  },
+  {
+    id: 'gallery',
+    label: '图库与尺寸',
+    description: '设置 Unsplash / Wallhaven 壁纸尺寸阈值、构图比例与压缩参数',
+    icon: Image,
+  },
+  {
+    id: 'appearance',
+    label: '外观与样式',
+    description: '深浅色视觉风格切换、预设皮肤注入与自定义 CSS 样式设计',
+    icon: Palette,
+  },
+  {
+    id: 'socialify',
+    label: '开源与生成器',
+    description: 'GitHub 极客卡片、Socialify 纹理背景与技术栈徽章样式',
+    icon: Sparkles,
+  },
+  {
+    id: 'network',
+    label: '网络与部署',
+    description: '配置 HTTP/SOCKS5 代理加速、网络连通性检测与 Git 部署规则',
+    icon: Globe,
+  },
+  {
+    id: 'about',
+    label: '关于与更新',
+    description: '查看当前应用版本、更新检测、Release Notes 及系统底层配置清单',
+    icon: Info,
+  },
+];
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -19,6 +84,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaved,
 }) => {
   const toast = useToast();
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('blog');
+  const [isSaving, setIsSaving] = useState(false);
 
   // 1. Hexo 博客与封面字段
   const [hexoDir, setHexoDir] = useState('');
@@ -51,24 +118,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // 6. 版本检测与更新状态
   const [isCheckingVersion, setIsCheckingVersion] = useState(false);
   const [versionResult, setVersionResult] = useState<VersionInfo | null>(null);
+  const [isInstalling, setIsInstalling] = useState(false);
 
-  const handleManualCheckVersion = async () => {
-    setIsCheckingVersion(true);
-    try {
-      const res = await api.checkVersion();
-      setVersionResult(res);
-      if (res.has_update) {
-        toast.info(`发现新版本: ${res.latest_version}`);
-      } else {
-        toast.success(`当前已是最新版本 (${res.current_version})`);
-      }
-    } catch (e: any) {
-      toast.error('检查更新失败: ' + e.message);
-    } finally {
-      setIsCheckingVersion(false);
-    }
-  };
+  // 7. 外观与主题
+  const [theme, setTheme] = useState<'dark' | 'light' | 'auto'>('dark');
+  const [customCSS, setCustomCSS] = useState('');
 
+  // 8. 路径选择器状态与代理测试
+  const [isBrowsingDir, setIsBrowsingDir] = useState(false);
+  const [isTestingProxy, setIsTestingProxy] = useState(false);
+  const [proxyTestResult, setProxyTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
+
+  // 9. 更新日志历史
+  const [changelogContent, setChangelogContent] = useState('');
+  const [isLoadingChangelog, setIsLoadingChangelog] = useState(false);
+  const [hasCopiedPath, setHasCopiedPath] = useState(false);
+
+  // 初始化加载配置数据
   useEffect(() => {
     if (config) {
       setHexoDir(config.hexo_dir || '');
@@ -89,402 +155,349 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setGitCommitTemplate(config.git_commit_template || 'chore(cover): update cover for {title}');
       setAutoSearch(!!config.auto_search);
       setInfiniteScroll(!!config.infinite_scroll);
+      setTheme(config.theme || 'dark');
+      setCustomCSS(config.custom_css || '');
     }
   }, [config, isOpen]);
+
+  // 键盘快捷键监听 (Escape 退出)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  // 切换至关于页面时自动加载更新日志
+  useEffect(() => {
+    if (activeCategory === 'about' && !changelogContent && typeof api?.getChangelog === 'function') {
+      setIsLoadingChangelog(true);
+      api.getChangelog()
+        .then(res => {
+          if (res?.success && res.changelog) {
+            setChangelogContent(res.changelog);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setIsLoadingChangelog(false));
+    }
+  }, [activeCategory, changelogContent]);
 
   if (!isOpen || !config) return null;
 
   const handleSave = async () => {
-    const rawFields = coverFields.split(/[,，\s]+/).filter(Boolean);
-    const updated: Partial<Config> = {
-      hexo_dir: hexoDir.trim(),
-      cover_fields: rawFields.length > 0 ? rawFields : ['index_img', 'banner_img'],
-      date_field: dateField.trim() || 'date',
-      updated_field: updatedField.trim() || 'updated',
-      orientation,
-      image_size: imageSize,
-      min_width: Math.max(100, Number(minWidth) || 1200),
-      min_height: Math.max(100, Number(minHeight) || 600),
-      image_width: Math.max(200, Number(imageWidth) || 1200),
-      image_quality: Math.max(1, Math.min(100, Number(imageQuality) || 80)),
-      github_owner: githubOwner.trim(),
-      socialify_pattern: socialifyPattern,
-      socialify_theme: socialifyTheme,
-      proxy: proxy.trim(),
-      deploy_mode: deployMode,
-      git_commit_template: gitCommitTemplate.trim() || 'chore(cover): update cover for {title}',
-      auto_search: autoSearch,
-      infinite_scroll: infiniteScroll,
-    };
+    setIsSaving(true);
+    try {
+      const rawFields = coverFields
+        .split(/[,，\s]+/)
+        .map(f => f.trim())
+        .filter(Boolean);
 
-    const res = await api.saveConfig(updated);
-    if (res.success) {
-      toast.success('配置已成功同步并写入 RC 配置文件！');
-      onSaved(res.config);
-      onClose();
-    } else {
-      toast.error('保存设置失败: ' + (res.error || '未知错误'));
+      const updated: Config = {
+        ...config,
+        hexo_dir: hexoDir.trim(),
+        cover_fields: rawFields.length > 0 ? rawFields : ['index_img', 'banner_img'],
+        date_field: dateField.trim() || 'date',
+        updated_field: updatedField.trim() || 'updated',
+        orientation,
+        image_size: imageSize,
+        min_width: Math.max(100, Number(minWidth) || 1200),
+        min_height: Math.max(100, Number(minHeight) || 600),
+        image_width: Math.max(200, Number(imageWidth) || 1200),
+        image_quality: Math.max(1, Math.min(100, Number(imageQuality) || 80)),
+        github_owner: githubOwner.trim(),
+        socialify_pattern: socialifyPattern,
+        socialify_theme: socialifyTheme,
+        proxy: proxy.trim(),
+        deploy_mode: deployMode,
+        git_commit_template: gitCommitTemplate.trim() || 'chore(cover): update cover for {title}',
+        auto_search: autoSearch,
+        infinite_scroll: infiniteScroll,
+        theme,
+        custom_css: customCSS,
+      };
+
+      const res = await api.saveConfig(updated);
+      if (res.success) {
+        applyTheme(theme);
+        applyCustomCSS(customCSS);
+        toast.success('配置与外观样式已成功同步保存！');
+        onSaved(res.config);
+        onClose();
+      } else {
+        toast.error('保存设置失败: ' + (res.error || '未知错误'));
+      }
+    } catch {
+      toast.error('请求失败，请检查网络或服务端状态');
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const copyConfigPath = () => {
-    navigator.clipboard.writeText(config.config_file_path || '~/.hpicrc');
-    toast.success('RC 配置文件路径已复制');
+  const handleBrowseDir = async () => {
+    setIsBrowsingDir(true);
+    try {
+      const res = await api.selectDirectory('请选择本地 Hexo 博客根目录', hexoDir || undefined);
+      if (res.success && res.path) {
+        setHexoDir(res.path);
+        if (res.is_hexo_root) {
+          toast.success('已识别有效 Hexo 根目录 (_config.yml 存在)');
+        } else {
+          toast.info('已选择目录，未检测到 _config.yml');
+        }
+      }
+    } catch {
+      toast.error('调用原生目录选择器失败');
+    } finally {
+      setIsBrowsingDir(false);
+    }
   };
 
+  const handleTestProxy = async () => {
+    if (!proxy.trim()) {
+      toast.error('请先填写代理服务器地址');
+      return;
+    }
+    setIsTestingProxy(true);
+    setProxyTestResult(null);
+    const start = Date.now();
+    try {
+      const res = await api.testProxy(proxy.trim());
+      const latency = Date.now() - start;
+      setProxyTestResult({
+        success: res.success,
+        message: res.message || (res.success ? '代理连通正常' : '代理测试失败'),
+        latency,
+      });
+      if (res.success) {
+        toast.success(`代理连通正常 (${latency}ms)`);
+      } else {
+        toast.error('代理不可达: ' + (res.message || '连接超时'));
+      }
+    } catch (e: any) {
+      setProxyTestResult({
+        success: false,
+        message: '连接错误: ' + (e?.message || '网络超时'),
+      });
+      toast.error('代理测试异常');
+    } finally {
+      setIsTestingProxy(false);
+    }
+  };
+
+  const handleManualCheckVersion = async () => {
+    setIsCheckingVersion(true);
+    try {
+      const res = await api.checkVersion();
+      setVersionResult(res);
+      if (res.has_update) {
+        toast.info(`发现新版本 ${res.latest_version}`);
+      } else {
+        toast.success('当前已是最新版本');
+      }
+    } catch {
+      toast.error('检查更新失败');
+    } finally {
+      setIsCheckingVersion(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    setIsInstalling(true);
+    try {
+      const res = await api.installVersion();
+      if (res.success) {
+        toast.success(res.message || '更新安装完成！');
+      } else {
+        toast.error('自动升级未完成: ' + (res.message || '请手动下载'));
+      }
+    } catch (e: any) {
+      toast.error('更新安装请求失败: ' + (e?.message || '未知错误'));
+    } finally {
+      setIsInstalling(false);
+    }
+  };
+
+  const handleCopyConfigPath = () => {
+    const p = config.config_file_path || '~/.hpicrc';
+    navigator.clipboard.writeText(p);
+    setHasCopiedPath(true);
+    toast.success('配置文件路径已复制到剪贴板');
+    setTimeout(() => setHasCopiedPath(false), 2000);
+  };
+
+  const computedPostsDir = hexoDir ? `${hexoDir}/source/_posts` : (config.posts_dir || '未指定');
+  const computedDraftsDir = hexoDir ? `${hexoDir}/source/_drafts` : '未指定';
+  const currentCategoryMeta = CATEGORIES.find(c => c.id === activeCategory);
+
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="偏好与博客设置"
-      icon={<Settings size={18} />}
-      size="lg"
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {/* Dotfile 路径展示 */}
-        <div className="config-path-banner">
-          <div>
-            <span className="dotfile-tag">DOTFILE 配置文件路径:</span>
-            <div className="dotfile-path">{config.config_file_path || '~/.hpicrc'}</div>
-          </div>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={copyConfigPath}>
-            <Copy size={12} />
-            <span>复制路径</span>
-          </button>
-        </div>
-
-        {/* 1. Hexo 博客与封面字段 */}
-        <div className="settings-section">
-          <div className="settings-section-title">
-            <Terminal size={14} />
-            <span>Hexo 博客与文章配置</span>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Hexo 博客根目录 (包含 _config.yml，自动扫描 posts 与 drafts):</label>
-            <input
-              type="text"
-              className="form-input"
-              value={hexoDir}
-              onChange={e => setHexoDir(e.target.value)}
-              placeholder="/Users/.../my-hexo-blog"
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">封面字段列表 (Frontmatter 字段，以逗号分隔):</label>
-            <input
-              type="text"
-              className="form-input"
-              value={coverFields}
-              onChange={e => setCoverFields(e.target.value)}
-              placeholder="index_img, banner_img, cover"
-            />
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-              文章 frontmatter 中支持写入的所有封面字段，例如 Material/Butterfly 的 index_img、banner_img
-            </span>
-          </div>
-
-          <div className="form-row-2">
-            <div className="form-group">
-              <label className="form-label">创建时间属性 (Frontmatter 键名):</label>
-              <input
-                type="text"
-                className="form-input"
-                value={dateField}
-                onChange={e => setDateField(e.target.value)}
-                placeholder="date"
-              />
-              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-                文章创建时间，默认 date (自动兜底 created, publishDate 等)
-              </span>
-            </div>
-            <div className="form-group">
-              <label className="form-label">更新时间属性 (Frontmatter 键名):</label>
-              <input
-                type="text"
-                className="form-input"
-                value={updatedField}
-                onChange={e => setUpdatedField(e.target.value)}
-                placeholder="updated"
-              />
-              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-                文章更新时间，默认 updated (自动兜底 lastmod, modified 等)
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 2. 图片搜索与尺寸偏好 */}
-        <div className="settings-section">
-          <div className="settings-section-title">
-            <Image size={14} />
-            <span>图片搜索与分辨率约束</span>
-          </div>
-
-          <div className="form-row-2">
-            <div className="form-group">
-              <label className="form-label">默认构图比例:</label>
-              <select className="form-input" value={orientation} onChange={e => setOrientation(e.target.value)}>
-                <option value="landscape">横屏 Landscape (推荐)</option>
-                <option value="ultrawide">16:9 / 21:9 超宽横屏</option>
-                <option value="all">不限比例</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">默认尺寸范围:</label>
-              <select className="form-input" value={imageSize} onChange={e => setImageSize(e.target.value)}>
-                <option value="large">高清大图 (≥1200px)</option>
-                <option value="wallpaper">2K/4K 超清壁纸 (≥1920px)</option>
-                <option value="all">不限尺寸</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="form-row-2">
-            <div className="form-group">
-              <label className="form-label">最小宽度过滤限制 (min_width):</label>
-              <input
-                type="number"
-                min="100"
-                step="50"
-                className="form-input"
-                value={minWidth}
-                onChange={e => setMinWidth(Number(e.target.value) || 0)}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">最小高度过滤限制 (min_height):</label>
-              <input
-                type="number"
-                min="100"
-                step="50"
-                className="form-input"
-                value={minHeight}
-                onChange={e => setMinHeight(Number(e.target.value) || 0)}
-              />
-            </div>
-          </div>
-
-          <div className="form-row-2">
-            <div className="form-group">
-              <label className="form-label">优化下载宽度 (image_width, px):</label>
-              <input
-                type="number"
-                min="200"
-                step="100"
-                className="form-input"
-                value={imageWidth}
-                onChange={e => setImageWidth(Number(e.target.value) || 1200)}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">压缩图片质量 (image_quality, 1-100):</label>
-              <input
-                type="number"
-                min="1"
-                max="100"
-                className="form-input"
-                value={imageQuality}
-                onChange={e => setImageQuality(Math.max(1, Math.min(100, Number(e.target.value) || 80)))}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* 3. GitHub 与开源卡片 (Socialify) */}
-        <div className="settings-section">
-          <div className="settings-section-title">
-            <GitBranch size={14} />
-            <span>GitHub 与开源卡片 (Socialify) 默认参数</span>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">GitHub 默认用户名 / 组织名 (github_owner):</label>
-            <input
-              type="text"
-              className="form-input"
-              value={githubOwner}
-              onChange={e => setGithubOwner(e.target.value)}
-              placeholder="例如: your-github-id (用于自动推导 Socialify 开源卡片)"
-            />
-          </div>
-
-          <div className="form-row-2">
-            <div className="form-group">
-              <label className="form-label">默认背景纹理 (socialify_pattern):</label>
-              <select
-                className="form-input"
-                value={socialifyPattern}
-                onChange={e => setSocialifyPattern(e.target.value)}
-              >
-                <option value="Signal">Signal 信号脉冲 (极客)</option>
-                <option value="Circuit Board">Circuit Board 电路板</option>
-                <option value="Formal Invitation">Formal Invitation 严谨网格</option>
-                <option value="Floating Cogs">Floating Cogs 运转齿轮</option>
-                <option value="Solid">Solid 纯色极简</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">默认主题配色 (socialify_theme):</label>
-              <select
-                className="form-input"
-                value={socialifyTheme}
-                onChange={e => setSocialifyTheme(e.target.value)}
-              >
-                <option value="Dark">深色 (Dark)</option>
-                <option value="Light">浅色 (Light)</option>
-                <option value="Auto">跟随系统 (Auto)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* 4. 网络代理与部署发布 */}
-        <div className="settings-section">
-          <div className="settings-section-title">
-            <Globe size={14} />
-            <span>网络代理与部署发布</span>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">HTTP / SOCKS5 代理 (加速访问 Unsplash / Wallhaven / GitHub):</label>
-            <input
-              type="text"
-              className="form-input"
-              value={proxy}
-              onChange={e => setProxy(e.target.value)}
-              placeholder="例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:7890"
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">部署发布模式 (deploy_mode):</label>
-            <select
-              className="form-input"
-              value={deployMode}
-              onChange={e => setDeployMode(e.target.value as 'git' | 'hexo')}
-            >
-              <option value="git">Git 提交并推送 (触发 GitHub Actions 线上自动构建, 推荐)</option>
-              <option value="hexo">本地 Hexo 传统部署 (运行 hexo deploy)</option>
-            </select>
-          </div>
-
-          {deployMode === 'git' && (
-            <div className="form-group">
-              <label className="form-label">默认 Git Commit 提交模板 (git_commit_template):</label>
-              <input
-                type="text"
-                className="form-input"
-                value={gitCommitTemplate}
-                onChange={e => setGitCommitTemplate(e.target.value)}
-                placeholder="例如: chore(cover): update cover for {title}"
-              />
-              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-                支持使用 <code>{'{title}'}</code> 动态占位符自动插入当前选中博文标题
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* 5. 交互行为开关 */}
-        <div className="settings-section">
-          <div className="settings-section-title">
-            <Sliders size={14} />
-            <span>交互行为偏好</span>
-          </div>
-
-          <div className="form-checkbox-group">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={autoSearch}
-                onChange={e => setAutoSearch(e.target.checked)}
-              />
-              <span>选中文章时自动触发图片搜索 (默认关闭)</span>
-            </label>
-
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={infiniteScroll}
-                onChange={e => setInfiniteScroll(e.target.checked)}
-              />
-              <span>瀑布流滚动触底自动加载图片 (默认关闭，手动点击更可控)</span>
-            </label>
-          </div>
-        </div>
-
-        {/* 6. 版本与自动升级 */}
-        <div className="settings-section">
-          <div className="settings-section-title">
-            <Sparkles size={14} />
-            <span>版本检测与在线更新</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-            <div>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>当前运行版本: </span>
-              <code style={{ color: '#38bdf8', padding: '2px 6px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: 4, marginLeft: 6 }}>
-                {config?.version ? `v${config.version.replace(/^v/, '')}` : 'v0.0.1'}
-              </code>
-            </div>
-
+    <div className="modal-overlay full-coverage" role="dialog" aria-modal="true">
+      <div className="settings-page-container">
+        {/* 顶部标题栏与全局快捷保存 */}
+        <header className="settings-top-header">
+          <div className="settings-top-left">
             <button
               type="button"
-              className="btn btn-sm btn-ghost"
-              onClick={handleManualCheckVersion}
-              disabled={isCheckingVersion}
-              style={{ border: '1px solid var(--border-color)' }}
+              className="btn btn-icon btn-ghost btn-back"
+              onClick={onClose}
+              title="返回主界面 (Esc)"
             >
-              <RefreshCw size={13} className={isCheckingVersion ? 'spin' : ''} />
-              <span>{isCheckingVersion ? '正在查询 GitHub...' : '检查新版本'}</span>
+              <ArrowLeft size={18} />
             </button>
+            <div className="settings-title-group">
+              <h1 className="settings-main-title">偏好设置与系统配置</h1>
+              <span className="settings-sub-title">定制 Hexo 自动化配图流程、网络代理、主题外观与图库检索约束</span>
+            </div>
           </div>
 
-          {versionResult && (
-            <div style={{ marginTop: 10, padding: '12px 14px', borderRadius: 6, background: versionResult.has_update ? 'rgba(168, 85, 247, 0.08)' : 'rgba(16, 185, 129, 0.08)', border: `1px solid ${versionResult.has_update ? 'rgba(168, 85, 247, 0.3)' : 'rgba(16, 185, 129, 0.25)'}` }}>
-              {versionResult.has_update ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontWeight: 600, color: '#c084fc', fontSize: 13 }}>
-                      发现新版本 {versionResult.latest_version}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-primary highlight-upgrade-btn"
-                      onClick={() => api.upgradeVersion().then(r => toast.success(r.message || '已打开下载链接'))}
-                    >
-                      <Download size={13} />
-                      <span>立即升级</span>
-                    </button>
-                  </div>
-                  {versionResult.release_notes && (
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxHeight: 100, overflowY: 'auto', background: 'rgba(0,0,0,0.2)', padding: 8, borderRadius: 4 }}>
-                      <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>{versionResult.release_notes}</pre>
+          <div className="settings-top-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onClose}
+              disabled={isSaving}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSave}
+              disabled={isSaving}
+            >
+              <Check size={16} />
+              <span>{isSaving ? '正在保存...' : '保存并应用'}</span>
+            </button>
+          </div>
+        </header>
+
+        {/* 侧边导航分类与主面板 */}
+        <div className="settings-main-layout">
+          <aside className="settings-sidebar-nav">
+            <div className="settings-nav-list">
+              {CATEGORIES.map(cat => {
+                const IconComponent = cat.icon;
+                const isActive = activeCategory === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    className={`settings-nav-item ${isActive ? 'active' : ''}`}
+                    onClick={() => setActiveCategory(cat.id)}
+                  >
+                    <IconComponent size={18} className="settings-nav-icon" />
+                    <div className="settings-nav-info">
+                      <div className="settings-nav-label">{cat.label}</div>
+                      <div className="settings-nav-desc">{cat.description}</div>
                     </div>
-                  )}
-                </div>
-              ) : versionResult.no_release ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 13 }}>
-                  <Globe size={15} />
-                  <span>GitHub 仓库暂未发布过 Release，请先在终端运行 ./publish.sh 发布版本。</span>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#34d399', fontSize: 13 }}>
-                  <CheckCircle size={15} />
-                  <span>已是最新版本 ({versionResult.latest_version})，无需更新。</span>
-                </div>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          <main className="settings-content-area">
+            <div className="settings-content-inner">
+              <div className="settings-section-header">
+                <h2>{currentCategoryMeta?.label}</h2>
+                <p>{currentCategoryMeta?.description}</p>
+              </div>
+
+              {activeCategory === 'blog' && (
+                <BlogTab
+                  hexoDir={hexoDir}
+                  setHexoDir={setHexoDir}
+                  coverFields={coverFields}
+                  setCoverFields={setCoverFields}
+                  dateField={dateField}
+                  setDateField={setDateField}
+                  updatedField={updatedField}
+                  setUpdatedField={setUpdatedField}
+                  autoSearch={autoSearch}
+                  setAutoSearch={setAutoSearch}
+                  isBrowsingDir={isBrowsingDir}
+                  handleBrowseDir={handleBrowseDir}
+                  computedPostsDir={computedPostsDir}
+                  computedDraftsDir={computedDraftsDir}
+                />
+              )}
+
+              {activeCategory === 'gallery' && (
+                <GalleryTab
+                  orientation={orientation}
+                  setOrientation={setOrientation}
+                  imageSize={imageSize}
+                  setImageSize={setImageSize}
+                  minWidth={minWidth}
+                  setMinWidth={setMinWidth}
+                  minHeight={minHeight}
+                  setMinHeight={setMinHeight}
+                  imageWidth={imageWidth}
+                  setImageWidth={setImageWidth}
+                  imageQuality={imageQuality}
+                  setImageQuality={setImageQuality}
+                  infiniteScroll={infiniteScroll}
+                  setInfiniteScroll={setInfiniteScroll}
+                />
+              )}
+
+              {activeCategory === 'appearance' && (
+                <AppearanceTab
+                  theme={theme}
+                  setTheme={setTheme}
+                  customCSS={customCSS}
+                  setCustomCSS={setCustomCSS}
+                />
+              )}
+
+              {activeCategory === 'socialify' && (
+                <SocialifyTab
+                  githubOwner={githubOwner}
+                  setGithubOwner={setGithubOwner}
+                  socialifyPattern={socialifyPattern}
+                  setSocialifyPattern={setSocialifyPattern}
+                  socialifyTheme={socialifyTheme}
+                  setSocialifyTheme={setSocialifyTheme}
+                />
+              )}
+
+              {activeCategory === 'network' && (
+                <NetworkTab
+                  proxy={proxy}
+                  setProxy={setProxy}
+                  deployMode={deployMode}
+                  setDeployMode={setDeployMode}
+                  gitCommitTemplate={gitCommitTemplate}
+                  setGitCommitTemplate={setGitCommitTemplate}
+                  isTestingProxy={isTestingProxy}
+                  proxyTestResult={proxyTestResult}
+                  setProxyTestResult={setProxyTestResult}
+                  handleTestProxy={handleTestProxy}
+                />
+              )}
+
+              {activeCategory === 'about' && (
+                <AboutTab
+                  config={config}
+                  isCheckingVersion={isCheckingVersion}
+                  versionResult={versionResult}
+                  isInstalling={isInstalling}
+                  changelogContent={changelogContent}
+                  isLoadingChangelog={isLoadingChangelog}
+                  handleManualCheckVersion={handleManualCheckVersion}
+                  handleInstallUpdate={handleInstallUpdate}
+                  handleCopyConfigPath={handleCopyConfigPath}
+                  hasCopiedPath={hasCopiedPath}
+                />
               )}
             </div>
-          )}
-        </div>
-
-        <div className="modal-foot" style={{ marginTop: 12, paddingTop: 14, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button type="button" className="btn btn-ghost" onClick={onClose}>取消</button>
-          <button type="button" className="btn btn-primary" onClick={handleSave}>保存配置</button>
+          </main>
         </div>
       </div>
-    </Modal>
+    </div>
   );
 };

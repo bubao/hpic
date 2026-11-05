@@ -42,10 +42,10 @@ export function generateDmgBackgroundSvg() {
 
   <!-- 2. 顶部主标题与副标题 -->
   <text x="300" y="70" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="700" fill="#0f172a" text-anchor="middle" letter-spacing="-0.3">
-    hpic (HexoPic)
+    hpic
   </text>
   <text x="300" y="96" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="500" fill="#64748b" text-anchor="middle">
-    Hexo 博客封面与文章配图极简管理工具
+    Hexo 博客封面与文章配图管理工具 (hexo picture)
   </text>
 
   <!-- 3. 左侧与右侧图标底座光环 (左: 160, 240 / 右: 440, 240) -->

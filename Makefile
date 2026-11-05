@@ -3,10 +3,10 @@
 BINARY_NAME=hpic-desktop
 APP_NAME=hpic.app
 
-VERSION ?= $(shell (git describe --tags --abbrev=0 2>/dev/null || echo "0.0.1") | sed 's/^v//')
+VERSION ?= $(shell (cat VERSION 2>/dev/null || git describe --tags --exact-match 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo "0.0.1") | tr -d '\r\n ' | sed 's/^v//')
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
-LDFLAGS := -w -s -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildDate=$(BUILD_DATE)
+LDFLAGS := -w -s -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildDate=$(BUILD_DATE) -X hpic/internal/version.Version=$(VERSION) -X hpic/internal/version.GitCommit=$(GIT_COMMIT) -X hpic/internal/version.BuildDate=$(BUILD_DATE)
 
 UNAME_S := $(shell uname -s 2>/dev/null || echo "Unknown")
 

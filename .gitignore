@@ -8,7 +8,7 @@
 *.out
 go.work
 
-# HexoPic 二进制与本地 Native App Bundle (install.sh / make 生成)
+# hpic 二进制与本地 Native App Bundle (install.sh / make 生成)
 hpic
 hpic-desktop
 *.app

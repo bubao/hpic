@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -77,5 +78,30 @@ index_img: %s/broken.jpg
 	}
 	if len(result.BrokenReports) != 1 || result.BrokenReports[0].StatusCode != 404 {
 		t.Errorf("Unexpected broken reports: %+v", result.BrokenReports)
+	}
+
+	// 3. 测试 CheckImageHealthStream 动态事件流
+	var events []HealthProgressEvent
+	var eventsMu sync.Mutex
+	streamResult, err := CheckImageHealthStream(tempHexo, []string{"index_img"}, "", func(evt HealthProgressEvent) {
+		eventsMu.Lock()
+		events = append(events, evt)
+		eventsMu.Unlock()
+	})
+	if err != nil {
+		t.Fatalf("CheckImageHealthStream failed: %v", err)
+	}
+	if streamResult.TotalImages != 2 {
+		t.Errorf("Expected 2 total images in streamResult, got: %d", streamResult.TotalImages)
+	}
+	if len(events) < 3 { // 至少包含 start, 至少 1 次 progress, done
+		t.Errorf("Expected at least 3 events, got %d events: %+v", len(events), events)
+	}
+	// 验证是否有 start 和 done
+	if events[0].Type != "start" {
+		t.Errorf("First event should be start, got: %s", events[0].Type)
+	}
+	if events[len(events)-1].Type != "done" {
+		t.Errorf("Last event should be done, got: %s", events[len(events)-1].Type)
 	}
 }

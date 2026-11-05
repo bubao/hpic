@@ -12,6 +12,10 @@ $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\hpic"
 
 # 1. 检查基础系统与 Go 环境
 Write-Host "[1/5] 系统与编译环境预检..." -ForegroundColor Cyan
+
+# 终止可能正在运行的旧版本进程，防止文件占用
+Get-Process -Name "hpic", "hpic-desktop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
 if (-not (Get-Command "go" -ErrorAction SilentlyContinue)) {
     Write-Host "[ERROR] 未检测到 Go 开发环境！" -ForegroundColor Red
     Write-Host "   hpic 需要 Go 1.20 或更高版本进行编译安装。" -ForegroundColor Yellow
@@ -30,13 +34,9 @@ $NeedFrontendBuild = $false
 
 if ((-not (Test-Path $WebIndex) -or -not (Test-Path $WebAssets)) -and (Test-Path $FrontendDir)) {
     $NeedFrontendBuild = $true
-} elseif (Test-Path $FrontendDir) {
-    $WebIndexTime = (Get-Item $WebIndex).LastWriteTime
-    $NewerSrc = Get-ChildItem -Path (Join-Path $FrontendDir "src") -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt $WebIndexTime } | Select-Object -First 1
-    if ($NewerSrc) {
-        $NeedFrontendBuild = $true
-        Write-Host "   [INFO] 检测到前端源码变动 ($($NewerSrc.Name))，自动增量编译..." -ForegroundColor Cyan
-    }
+} elseif ((Test-Path (Join-Path $FrontendDir "src")) -and (Test-Path (Join-Path $FrontendDir "package.json"))) {
+    $NeedFrontendBuild = $true
+    Write-Host "   [INFO] 检测到本地前端开发工程，自动编译最新前端产物..." -ForegroundColor Cyan
 }
 
 if ($NeedFrontendBuild) {
@@ -77,22 +77,14 @@ if ($NeedFrontendBuild) {
 # 3. 编译 Windows 二进制 (动态注入权威版本号: 环境变量 -> Git Tag -> CHANGELOG -> package.json)
 $AppVersion = if ($env:APP_VERSION) { $env:APP_VERSION } else {
     $ver = $null
-    try {
-        $GitTag = (git describe --tags --abbrev=0 2>$null)
-        if ($GitTag) { $ver = $GitTag.TrimStart('v').Trim() }
-    } catch {}
-
-    if (-not $ver -and (Test-Path (Join-Path $ScriptDir "CHANGELOG.md"))) {
-        $ChangelogFirst = Get-Content (Join-Path $ScriptDir "CHANGELOG.md") | Where-Object { $_ -match '^##\s+\[v?([0-9.]+)\]' } | Select-Object -First 1
-        if ($ChangelogFirst -match '^##\s+\[v?([0-9.]+)\]') {
-            $ver = $Matches[1]
-        }
+    if (Test-Path (Join-Path $ScriptDir "VERSION")) {
+        $ver = (Get-Content (Join-Path $ScriptDir "VERSION") -Raw).Trim().TrimStart('v')
     }
 
-    if (-not $ver -and (Test-Path (Join-Path $ScriptDir "frontend\package.json"))) {
+    if (-not $ver) {
         try {
-            $Pkg = Get-Content (Join-Path $ScriptDir "frontend\package.json") -Raw | ConvertFrom-Json
-            if ($Pkg.version) { $ver = $Pkg.version.TrimStart('v') }
+            $GitTag = (git describe --tags --abbrev=0 2>$null)
+            if ($GitTag) { $ver = $GitTag.TrimStart('v').Trim() }
         } catch {}
     }
 
@@ -109,7 +101,7 @@ $OutputDesktopBin = Join-Path $InstallDir "hpic-desktop.exe"
 
 Push-Location $ScriptDir
 try {
-    go build -ldflags="-w -s -X main.Version=$AppVersion" -o $OutputBin .
+    go build -ldflags="-w -s -X main.Version=$AppVersion -X hpic/internal/version.Version=$AppVersion" -o $OutputBin .
     Copy-Item -Path $OutputBin -Destination $OutputDesktopBin -Force
 } finally {
     Pop-Location
@@ -214,7 +206,7 @@ if ($UserPath -notlike "*$InstallDir*") {
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "  hpic (HexoPic) Windows 安装完成" -ForegroundColor Green
+Write-Host "  hpic (hexo picture) Windows 安装完成" -ForegroundColor Green
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "  * 安装目录:      $InstallDir"
 Write-Host "  * 桌面图标:      已生成桌面快捷方式「hpic」"

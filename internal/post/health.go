@@ -28,8 +28,26 @@ type HealthCheckResult struct {
 	Duration       string              `json:"duration"`
 }
 
-// CheckImageHealth 并发检查所有文章封面图片的可用性，检测 404 及失效链接
-func CheckImageHealth(postsDir string, coverFields []string, proxyStr string) (*HealthCheckResult, error) {
+// HealthProgressEvent 实时体检进度事件
+type HealthProgressEvent struct {
+	Type          string              `json:"type"` // "start" | "progress" | "done" | "error"
+	TotalPosts    int                 `json:"total_posts"`
+	TotalImages   int                 `json:"total_images"`
+	ScannedImages int                 `json:"scanned_images"`
+	HealthyImages int                 `json:"healthy_images"`
+	BrokenCount   int                 `json:"broken_count"`
+	CurrentURL    string              `json:"current_url,omitempty"`
+	LastReport    *BrokenImageReport  `json:"last_report,omitempty"`
+	BrokenReports []BrokenImageReport `json:"broken_reports,omitempty"`
+	Duration      string              `json:"duration,omitempty"`
+	Error         string              `json:"error,omitempty"`
+}
+
+// HealthProgressCallback 体检进度回调
+type HealthProgressCallback func(event HealthProgressEvent)
+
+// CheckImageHealthStream 并发检查所有文章封面图片的可用性，并实时回调进度
+func CheckImageHealthStream(postsDir string, coverFields []string, proxyStr string, onProgress HealthProgressCallback) (*HealthCheckResult, error) {
 	start := time.Now()
 	posts, err := ListPosts(postsDir, "", coverFields, "")
 	if err != nil {
@@ -58,12 +76,55 @@ func CheckImageHealth(postsDir string, coverFields []string, proxyStr string) (*
 		}
 	}
 
+	totalPosts := len(posts)
 	totalImages := len(tasks)
+
+	if onProgress != nil {
+		onProgress(HealthProgressEvent{
+			Type:          "start",
+			TotalPosts:    totalPosts,
+			TotalImages:   totalImages,
+			ScannedImages: 0,
+			HealthyImages: 0,
+			BrokenCount:   0,
+		})
+	}
+
+	if totalImages == 0 {
+		duration := time.Since(start).Round(time.Millisecond).String()
+		res := &HealthCheckResult{
+			TotalPosts:    totalPosts,
+			TotalImages:   0,
+			HealthyImages: 0,
+			BrokenCount:   0,
+			BrokenReports: []BrokenImageReport{},
+			Duration:      duration,
+		}
+		if onProgress != nil {
+			onProgress(HealthProgressEvent{
+				Type:          "done",
+				TotalPosts:    totalPosts,
+				TotalImages:   0,
+				ScannedImages: 0,
+				HealthyImages: 0,
+				BrokenCount:   0,
+				BrokenReports: []BrokenImageReport{},
+				Duration:      duration,
+			})
+		}
+		return res, nil
+	}
+
 	var brokenList []BrokenImageReport
+	var scannedImages int
+	var healthyImages int
 	var mu sync.Mutex
 
 	// 并发池控制并发数 15
 	concurrency := 15
+	if concurrency > totalImages {
+		concurrency = totalImages
+	}
 	ch := make(chan checkTask, len(tasks))
 	for _, t := range tasks {
 		ch <- t
@@ -77,13 +138,16 @@ func CheckImageHealth(postsDir string, coverFields []string, proxyStr string) (*
 			defer wg.Done()
 			for t := range ch {
 				status, checkErr := pingImageURL(client, t.url)
+				var lastReport *BrokenImageReport
+
+				mu.Lock()
+				scannedImages++
 				if status == 404 || status >= 400 || checkErr != nil {
 					errMsg := ""
 					if checkErr != nil {
 						errMsg = checkErr.Error()
 					}
-					mu.Lock()
-					brokenList = append(brokenList, BrokenImageReport{
+					rep := BrokenImageReport{
 						PostTitle:  t.post.Title,
 						FilePath:   t.post.FilePath,
 						FileName:   t.post.FileName,
@@ -91,8 +155,28 @@ func CheckImageHealth(postsDir string, coverFields []string, proxyStr string) (*
 						URL:        t.url,
 						StatusCode: status,
 						Error:      errMsg,
+					}
+					brokenList = append(brokenList, rep)
+					lastReport = &rep
+				} else {
+					healthyImages++
+				}
+				currScanned := scannedImages
+				currHealthy := healthyImages
+				currBroken := len(brokenList)
+				mu.Unlock()
+
+				if onProgress != nil {
+					onProgress(HealthProgressEvent{
+						Type:          "progress",
+						TotalPosts:    totalPosts,
+						TotalImages:   totalImages,
+						ScannedImages: currScanned,
+						HealthyImages: currHealthy,
+						BrokenCount:   currBroken,
+						CurrentURL:    t.url,
+						LastReport:    lastReport,
 					})
-					mu.Unlock()
 				}
 			}
 		}()
@@ -100,16 +184,36 @@ func CheckImageHealth(postsDir string, coverFields []string, proxyStr string) (*
 	wg.Wait()
 
 	duration := time.Since(start).Round(time.Millisecond).String()
-	healthy := totalImages - len(brokenList)
+	healthy := healthyImages
 
-	return &HealthCheckResult{
-		TotalPosts:    len(posts),
+	result := &HealthCheckResult{
+		TotalPosts:    totalPosts,
 		TotalImages:   totalImages,
 		HealthyImages: healthy,
 		BrokenCount:   len(brokenList),
 		BrokenReports: brokenList,
 		Duration:      duration,
-	}, nil
+	}
+
+	if onProgress != nil {
+		onProgress(HealthProgressEvent{
+			Type:          "done",
+			TotalPosts:    totalPosts,
+			TotalImages:   totalImages,
+			ScannedImages: totalImages,
+			HealthyImages: healthy,
+			BrokenCount:   len(brokenList),
+			BrokenReports: brokenList,
+			Duration:      duration,
+		})
+	}
+
+	return result, nil
+}
+
+// CheckImageHealth 并发检查所有文章封面图片的可用性，检测 404 及失效链接
+func CheckImageHealth(postsDir string, coverFields []string, proxyStr string) (*HealthCheckResult, error) {
+	return CheckImageHealthStream(postsDir, coverFields, proxyStr, nil)
 }
 
 // PingSingleImage 快速检验单张图片链接的连通性，检测 404 及防盗链限制

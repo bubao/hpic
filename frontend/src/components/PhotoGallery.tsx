@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { FavoriteItem, Photo, PostInfo, getCanonicalImageKey } from '../types';
 import { api } from '../api';
-import { Search, Star, Tag, ChevronDown, Sparkles, Camera, Monitor, Wand2, Link2, Loader2, Lightbulb } from 'lucide-react';
+import { Search, Star, Tag, ChevronDown, ChevronUp, Sparkles, Camera, Monitor, Wand2, Link2, Loader2, Lightbulb, X, Check } from 'lucide-react';
 import { Generators } from './Generators';
 import { TagEditorModal } from './TagEditorModal';
-import { TagFilterModal } from './TagFilterModal';
 import { useFavorites } from '../context/FavoritesContext';
 import { useToast } from '../context/ToastContext';
 import { PhotoCard } from './PhotoCard';
@@ -22,6 +21,7 @@ interface PhotoGalleryProps {
   infiniteScrollEnabled: boolean;
   brokenUrls?: Set<string>;
   onApplyImage: (url: string, fields: string[]) => void;
+  onInsertBodyImage?: (url: string, title: string) => void;
   onOpenLightbox: (url: string, title: string, fallbackUrl?: string) => void;
   onOpenManualModal: () => void;
 }
@@ -38,6 +38,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
   infiniteScrollEnabled,
   brokenUrls,
   onApplyImage,
+  onInsertBodyImage,
   onOpenLightbox,
   onOpenManualModal,
 }) => {
@@ -64,15 +65,36 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // 收藏夹标签筛选状态
-  const [selectedFavTag, setSelectedFavTag] = useState('');
+  // 收藏夹标签多选筛选状态 (支持多选组合)
+  const [selectedFavTags, setSelectedFavTags] = useState<string[]>([]);
+  // 更多标签内嵌展开面板状态
+  const [isTagPanelExpanded, setIsTagPanelExpanded] = useState(false);
+  // 标签面板内搜索关键词
+  const [tagSearchQuery, setTagSearchQuery] = useState('');
 
   // 标签编辑模态框状态
   const [editingFavItem, setEditingFavItem] = useState<FavoriteItem | null>(null);
-  // 更多标签筛选模态框状态
-  const [isTagFilterOpen, setIsTagFilterOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+
+  // 切换选中单个标签 (多选模式)
+  const handleToggleFavTag = (tagName: string) => {
+    setSelectedFavTags(prev =>
+      prev.includes(tagName) ? prev.filter(t => t !== tagName) : [...prev, tagName]
+    );
+  };
+
+  // 清空已选标签
+  const handleClearFavTags = () => {
+    setSelectedFavTags([]);
+  };
+
+  // 面板内搜索匹配过滤的标签列表
+  const filteredFavTags = useMemo(() => {
+    if (!tagSearchQuery.trim()) return favTags;
+    const q = tagSearchQuery.toLowerCase().trim();
+    return favTags.filter(t => t.name.toLowerCase().includes(q));
+  }, [favTags, tagSearchQuery]);
 
   // 当前博文使用的所有封面 URL 与规范化 Key 集合 (用于收藏夹双向联动高亮)
   const currentPostCoverUrls = new Set(
@@ -86,10 +108,13 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
   );
 
   // 根据当前标签和搜索关键词过滤收藏夹列表，并根据图片特征自动去重
-  const displayedFavorites = (() => {
+  const displayedFavorites = useMemo(() => {
     const filtered = allFavorites.filter(it => {
-      if (selectedFavTag && !(it.tags || []).includes(selectedFavTag)) {
-        return false;
+      // 多标签交集匹配 (AND): 包含所有选中的标签
+      if (selectedFavTags.length > 0) {
+        const itemTags = it.tags || [];
+        const matchesAll = selectedFavTags.every(t => itemTags.includes(t));
+        if (!matchesAll) return false;
       }
       if (searchKeyword.trim()) {
         const q = searchKeyword.toLowerCase();
@@ -112,7 +137,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
       }
     }
     return result;
-  })();
+  }, [allFavorites, selectedFavTags, searchKeyword]);
 
   // 触发图片搜索
   const doSearch = async (
@@ -243,18 +268,32 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
       return;
     }
 
+    const scrollContainer = document.querySelector('.app-main-content');
+
     const handleScroll = () => {
       if (!hasMore || isLoading || isLoadingMore) return;
-      const scrollY = window.scrollY || document.documentElement.scrollTop;
-      const windowHeight = window.innerHeight;
-      const docHeight = document.documentElement.scrollHeight;
-      if (scrollY + windowHeight >= docHeight - 300) {
-        handleLoadMore();
+      if (scrollContainer) {
+        const { scrollTop, clientHeight, scrollHeight } = scrollContainer;
+        if (scrollTop + clientHeight >= scrollHeight - 300) {
+          handleLoadMore();
+        }
+      } else {
+        const scrollY = window.scrollY || document.documentElement.scrollTop;
+        const windowHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+        if (scrollY + windowHeight >= docHeight - 300) {
+          handleLoadMore();
+        }
       }
     };
 
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    if (scrollContainer) {
+      scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+      return () => scrollContainer.removeEventListener('scroll', handleScroll);
+    } else {
+      window.addEventListener('scroll', handleScroll, { passive: true });
+      return () => window.removeEventListener('scroll', handleScroll);
+    }
   }, [infiniteScrollEnabled, source, hasMore, isLoading, isLoadingMore, handleLoadMore]);
 
   const handleSaveTags = async (idOrUrl: string, tags: string[]) => {
@@ -363,51 +402,227 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
         </div>
       )}
 
-      {/* 收藏夹标签栏 */}
+      {/* 收藏夹标签栏与展开面板 */}
       {source === 'favorites' && (
-        <div className="fav-tags-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <button
-            className={`filter-pill ${selectedFavTag === '' ? 'active' : ''}`}
-            onClick={() => setSelectedFavTag('')}
-          >
-            全部标签
-          </button>
-          {favTags.slice(0, 6).map(t => (
-            <button
-              key={t.name}
-              className={`filter-pill ${selectedFavTag === t.name ? 'active' : ''}`}
-              onClick={() => setSelectedFavTag(t.name)}
-            >
-              #{t.name} ({t.count})
-            </button>
-          ))}
-          {/* 若选中的标签排在第 6 个之后，单独提出来高亮展示 */}
-          {selectedFavTag && !favTags.slice(0, 6).some(t => t.name === selectedFavTag) && (
-            <button
-              className="filter-pill active"
-              onClick={() => setSelectedFavTag(selectedFavTag)}
-            >
-              #{selectedFavTag}
-            </button>
-          )}
-          {favTags.length > 6 && (
+        <div className="fav-tags-section" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="fav-tags-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <button
               type="button"
-              className="filter-pill"
-              style={{
-                background: 'rgba(99, 102, 241, 0.12)',
-                borderColor: 'rgba(99, 102, 241, 0.35)',
-                color: '#a5b4fc',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-              onClick={() => setIsTagFilterOpen(true)}
-              title="点击查看并筛选全部标签"
+              className={`filter-pill ${selectedFavTags.length === 0 ? 'active' : ''}`}
+              onClick={handleClearFavTags}
             >
-              <Tag size={11} />
-              <span>+ 更多标签 ({favTags.length})</span>
+              全部标签
             </button>
+
+            {favTags.slice(0, 6).map(t => {
+              const isSelected = selectedFavTags.includes(t.name);
+              return (
+                <button
+                  key={t.name}
+                  type="button"
+                  className={`filter-pill ${isSelected ? 'active' : ''}`}
+                  onClick={() => handleToggleFavTag(t.name)}
+                  title={`点击${isSelected ? '取消' : '添加'}标签筛选`}
+                >
+                  {isSelected && <Check size={11} style={{ marginRight: 3 }} />}
+                  #{t.name} ({t.count})
+                </button>
+              );
+            })}
+
+            {/* 若选中的标签排在第 6 个之后，单独列出以便直观取消 */}
+            {selectedFavTags.filter(st => !favTags.slice(0, 6).some(t => t.name === st)).map(st => (
+              <button
+                key={st}
+                type="button"
+                className="filter-pill active"
+                onClick={() => handleToggleFavTag(st)}
+                title="点击取消选中"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                <Check size={11} />
+                <span>#{st}</span>
+                <X size={10} style={{ opacity: 0.8 }} />
+              </button>
+            ))}
+
+            {favTags.length > 0 && (
+              <button
+                type="button"
+                className={`filter-pill ${isTagPanelExpanded ? 'active' : ''}`}
+                style={{
+                  background: isTagPanelExpanded ? 'var(--accent-color)' : 'rgba(99, 102, 241, 0.12)',
+                  borderColor: isTagPanelExpanded ? 'var(--accent-color)' : 'rgba(99, 102, 241, 0.35)',
+                  color: isTagPanelExpanded ? '#fff' : '#a5b4fc',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                onClick={() => setIsTagPanelExpanded(prev => !prev)}
+                title={isTagPanelExpanded ? "点击折叠标签多选面板" : "点击展开标签多选搜索面板"}
+              >
+                <Tag size={11} />
+                <span>{isTagPanelExpanded ? '收起标签' : `+ 更多标签 (${favTags.length})`}</span>
+                {isTagPanelExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </button>
+            )}
+
+            {selectedFavTags.length > 0 && (
+              <button
+                type="button"
+                className="filter-pill"
+                onClick={handleClearFavTags}
+                style={{
+                  background: 'transparent',
+                  borderColor: 'rgba(239, 68, 68, 0.35)',
+                  color: '#f87171',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  fontSize: 11,
+                  padding: '2px 8px',
+                }}
+                title="清空当前所有选中的标签筛选"
+              >
+                <X size={11} />
+                <span>清空已选 ({selectedFavTags.length})</span>
+              </button>
+            )}
+          </div>
+
+          {/* 点击“更多标签”后的内嵌展开搜索多选面板 */}
+          {isTagPanelExpanded && (
+            <div
+              className="fav-tags-expand-panel"
+              style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 8,
+                padding: '10px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                boxShadow: 'var(--shadow-lg)',
+              }}
+            >
+              {/* 搜索框与快捷操作行 */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ position: 'relative', width: 240, maxWidth: '100%' }}>
+                  <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="快速搜索标签名称..."
+                    value={tagSearchQuery}
+                    onChange={e => setTagSearchQuery(e.target.value)}
+                    style={{ height: 28, fontSize: 11.5, paddingLeft: 26, paddingRight: 24, width: '100%' }}
+                    autoFocus
+                  />
+                  {tagSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setTagSearchQuery('')}
+                      style={{
+                        position: 'absolute',
+                        right: 6,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11.5, color: 'var(--text-muted)' }}>
+                  <span>已勾选 <strong style={{ color: 'var(--accent-color)' }}>{selectedFavTags.length}</strong> / {favTags.length} 个标签</span>
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-ghost"
+                    onClick={() => {
+                      const visibleNames = filteredFavTags.map(t => t.name);
+                      setSelectedFavTags(prev => Array.from(new Set([...prev, ...visibleNames])));
+                    }}
+                    style={{ fontSize: 11, padding: '2px 6px' }}
+                  >
+                    全选匹配
+                  </button>
+                  {selectedFavTags.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-ghost"
+                      onClick={handleClearFavTags}
+                      style={{ fontSize: 11, padding: '2px 6px', color: '#f87171' }}
+                    >
+                      清空
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-ghost"
+                    onClick={() => setIsTagPanelExpanded(false)}
+                    style={{ fontSize: 11, padding: '2px 6px' }}
+                  >
+                    收起
+                  </button>
+                </div>
+              </div>
+
+              {/* 标签网格 (复选框勾选，支持多选组合搜索) */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  maxHeight: 180,
+                  overflowY: 'auto',
+                  paddingRight: 4,
+                }}
+              >
+                {filteredFavTags.length === 0 ? (
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', padding: '6px 2px' }}>
+                    未找到包含 "{tagSearchQuery}" 的标签
+                  </div>
+                ) : (
+                  filteredFavTags.map(t => {
+                    const isChecked = selectedFavTags.includes(t.name);
+                    return (
+                      <label
+                        key={t.name}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          padding: '3px 8px',
+                          borderRadius: 5,
+                          fontSize: 11.5,
+                          background: isChecked ? 'var(--accent-bg)' : 'var(--bg-tertiary)',
+                          border: `1px solid ${isChecked ? 'var(--accent-color)' : 'var(--border-color)'}`,
+                          color: isChecked ? 'var(--accent-color)' : 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          userSelect: 'none',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleFavTag(t.name)}
+                          style={{ margin: 0, cursor: 'pointer', accentColor: 'var(--accent-color)' }}
+                        />
+                        <span>#{t.name}</span>
+                        <span style={{ fontSize: 10, opacity: 0.65 }}>({t.count})</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -500,6 +715,12 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                         navigator.clipboard.writeText(it.url);
                         toast.success('图片链接已复制');
                       }}
+                      onCopyMarkdown={() => {
+                        const md = `![${it.title || '配图'}](${it.url})`;
+                        navigator.clipboard.writeText(md);
+                        toast.success('已复制 Markdown: ' + md);
+                      }}
+                      onInsertBody={onInsertBodyImage ? () => onInsertBodyImage(it.url, it.title || '配图') : undefined}
                       onOpenExternal={() => api.openSystemURL(it.url)}
                     />
                   );
@@ -569,6 +790,12 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                         navigator.clipboard.writeText(fullUrl);
                         toast.success('图片链接已复制');
                       }}
+                      onCopyMarkdown={() => {
+                        const md = `![${photoTitle || '配图'}](${fullUrl})`;
+                        navigator.clipboard.writeText(md);
+                        toast.success('已复制 Markdown: ' + md);
+                      }}
+                      onInsertBody={onInsertBodyImage ? () => onInsertBodyImage(fullUrl, photoTitle || '配图') : undefined}
                       onOpenExternal={() => api.openSystemURL(fullUrl)}
                     />
                   );
@@ -599,15 +826,6 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
         item={editingFavItem}
         onClose={() => setEditingFavItem(null)}
         onSaveTags={handleSaveTags}
-      />
-
-      {/* 更多标签弹窗筛选器 */}
-      <TagFilterModal
-        isOpen={isTagFilterOpen}
-        tags={favTags}
-        selectedTag={selectedFavTag}
-        onSelectTag={setSelectedFavTag}
-        onClose={() => setIsTagFilterOpen(false)}
       />
     </section>
   );

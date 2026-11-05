@@ -3,7 +3,18 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${HOME}/.local/bin"
-APP_TARGET_DIR="${HOME}/Applications"
+APP_TARGET_DIR="/Applications"
+
+stop_running_processes() {
+    # 终止正在运行的 hpic 相关进程，避免二进制文件锁死和新旧端口冲突
+    pkill -f "hpic-desktop" 2>/dev/null || true
+    pkill -f "hpic-mac-ui" 2>/dev/null || true
+    pkill -f "${TARGET_DIR}/hpic" 2>/dev/null || true
+    killall hpic-desktop 2>/dev/null || true
+    killall hpic-mac-ui 2>/dev/null || true
+    killall hpic 2>/dev/null || true
+    sleep 0.5
+}
 
 # ----------------------------------------------------
 # 卸载逻辑处理 (若传入 --uninstall 或 -u)
@@ -15,22 +26,22 @@ if [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
     echo "[INFO] 正在清理系统中已安装的 hpic 组件..."
 
     # 终止正在运行的 hpic
-    killall hpic 2>/dev/null || true
-    killall hpic-desktop 2>/dev/null || true
-    killall hpic-mac-ui 2>/dev/null || true
+    stop_running_processes
 
     # 1. 移除命令行二进制
     rm -f "${TARGET_DIR}/hpic" "${TARGET_DIR}/hpic-desktop" "${TARGET_DIR}/hpic-mac-ui"
-    rm -f "${TARGET_DIR}/ppic" "${TARGET_DIR}/bpic" "${TARGET_DIR}/hexocover"
     echo "   [OK] 移除 ${TARGET_DIR}/hpic 二进制"
 
-    # 2. macOS 应用包移除
+    # 2. macOS 应用包移除 (系统与用户目录全清理)
     if [ "$(uname -s)" = "Darwin" ]; then
-        rm -rf "${APP_TARGET_DIR}/hpic.app"
-        rm -rf "${APP_TARGET_DIR}/HexoPic.app"
-        rm -rf "${APP_TARGET_DIR}/Postpic.app"
-        rm -rf "${APP_TARGET_DIR}/Bpic.app"
-        echo "   [OK] 移除 ${APP_TARGET_DIR}/hpic.app"
+        if [ -d "/Applications/hpic.app" ]; then
+            rm -rf "/Applications/hpic.app" 2>/dev/null || true
+            echo "   [OK] 移除 /Applications/hpic.app"
+        fi
+        if [ -d "${APP_TARGET_DIR}/hpic.app" ]; then
+            rm -rf "${APP_TARGET_DIR}/hpic.app" 2>/dev/null || true
+            echo "   [OK] 移除 ${APP_TARGET_DIR}/hpic.app"
+        fi
     fi
 
     # 3. Linux 桌面快捷方式与图标移除
@@ -53,8 +64,12 @@ if [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
 fi
 
 echo "=========================================="
-echo "  hpic (HexoPic) 编译与系统安装"
+echo "  hpic (hexo picture) 编译与系统安装"
 echo "=========================================="
+
+# 0. 清理正在运行的旧版本进程，避免端口冲突与文件锁死
+echo "[INFO] 检查并清理旧版本运行进程..."
+stop_running_processes
 
 # ----------------------------------------------------
 # 1. 系统与基础环境预检 (Preflight Checks)
@@ -97,16 +112,14 @@ else
     echo "   [OK] Go 语言环境就绪: go$GO_VERSION_STR"
 fi
 
-# 1.2 检查前端资源与 Node.js 环境 (支持增量源码感知)
+# 1.2 检查前端资源与 Node.js 环境 (源码环境下全自动构建最新前端)
 NEED_FRONTEND_BUILD=0
 if [ ! -f "${SCRIPT_DIR}/web/index.html" ] || [ ! -d "${SCRIPT_DIR}/web/assets" ]; then
     NEED_FRONTEND_BUILD=1
-elif [ -d "${SCRIPT_DIR}/frontend/src" ]; then
-    NEWEST_SRC=$(find "${SCRIPT_DIR}/frontend/src" "${SCRIPT_DIR}/frontend/index.html" "${SCRIPT_DIR}/frontend/package.json" "${SCRIPT_DIR}/frontend/vite.config.ts" -type f -newer "${SCRIPT_DIR}/web/index.html" 2>/dev/null | head -n 1)
-    if [ -n "$NEWEST_SRC" ]; then
-        NEED_FRONTEND_BUILD=1
-        echo "   [INFO] 检测到前端源码变动 ($(basename "$NEWEST_SRC"))，自动增量重新打包..."
-    fi
+elif [ -d "${SCRIPT_DIR}/frontend/src" ] && [ -f "${SCRIPT_DIR}/frontend/package.json" ]; then
+    # 若处于源码仓库开发环境，始终确保构建最新前端资源
+    NEED_FRONTEND_BUILD=1
+    echo "   [INFO] 检测到本地前端开发工程，自动编译最新前端产物..."
 fi
 
 if [ "$NEED_FRONTEND_BUILD" -eq 1 ]; then
@@ -134,14 +147,11 @@ fi
 # 1.3 确保安装目录可写与解析权威版本号 (多级回退: 环境变量 -> Git Tag -> CHANGELOG -> package.json)
 mkdir -p "$TARGET_DIR"
 
+if [ -z "$APP_VERSION" ] && [ -f "${SCRIPT_DIR}/VERSION" ]; then
+    APP_VERSION=$(cat "${SCRIPT_DIR}/VERSION" | tr -d '\r\n ')
+fi
 if [ -z "$APP_VERSION" ]; then
-    APP_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || true)
-fi
-if [ -z "$APP_VERSION" ] && [ -f "${SCRIPT_DIR}/CHANGELOG.md" ]; then
-    APP_VERSION=$(grep -E '^## \[[vV]?[0-9]+' "${SCRIPT_DIR}/CHANGELOG.md" | head -n 1 | sed -E 's/.*\[[vV]?([0-9.]+)\].*/\1/')
-fi
-if [ -z "$APP_VERSION" ] && [ -f "${SCRIPT_DIR}/frontend/package.json" ]; then
-    APP_VERSION=$(grep '"version"' "${SCRIPT_DIR}/frontend/package.json" | head -n 1 | awk -F: '{ print $2 }' | sed 's/[", ]//g')
+    APP_VERSION=$(git describe --tags --exact-match 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || true)
 fi
 APP_VERSION="${APP_VERSION:-0.0.1}"
 APP_VERSION="${APP_VERSION#v}"
@@ -154,7 +164,7 @@ echo "[3/4] 编译 hpic 服务端内核 (v${APP_VERSION})..."
 if [[ "$OS_NAME" =~ MINGW|MSYS|CYGWIN ]]; then
     EXE_EXT=".exe"
     BIN_NAME="hpic${EXE_EXT}"
-    (cd "$SCRIPT_DIR" && go build -ldflags="-w -s -X main.Version=${APP_VERSION}" -o "${TARGET_DIR}/${BIN_NAME}" .)
+    (cd "$SCRIPT_DIR" && go build -ldflags="-w -s -X main.Version=${APP_VERSION} -X hpic/internal/version.Version=${APP_VERSION}" -o "${TARGET_DIR}/${BIN_NAME}" .)
     cp -f "${TARGET_DIR}/${BIN_NAME}" "${TARGET_DIR}/hpic-desktop${EXE_EXT}"
 
     echo ""
@@ -172,7 +182,7 @@ fi
 
 # Unix 类系统 (macOS / Linux)
 TMP_BIN=$(mktemp "${TMPDIR:-/tmp}/hpic_build.XXXXXX")
-(cd "$SCRIPT_DIR" && go build -ldflags="-w -s -X main.Version=${APP_VERSION}" -o "$TMP_BIN" .)
+(cd "$SCRIPT_DIR" && go build -ldflags="-w -s -X main.Version=${APP_VERSION} -X hpic/internal/version.Version=${APP_VERSION}" -o "$TMP_BIN" .)
 
 # ----------------------------------------------------
 # 3. 平台专属集成 (macOS 原生独立 App / Linux Desktop)
@@ -243,17 +253,22 @@ EOF
         codesign --force --deep --options runtime --sign - "${LOCAL_APP}" 2>/dev/null || true
     fi
 
-    echo "   [INFO] 安装 hpic.app 到系统应用目录 (${APP_TARGET_DIR}/hpic.app)..."
-    rm -rf "${APP_TARGET_DIR}/hpic.app"
-    rm -rf "${APP_TARGET_DIR}/HexoPic.app"
-    rm -rf "${APP_TARGET_DIR}/Postpic.app"
-    rm -rf "${APP_TARGET_DIR}/Bpic.app"
-    cp -R "${LOCAL_APP}" "${APP_TARGET_DIR}/"
-
+    INSTALLED_APPS=()
+    # 统一安装到标准系统应用目录 /Applications/hpic.app
+    echo "   [INFO] 安装 hpic.app 到系统应用目录 (/Applications/hpic.app)..."
+    rm -rf "/Applications/hpic.app"
+    cp -R "${LOCAL_APP}" "/Applications/"
     if command -v codesign >/dev/null 2>&1; then
-        codesign --force --deep --options runtime --sign - "${APP_TARGET_DIR}/hpic.app" 2>/dev/null || true
+        codesign --force --deep --options runtime --sign - "/Applications/hpic.app" 2>/dev/null || true
     fi
-    touch "${APP_TARGET_DIR}/hpic.app"
+    touch "/Applications/hpic.app"
+    INSTALLED_APPS+=("/Applications/hpic.app")
+
+    # 清理历史可能遗留在用户目录 ~/Applications 中的旧副本，避免冗余和版本混淆
+    if [ -d "${HOME}/Applications/hpic.app" ]; then
+        rm -rf "${HOME}/Applications/hpic.app" 2>/dev/null || true
+        echo "   [INFO] 已自动清理历史残留的用户目录副本 (${HOME}/Applications/hpic.app)"
+    fi
 
     if [ -f "${SCRIPT_DIR}/native_macos/hpic-mac-ui" ]; then
         cp -f "${SCRIPT_DIR}/native_macos/hpic-mac-ui" "${TARGET_DIR}/hpic-mac-ui"
@@ -278,7 +293,7 @@ elif [[ "$OS_NAME" == "Linux" ]]; then
         cat << 'EOF' > "${SCRIPT_DIR}/assets/hpic.desktop"
 [Desktop Entry]
 Name=hpic
-Comment=Hexo Blog Cover and Drafts Image Manager (HexoPic)
+Comment=Hexo Blog Cover and Drafts Image Manager (hexo picture)
 Exec=hpic
 Icon=hpic
 Terminal=false
@@ -309,19 +324,18 @@ mv -f "$TMP_BIN" "${TARGET_DIR}/hpic-desktop"
 rm -f "${TARGET_DIR}/hpic"
 ln -sf "${TARGET_DIR}/hpic-desktop" "${TARGET_DIR}/hpic"
 
-# 兼容别名清理
-rm -f "${TARGET_DIR}/ppic" "${TARGET_DIR}/bpic" "${TARGET_DIR}/hexocover"
-
 echo ""
 echo "=================================================="
 echo "  hpic 全套组件安装完成"
 echo "=================================================="
 if [[ "$OS_NAME" == "Darwin" ]]; then
-    echo "  * 原生 App:      ${APP_TARGET_DIR}/hpic.app"
-    echo "  * 终端命令:      hpic"
+    for APP_PATH in "${INSTALLED_APPS[@]}"; do
+        echo "  * 原生 App:      ${APP_PATH}"
+    done
+    echo "  * 终端命令:      ${TARGET_DIR}/hpic"
 elif [[ "$OS_NAME" == "Linux" ]]; then
     echo "  * 桌面快捷方式:  ~/.local/share/applications/hpic.desktop"
-    echo "  * 终端命令:      hpic"
+    echo "  * 终端命令:      ${TARGET_DIR}/hpic"
 fi
 echo "  * 安装目录:      ${TARGET_DIR}/hpic"
 echo "=================================================="

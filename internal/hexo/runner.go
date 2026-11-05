@@ -159,6 +159,10 @@ func (r *Runner) StartServer(port int) error {
 		return fmt.Errorf("Hexo 服务已在运行中 (端口: %d)", r.serverPort)
 	}
 
+	if r.generateRunning {
+		return fmt.Errorf("Hexo 静态文件正在生成中，请等待生成完毕后再启动服务")
+	}
+
 	if r.hexoRoot == "" {
 		return fmt.Errorf("未找到 Hexo 根目录 (缺少 _config.yml)，请在设置中配置正确的博客 posts_dir")
 	}

@@ -36,9 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
             execDir + "/../Resources/AppIcon.icns",
             execDir + "/AppIcon.icns",
             NSHomeDirectory() + "/Applications/hpic.app/Contents/Resources/AppIcon.icns",
-            "/Applications/hpic.app/Contents/Resources/AppIcon.icns",
-            NSHomeDirectory() + "/Applications/HexoPic.app/Contents/Resources/AppIcon.icns",
-            "/Applications/HexoPic.app/Contents/Resources/AppIcon.icns"
+            "/Applications/hpic.app/Contents/Resources/AppIcon.icns"
         ]
         for path in possiblePaths {
             if FileManager.default.fileExists(atPath: path), let img = NSImage(contentsOfFile: path) {

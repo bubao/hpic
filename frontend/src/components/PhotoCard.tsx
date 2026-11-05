@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, Tag, ExternalLink, Copy, AlertTriangle } from 'lucide-react';
+import { Star, Tag, ExternalLink, Copy, AlertTriangle, Code, FilePlus } from 'lucide-react';
 import { SmoothImage } from './SmoothImage';
 import { ImageFilenameTag } from './ImageFilenameTag';
 import { ApplyCoverButtons } from './ApplyCoverButtons';
@@ -21,6 +21,8 @@ export interface PhotoCardProps {
   onApplyImage: (url: string, fields: string[]) => void;
   onEditTags?: () => void;
   onCopyUrl?: () => void;
+  onCopyMarkdown?: () => void;
+  onInsertBody?: () => void;
   onOpenExternal?: () => void;
 }
 
@@ -45,6 +47,8 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({
   onApplyImage,
   onEditTags,
   onCopyUrl,
+  onCopyMarkdown,
+  onInsertBody,
   onOpenExternal,
 }) => {
   const activeThumb = thumbUrl || url;
@@ -157,8 +161,34 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({
             fullLabel={false}
           />
 
-          {(onCopyUrl || onOpenExternal) && (
+          {(onCopyUrl || onCopyMarkdown || onInsertBody || onOpenExternal) && (
             <div className="card-extra-actions">
+              {onCopyMarkdown && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost btn-icon-only"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onCopyMarkdown();
+                  }}
+                  title="复制 Markdown 图片语法: ![标题](URL)"
+                >
+                  <Code size={12} />
+                </button>
+              )}
+              {onInsertBody && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost btn-icon-only"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onInsertBody();
+                  }}
+                  title="一键插入此图到当前文章正文末尾"
+                >
+                  <FilePlus size={12} />
+                </button>
+              )}
               {onCopyUrl && (
                 <button
                   type="button"

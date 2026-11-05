@@ -21,8 +21,8 @@
 }
 
 .btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
   transform: translateY(-1px);
 }
 
@@ -74,7 +74,7 @@
 }
 
 .btn-ghost:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -137,23 +137,22 @@ select,
 
 select:hover,
 .sort-select:hover {
-  border-color: rgba(99, 102, 241, 0.45);
-  background-color: rgba(30, 36, 53, 0.95);
+  border-color: var(--border-hover);
+  background-color: var(--bg-hover);
   color: var(--text-primary);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23818cf8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 select:focus,
 .sort-select:focus {
   border-color: var(--accent-color);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 0 0 2px var(--accent-bg);
   color: var(--text-primary);
 }
 
-/* 下拉选项统一深色背景与间距 */
+/* 下拉选项通用适配 */
 select option {
-  background-color: #161b26;
-  color: #f1f5f9;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
   padding: 8px 12px;
   font-size: 12px;
 }
@@ -281,7 +280,7 @@ select.form-input:hover {
 .skeleton-thumb-box {
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-tertiary);
   position: relative;
   overflow: hidden;
 }
@@ -290,7 +289,7 @@ select.form-input:hover {
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  background: linear-gradient(90deg, transparent, var(--bg-hover), transparent);
   animation: skeleton-sweep 1.6s infinite ease-in-out;
 }
 
@@ -301,7 +300,7 @@ select.form-input:hover {
 }
 
 .skeleton-bar {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-tertiary);
   border-radius: 4px;
 }
 
@@ -313,16 +312,16 @@ select.form-input:hover {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: rgba(30, 41, 59, 0.85);
+  background: var(--bg-secondary);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #f1f5f9;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 50;
   opacity: 0;
@@ -347,3 +346,43 @@ select.form-input:hover {
 .back-to-top-btn:active {
   transform: translateY(-1px) scale(0.98);
 }
+
+/* 版本发布日志历史版本折叠容器 */
+.changelog-older-versions {
+  margin-top: 20px;
+  border-top: 1px dashed var(--border-color);
+  padding-top: 14px;
+}
+
+.changelog-older-versions summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  user-select: none;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  list-style: none;
+  display: flex;
+  align-items: center;
+}
+
+.changelog-older-versions summary::-webkit-details-marker {
+  display: none;
+}
+
+.changelog-older-versions summary:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--accent-color);
+}
+
+.changelog-older-versions[open] summary {
+  margin-bottom: 16px;
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+

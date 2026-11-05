@@ -1,9 +1,13 @@
+declare const __APP_VERSION__: string | undefined;
+export const DEFAULT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.2';
+
 export interface Config {
   config_file_path?: string;
   version?: string;
   app?: string;
   hexo_dir?: string;
   posts_dir: string;
+  drafts_dir?: string;
   proxy: string;
   image_width: number;
   image_quality: number;
@@ -21,11 +25,43 @@ export interface Config {
   min_height: number;
   deploy_mode?: 'git' | 'hexo';
   git_commit_template?: string;
+  theme?: 'dark' | 'light' | 'auto';
+  custom_css?: string;
+}
+
+export type GeneratePhase = 'idle' | 'stopping_server' | 'generating' | 'restarting_server';
+
+export interface LegacyCheckResult {
+  has_legacy: boolean;
+  legacy_files: string[];
+  target_dir: string;
+  target_config: string;
+  already_migrated: boolean;
+}
+
+export interface SelectDirectoryResult {
+  success: boolean;
+  canceled?: boolean;
+  path?: string;
+  is_hexo_root?: boolean;
+  error?: string;
 }
 
 export interface GitFileStatus {
   status: string;
   path: string;
+}
+
+export interface OperationRecord {
+  id: number;
+  file_path: string;
+  post_title: string;
+  operation_type: 'update_cover' | 'clear_cover' | 'insert_image';
+  field?: string;
+  old_value?: string;
+  new_value?: string;
+  created_at: string;
+  is_undone: boolean;
 }
 
 export interface PostInfo {
@@ -135,6 +171,20 @@ export interface HealthCheckResult {
   broken_count: number;
   broken_reports: BrokenReport[];
   duration: string;
+}
+
+export interface HealthProgressEvent {
+  type: 'start' | 'progress' | 'done' | 'error';
+  total_posts: number;
+  total_images: number;
+  scanned_images: number;
+  healthy_images: number;
+  broken_count: number;
+  current_url?: string;
+  last_report?: BrokenReport;
+  broken_reports?: BrokenReport[];
+  duration?: string;
+  error?: string;
 }
 
 export interface VersionInfo {

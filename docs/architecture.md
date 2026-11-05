@@ -6,7 +6,7 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
 
 ## 1. 架构总览
 
-系统采用 **Go 内核 + React 18 前端单页** 架构。前端静态资源通过 Go 1.16+ 的 `//go:embed` 直接内嵌至最终二进制中，整体可执行文件约 7.5MB，无任何 Electron 运行时依赖。
+系统采用 **Go 内核 + React 19 前端单页** 架构。前端静态资源通过 Go 1.16+ 的 `//go:embed` 直接内嵌至最终二进制中，整体可执行文件约 7.5MB，无任何 Electron 运行时依赖。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -27,7 +27,9 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
 │  │  Frontmatter   │  │   灵感收藏夹   │  │ 404 健康体检  │  │
 │  │   幂等防抖写入 │  │ (规范化去重Key)│  │ (并发 HEAD)   │  │
 │  └────────────────┘  └────────────────┘  └───────────────┘  │
-│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ SQLite 事务审计引擎 (WAL 模式 / 严格单连接池 / 历史快照)│  │
+│  └───────────────────────────────────────────────────────┘  │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │      静态资源内嵌文件系统 (embed.FS: index.html/assets) │  │
 │  └───────────────────────────────────────────────────────┘  │
@@ -96,6 +98,21 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
    - **文章列表 (`Sidebar`)**：对应博文项的健康指示即刻变更为醒目的红色 `配图失效` 徽标；
    - **图库与收藏夹 (`PhotoGallery` / `PhotoCard`)**：搜索列表或收藏夹中的失效卡片立即降低饱和度并显示 `404 失效` 角标，防止再次误选失效图片。
 
+### 2.12 Go API 领域 Handler 垂直拆解 (Decoupled Domain Handlers)
+为杜绝后端巨石化（Monolith），服务层采用同 package `api` 下挂载在 `(s *Server)` 接收器上的多领域 Handler 拆解架构：
+- **`server.go` (~200 行)**：负责生命周期构造与资源清理 (`NewServer` / `Close`)、集中路由注册 (`routes()`) 以及网络安全基座（SSRF 探测、路径遍历校验与本地 Origin 鉴权）；
+- **`handler_posts.go`**：文章列表扫描、单篇博文读取、Frontmatter 增改删、正文插入配图、操作审计与安全回退；
+- **`handler_hexo.go`**：Hexo 服务进程启停调度、状态轮询、静态生成与 Git 部署集成；
+- **`handler_proxy.go`**：海外图床安全防盗链代理转发与连通性检测；
+- **`handler_search.go`**：Unsplash / Wallhaven 图片检索、GitHub 动态卡片 (Socialify / SkillIcons) 与收藏夹管理；
+- **`handler_config.go`**：用户配置读写、旧版配置迁移、原生目录选择对话框与自升级链路。
+
+### 2.13 SQLite 事务审计与单一事实源 (SSOT & Connection Pool Governance)
+系统明确划清静态配置与机器运行时动态数据的单向权责边界：
+1. **单一事实源 (SSOT)**：用户偏好配置（HexoDir、代理、Cover 字段等）以纯 JSON 文本（`~/.config/hpic/config.json` 或 `~/.hpicrc`）为唯一事实源，严格禁止向数据库反向双写；
+2. **纯 Go 免 CGO SQLite 引擎 (`modernc.org/sqlite`)**：持久化管理博文变更审计日志 (`operation_logs`)、收藏夹 (`favorites`) 与搜索历史；
+3. **连接池治理与锁竞争免疫**：开启 `WAL` (Write-Ahead Logging) 模式与 `busy_timeout(5000)`，并通过显式限制连接池（`SetMaxOpenConns(1)` / `SetMaxIdleConns(1)`），在纯 Go 运行时下彻底消除高频读写时的文件锁锁死风险。
+
 ---
 
 ## 3. 跨平台打包与分发管道
@@ -111,7 +128,7 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
 
 ## 4. 前端组件化架构与设计模式 (Frontend Atomic & Molecular Architecture)
 
-前端基于 React 18 + TypeScript + Vite 体系构建，杜绝面向过程的代码堆砌，全面采用组件化开发设计：
+前端基于 React 19 + TypeScript + Vite 体系构建，杜绝面向过程的代码堆砌，全面采用组件化与领域 Hooks 开发设计：
 
 ```mermaid
 flowchart TD
@@ -128,16 +145,25 @@ flowchart TD
 
     subgraph Organisms["基础容器与业务组织 (Organisms)"]
         O1["Modal 弹窗基座<br/>蒙层/ESC/尺寸/响应式"]
-        O2["Generators 子系统<br/>Poster / Socialify / SkillIcons"]
+        O2["SettingsTab 子组件群<br/>Blog/Gallery/Theme/Network/About"]
         O3["Health Probing Monitor<br/>并发网络探测进度反馈"]
+    end
+
+    subgraph Hooks["状态解耦层 (Custom Hooks)"]
+        H1["useHexoRunner<br/>服务生命周期与轮询"]
+        H2["usePostList<br/>文章拉取/检索/过滤/历史"]
+        H3["useModalManager<br/>多弹窗统筹与载荷透传"]
     end
 
     Atoms --> Molecules
     Molecules --> Organisms
+    Hooks --> Organisms
 ```
 
 1. **原子化元数据呈现 (`ImageFilenameTag`)**：对任意 URL 执行智能推导，统一展示图标、等宽文件名、物理分辨率徽标与完整 URL Tooltip；
 2. **封面应用动作抽象 (`ApplyCoverButtons`)**：封装「设为全部」与动态 frontmatter 字段（如 `index_img`, `banner_img`），支持尺寸与变体切换；
 3. **弹窗基底标准化 (`Modal`)**：彻底收敛 Backdrop 蒙层、居中布局、动态尺寸预设（sm/md/lg/xl）、全局 Escape 键盘监听以及防穿透事件处理；
-4. **生成器模块解耦 (`generators/`)**：将庞大的 `Generators` 分解为独立的 `PosterGenerator`、`SocialifyGenerator` 和 `SkillIconsGenerator`，保持清晰的单向数据流与专注的业务职责。
+4. **生成器模块解耦 (`generators/`)**：将庞大的 `Generators` 分解为独立的 `PosterGenerator`、`SocialifyGenerator` 和 `SkillIconsGenerator`，保持清晰的单向数据流与专注的业务职责；
+5. **顶层状态解耦与 Custom Hooks 模式 (`hooks/`)**：`App.tsx` 作为轻量协调器（Coordinator），将复杂的文章过滤/检索逻辑封装进 `usePostList`，将 Hexo 服务监控与部署联动封装进 `useHexoRunner`，将全站弹窗状态与载荷封装进 `useModalManager`；
+6. **设置弹窗多 Tab 组件化 (`components/settings/`)**：设置面板解耦为受控子组件（`BlogTab`、`GalleryTab`、`AppearanceTab`、`SocialifyTab`、`NetworkTab`、`AboutTab`），主弹窗仅负责骨架导航与保存分发。
 

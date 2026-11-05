@@ -183,7 +183,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
                           fontSize: 11,
                           padding: '2px 7px',
                           borderRadius: 4,
-                          background: 'rgba(255, 255, 255, 0.05)',
+                          background: 'var(--bg-tertiary)',
                           border: '1px solid var(--border-color)',
                           color: 'var(--text-secondary)',
                           cursor: 'pointer',
@@ -191,7 +191,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
                         }}
                         onMouseEnter={e => {
                           e.currentTarget.style.borderColor = 'var(--accent-color)';
-                          e.currentTarget.style.color = '#fff';
+                          e.currentTarget.style.color = 'var(--text-primary)';
                         }}
                         onMouseLeave={e => {
                           e.currentTarget.style.borderColor = 'var(--border-color)';
@@ -236,7 +236,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
                     style={{
                       maxHeight: 180,
                       overflowY: 'auto',
-                      background: 'rgba(0,0,0,0.25)',
+                      background: 'var(--bg-tertiary)',
                       borderRadius: 6,
                       border: '1px solid var(--border-color)',
                       padding: '4px 8px',
@@ -264,9 +264,8 @@ export const DeployModal: React.FC<DeployModalProps> = ({
                     {!loadingFiles && files.map(f => {
                       const isSelected = selectedPaths.has(f.path);
                       return (
-                        <div
+                        <label
                           key={f.path}
-                          onClick={() => !isDeploying && toggleFile(f.path)}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -282,7 +281,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
                             type="checkbox"
                             checked={isSelected}
                             disabled={isDeploying}
-                            onChange={() => {}}
+                            onChange={() => !isDeploying && toggleFile(f.path)}
                             style={{ cursor: 'pointer' }}
                           />
                           {getStatusBadge(f.status)}
@@ -299,7 +298,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
                           >
                             {f.path}
                           </span>
-                        </div>
+                        </label>
                       );
                     })}
                   </div>

@@ -127,7 +127,7 @@ export const ManualUrlModal: React.FC<ManualUrlModalProps> = ({
               height: 180,
               borderRadius: 8,
               border: '1px solid var(--border-color)',
-              background: 'rgba(0, 0, 0, 0.25)',
+              background: 'var(--bg-tertiary)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',

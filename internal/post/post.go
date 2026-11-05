@@ -36,62 +36,20 @@ func ListPosts(baseDir string, keyword string, targetFields []string, sortBy str
 		return nil, fmt.Errorf("hexo or posts directory is empty")
 	}
 
-	// 1. 判断是否为 Hexo 根目录（包含 _config.yml），若是则同时扫描 _posts 和 _drafts
-	var scanTargets []struct {
-		dir     string
-		isDraft bool
-	}
-
-	isRoot := false
-	if _, err := os.Stat(filepath.Join(baseDir, "_config.yml")); err == nil {
-		isRoot = true
-	} else if _, err := os.Stat(filepath.Join(baseDir, "..", "_config.yml")); err == nil {
-		// 如果传入的是 source 目录
-		baseDir = filepath.Clean(filepath.Join(baseDir, ".."))
-		isRoot = true
-	} else if _, err := os.Stat(filepath.Join(baseDir, "..", "..", "_config.yml")); err == nil {
-		// 如果传入的是 source/_posts 目录
-		baseDir = filepath.Clean(filepath.Join(baseDir, "..", ".."))
-		isRoot = true
-	}
-
-	if isRoot {
-		postsPath := filepath.Join(baseDir, "source", "_posts")
-		if isDirectory(postsPath) {
-			scanTargets = append(scanTargets, struct {
-				dir     string
-				isDraft bool
-			}{dir: postsPath, isDraft: false})
-		}
-		draftsPath := filepath.Join(baseDir, "source", "_drafts")
-		if isDirectory(draftsPath) {
-			scanTargets = append(scanTargets, struct {
-				dir     string
-				isDraft bool
-			}{dir: draftsPath, isDraft: true})
-		}
-	} else {
-		// 单一非 Hexo 根目录模式
-		scanTargets = append(scanTargets, struct {
-			dir     string
-			isDraft bool
-		}{
-			dir:     baseDir,
-			isDraft: strings.Contains(baseDir, "_drafts"),
-		})
-	}
+	// 1. 获取 Hexo 根目录（同时扫描 _posts 和 _drafts）或指定目录的扫描目标
+	scanTargets := GetScanTargets(baseDir)
 
 	var posts []PostInfo
 	kw := strings.ToLower(strings.TrimSpace(keyword))
 
 	for _, target := range scanTargets {
-		_ = filepath.WalkDir(target.dir, func(p string, d fs.DirEntry, err error) error {
+		_ = filepath.WalkDir(target.Dir, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
 			if d.IsDir() {
 				// 忽略以点开头的隐藏目录（例如 .git, .trash 等）
-				if strings.HasPrefix(d.Name(), ".") && p != target.dir {
+				if strings.HasPrefix(d.Name(), ".") && p != target.Dir {
 					return filepath.SkipDir
 				}
 				return nil
@@ -106,7 +64,7 @@ func ListPosts(baseDir string, keyword string, targetFields []string, sortBy str
 			if err != nil {
 				return nil
 			}
-			info.IsDraft = target.isDraft
+			info.IsDraft = target.IsDraft
 
 			if kw != "" {
 				matchTitle := strings.Contains(strings.ToLower(info.Title), kw)

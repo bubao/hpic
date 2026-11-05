@@ -145,7 +145,6 @@ func runCLIUninstall() {
 		filepath.Join(home, ".local", "bin", "hpic-desktop"),
 		filepath.Join(home, ".local", "bin", "hpic-mac-ui"),
 		filepath.Join(home, "Applications", "hpic.app"),
-		filepath.Join(home, "Applications", "HexoPic.app"),
 		filepath.Join(home, ".local", "share", "applications", "hpic.desktop"),
 	}
 

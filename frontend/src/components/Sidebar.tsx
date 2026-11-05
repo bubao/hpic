@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { PostInfo } from '../types';
-import { Search, FileText, X } from 'lucide-react';
+import { Search, FileText, X, RotateCw, FilePlus } from 'lucide-react';
 import { PostListItem } from './PostListItem';
 
 export type ArticleScope = 'all' | 'posts' | 'drafts';
@@ -15,6 +15,9 @@ interface SidebarProps {
   sortBy: string;
   onSortChange: (sort: string) => void;
   brokenPostPaths: Set<string>;
+  isRefreshing?: boolean;
+  onRefreshPosts?: () => void;
+  onOpenCreatePost?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -26,6 +29,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   sortBy,
   onSortChange,
   brokenPostPaths,
+  isRefreshing = false,
+  onRefreshPosts,
+  onOpenCreatePost,
 }) => {
   // 层级一：文章范围维度 (全部 / 正式文章 / 本地草稿)
   const [scopeTab, setScopeTab] = useState<ArticleScope>('all');
@@ -35,6 +41,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // 分类筛选
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+
+  // 搜索关键词防抖支持 (优化大体量博文库快速键入时的渲染性能)
+  const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery);
+
+  useEffect(() => {
+    setLocalSearchQuery(searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearchQuery !== searchQuery) {
+        onSearchChange(localSearchQuery);
+      }
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [localSearchQuery, searchQuery, onSearchChange]);
 
   // 1. 统计文章分类及其包含数量
   const categoryStats = useMemo(() => {
@@ -117,24 +139,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside className="app-sidebar">
       <div className="sidebar-header">
-        {/* 搜索栏：支持标题、分类与标签检索 */}
-        <div className="search-wrap">
-          <Search size={14} className="search-icon" />
-          <input
-            type="text"
-            className="search-input"
-            placeholder="搜索标题、分类或标签..."
-            value={searchQuery}
-            onChange={e => onSearchChange(e.target.value)}
-          />
-          {searchQuery && (
+        {/* 搜索栏与刷新按钮：支持标题分类检索与一键重新扫描 */}
+        <div className="search-row">
+          <div className="search-wrap">
+            <Search size={14} className="search-icon" />
+            <input
+              type="text"
+              className="search-input"
+              placeholder="搜索标题、分类或标签..."
+              value={localSearchQuery}
+              onChange={e => setLocalSearchQuery(e.target.value)}
+            />
+            {localSearchQuery && (
+              <button
+                type="button"
+                className="search-clear-btn"
+                onClick={() => {
+                  setLocalSearchQuery('');
+                  onSearchChange('');
+                }}
+                title="清空搜索"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          {onRefreshPosts && (
             <button
               type="button"
-              className="search-clear-btn"
-              onClick={() => onSearchChange('')}
-              title="清空搜索"
+              className={`btn-sidebar-refresh ${isRefreshing ? 'spinning' : ''}`}
+              onClick={onRefreshPosts}
+              disabled={isRefreshing}
+              title="重新扫描并刷新博文列表 (快捷同步外部新建/修改的文章)"
             >
-              <X size={12} />
+              <RotateCw size={13} />
+            </button>
+          )}
+          {onOpenCreatePost && (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm btn-sidebar-create"
+              onClick={onOpenCreatePost}
+              title="新建文章或本地草稿"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 32, padding: '0 8px', flexShrink: 0 }}
+            >
+              <FilePlus size={13} />
+              <span>新建</span>
             </button>
           )}
         </div>

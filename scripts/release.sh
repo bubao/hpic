@@ -54,15 +54,29 @@ echo ""
 echo -e "${CYAN}[2/5] 推导语义化版本号...${NC}"
 
 LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-if [ -z "$LATEST_TAG" ]; then
-    CURRENT_VER="0.0.0"
-    echo -e "历史发布记录: ${GRAY}未检测到历史 Git Tag (初始发布)${NC}"
-else
-    CURRENT_VER="${LATEST_TAG#v}"
-    echo -e "上一版本 Tag: ${YELLOW}${LATEST_TAG}${NC}"
+BASE_VER="${LATEST_TAG#v}"
+BASE_VER="${BASE_VER:-0.0.0}"
+
+FILE_VER=""
+if [ -f "VERSION" ]; then
+    FILE_VER=$(cat VERSION | tr -d '\r\n ' | sed 's/^v//')
 fi
 
-IFS='.' read -r V_MAJOR V_MINOR V_PATCH <<< "$CURRENT_VER"
+# 检查当前 VERSION 文件中写的版本是否是用户明确准备发版的新版本（尚未打 Tag）
+FILE_VER_NOT_TAGGED=false
+if [ -n "$FILE_VER" ]; then
+    if ! git rev-parse "v${FILE_VER}" >/dev/null 2>&1 && ! git ls-remote --tags "$REMOTE_NAME" "refs/tags/v${FILE_VER}" 2>/dev/null | grep -q "v${FILE_VER}"; then
+        FILE_VER_NOT_TAGGED=true
+    fi
+fi
+
+if [ -n "$LATEST_TAG" ]; then
+    echo -e "上一已发布 Tag: ${YELLOW}${LATEST_TAG}${NC}"
+else
+    echo -e "历史发布记录: ${GRAY}未检测到历史 Git Tag (初始发布)${NC}"
+fi
+
+IFS='.' read -r V_MAJOR V_MINOR V_PATCH <<< "$BASE_VER"
 V_MAJOR=${V_MAJOR:-0}
 V_MINOR=${V_MINOR:-0}
 V_PATCH=${V_PATCH:-0}
@@ -71,31 +85,65 @@ SUGGEST_PATCH="${V_MAJOR}.${V_MINOR}.$((V_PATCH + 1))"
 SUGGEST_MINOR="${V_MAJOR}.$((V_MINOR + 1)).0"
 SUGGEST_MAJOR="$((V_MAJOR + 1)).0.0"
 
-echo -e "   [1] 补丁升级 (Patch): ${GREEN}v${SUGGEST_PATCH}${NC} (推荐: 常规修复与优化)"
-echo -e "   [2] 特性升级 (Minor): ${GREEN}v${SUGGEST_MINOR}${NC} (新增重要功能特性)"
-echo -e "   [3] 重大升级 (Major): ${GREEN}v${SUGGEST_MAJOR}${NC} (架构级破坏性变更)"
-echo -e "   [4] 自定义版本号 (手动输入)"
-read -p "选择升级策略 [1-4, 回车默认 1]: " VER_CHOICE
-VER_CHOICE=${VER_CHOICE:-1}
+if [ "$FILE_VER_NOT_TAGGED" = true ]; then
+    echo -e "检测到根目录 VERSION 文件指定版本: ${GREEN}v${FILE_VER}${NC} (未发布)"
+    echo -e "   [1] 直接发布 VERSION 指定版本: ${GREEN}v${FILE_VER}${NC} (推荐，回车默认)"
+    echo -e "   [2] 补丁升级 (Patch): ${CYAN}v${SUGGEST_PATCH}${NC} (基于上一发布 Tag v${BASE_VER})"
+    echo -e "   [3] 特性升级 (Minor): ${CYAN}v${SUGGEST_MINOR}${NC}"
+    echo -e "   [4] 重大升级 (Major): ${CYAN}v${SUGGEST_MAJOR}${NC}"
+    echo -e "   [5] 自定义版本号 (手动输入)"
+    read -p "选择升级策略 [1-5, 回车默认 1]: " VER_CHOICE
+    VER_CHOICE=${VER_CHOICE:-1}
 
-case "$VER_CHOICE" in
-    1)
-        TARGET_RAW_VER="$SUGGEST_PATCH"
-        ;;
-    2)
-        TARGET_RAW_VER="$SUGGEST_MINOR"
-        ;;
-    3)
-        TARGET_RAW_VER="$SUGGEST_MAJOR"
-        ;;
-    4)
-        read -p "请输入自定义版本号 (例如 0.1.0): " TARGET_RAW_VER
-        TARGET_RAW_VER="${TARGET_RAW_VER#v}"
-        ;;
-    *)
-        TARGET_RAW_VER="$SUGGEST_PATCH"
-        ;;
-esac
+    case "$VER_CHOICE" in
+        1)
+            TARGET_RAW_VER="$FILE_VER"
+            ;;
+        2)
+            TARGET_RAW_VER="$SUGGEST_PATCH"
+            ;;
+        3)
+            TARGET_RAW_VER="$SUGGEST_MINOR"
+            ;;
+        4)
+            TARGET_RAW_VER="$SUGGEST_MAJOR"
+            ;;
+        5)
+            read -p "请输入自定义版本号 (例如 0.1.0): " TARGET_RAW_VER
+            TARGET_RAW_VER="${TARGET_RAW_VER#v}"
+            ;;
+        *)
+            TARGET_RAW_VER="$FILE_VER"
+            ;;
+    esac
+else
+    echo -e "当前已发布基准: ${YELLOW}v${BASE_VER}${NC}"
+    echo -e "   [1] 补丁升级 (Patch): ${GREEN}v${SUGGEST_PATCH}${NC} (推荐: 常规修复与优化)"
+    echo -e "   [2] 特性升级 (Minor): ${GREEN}v${SUGGEST_MINOR}${NC} (新增重要功能特性)"
+    echo -e "   [3] 重大升级 (Major): ${GREEN}v${SUGGEST_MAJOR}${NC} (架构级破坏性变更)"
+    echo -e "   [4] 自定义版本号 (手动输入)"
+    read -p "选择升级策略 [1-4, 回车默认 1]: " VER_CHOICE
+    VER_CHOICE=${VER_CHOICE:-1}
+
+    case "$VER_CHOICE" in
+        1)
+            TARGET_RAW_VER="$SUGGEST_PATCH"
+            ;;
+        2)
+            TARGET_RAW_VER="$SUGGEST_MINOR"
+            ;;
+        3)
+            TARGET_RAW_VER="$SUGGEST_MAJOR"
+            ;;
+        4)
+            read -p "请输入自定义版本号 (例如 0.1.0): " TARGET_RAW_VER
+            TARGET_RAW_VER="${TARGET_RAW_VER#v}"
+            ;;
+        *)
+            TARGET_RAW_VER="$SUGGEST_PATCH"
+            ;;
+    esac
+fi
 
 TARGET_TAG="v${TARGET_RAW_VER}"
 
@@ -114,7 +162,11 @@ fi
 
 echo -e "本次发布目标版本: ${GREEN}${TARGET_TAG}${NC}"
 
-# 同步 frontend/package.json
+# 1. 写入项目单一真相源 VERSION 文件
+echo "$TARGET_RAW_VER" > VERSION
+echo -e "   [OK] 写入根目录单一真相源 VERSION -> ${TARGET_RAW_VER}"
+
+# 2. 同步 frontend/package.json
 if [ -f "frontend/package.json" ]; then
     node -e "
         const fs = require('fs');
@@ -200,6 +252,7 @@ fi
 echo ""
 echo -e "${CYAN}[4/5] 暂存修改并提交 Git 版本...${NC}"
 git add CHANGELOG.md
+[ -f "VERSION" ] && git add VERSION
 if [ -f "frontend/package.json" ]; then
     git add frontend/package.json
 fi

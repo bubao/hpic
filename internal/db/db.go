@@ -1,0 +1,331 @@
+package db
+
+import (
+	"database/sql"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+type FavoriteRecord struct {
+	ID        string    `json:"id"`
+	URL       string    `json:"url"`
+	ThumbURL  string    `json:"thumb_url"`
+	Title     string    `json:"title"`
+	Source    string    `json:"source"`
+	Tags      []string  `json:"tags"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type OperationRecord struct {
+	ID            int64     `json:"id"`
+	FilePath      string    `json:"file_path"`
+	PostTitle     string    `json:"post_title"`
+	OperationType string    `json:"operation_type"` // "update_cover", "clear_cover", "insert_image"
+	Field         string    `json:"field"`          // "index_img", "banner_img", "body"
+	OldValue      string    `json:"old_value"`
+	NewValue      string    `json:"new_value"`
+	CreatedAt     time.Time `json:"created_at"`
+	IsUndone      bool      `json:"is_undone"`
+}
+
+type Database struct {
+	mu sync.RWMutex
+	db *sql.DB
+}
+
+var (
+	defaultDB *Database
+	once      sync.Once
+)
+
+func Init(dbPath string) (*Database, error) {
+	dir := filepath.Dir(dbPath)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, err
+		}
+	}
+
+	sqlDB, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetConnMaxLifetime(time.Hour)
+
+	d := &Database{db: sqlDB}
+	if err := d.migrate(); err != nil {
+		_ = sqlDB.Close()
+		return nil, err
+	}
+
+	return d, nil
+}
+
+func (d *Database) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.db != nil {
+		return d.db.Close()
+	}
+	return nil
+}
+
+func (d *Database) migrate() error {
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS kv_config (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS favorites (
+			id TEXT PRIMARY KEY,
+			url TEXT NOT NULL,
+			thumb_url TEXT NOT NULL,
+			title TEXT,
+			source TEXT,
+			tags_json TEXT,
+			created_at DATETIME NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_fav_created ON favorites(created_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS search_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			source TEXT NOT NULL,
+			keyword TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS operation_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			file_path TEXT NOT NULL,
+			post_title TEXT,
+			operation_type TEXT NOT NULL,
+			field TEXT,
+			old_value TEXT,
+			new_value TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			is_undone INTEGER DEFAULT 0
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_op_file ON operation_logs(file_path, is_undone);`,
+	}
+
+	for _, q := range queries {
+		if _, err := d.db.Exec(q); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetKV 保存键值配置
+func (d *Database) SetKV(key, val string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	query := `INSERT INTO kv_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP;`
+	_, err := d.db.Exec(query, key, val)
+	return err
+}
+
+// GetKV 读取键值配置
+func (d *Database) GetKV(key string) (string, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	var val string
+	err := d.db.QueryRow("SELECT value FROM kv_config WHERE key = ?", key).Scan(&val)
+	if err != nil {
+		return "", err
+	}
+	return val, nil
+}
+
+// SaveFavorites 批量保存/覆盖收藏记录
+func (d *Database) SaveFavorites(items []FavoriteRecord) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO favorites (id, url, thumb_url, title, source, tags_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?);`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, it := range items {
+		tagsBytes, _ := json.Marshal(it.Tags)
+		if it.CreatedAt.IsZero() {
+			it.CreatedAt = time.Now()
+		}
+		_, err := stmt.Exec(it.ID, it.URL, it.ThumbURL, it.Title, it.Source, string(tagsBytes), it.CreatedAt)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetAllFavorites 获取全部收藏
+func (d *Database) GetAllFavorites() ([]FavoriteRecord, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	rows, err := d.db.Query(`SELECT id, url, thumb_url, title, source, tags_json, created_at FROM favorites ORDER BY created_at DESC;`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []FavoriteRecord
+	for rows.Next() {
+		var it FavoriteRecord
+		var tagsJSON sql.NullString
+		if err := rows.Scan(&it.ID, &it.URL, &it.ThumbURL, &it.Title, &it.Source, &tagsJSON, &it.CreatedAt); err != nil {
+			return nil, err
+		}
+		if tagsJSON.Valid && tagsJSON.String != "" {
+			_ = json.Unmarshal([]byte(tagsJSON.String), &it.Tags)
+		}
+		results = append(results, it)
+	}
+	return results, nil
+}
+
+// RecordOperation 记录一次操作日志（用于后续安全撤销）
+func (d *Database) RecordOperation(filePath, postTitle, opType, field, oldValue, newValue string) (int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	res, err := d.db.Exec(`INSERT INTO operation_logs (file_path, post_title, operation_type, field, old_value, new_value, created_at, is_undone)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 0);`,
+		filePath, postTitle, opType, field, oldValue, newValue)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// GetLastUndoable 获取指定文章最近一条未撤销的操作日志
+func (d *Database) GetLastUndoable(filePath string) (*OperationRecord, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `SELECT id, file_path, post_title, operation_type, field, old_value, new_value, created_at, is_undone
+		FROM operation_logs
+		WHERE file_path = ? AND is_undone = 0
+		ORDER BY id DESC LIMIT 1;`
+	var op OperationRecord
+	var isUndoneInt int
+	err := d.db.QueryRow(query, filePath).Scan(
+		&op.ID, &op.FilePath, &op.PostTitle, &op.OperationType, &op.Field,
+		&op.OldValue, &op.NewValue, &op.CreatedAt, &isUndoneInt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	op.IsUndone = isUndoneInt == 1
+	return &op, nil
+}
+
+// GetPostHistory 获取指定文章的所有历史操作记录 (按时间倒序)
+func (d *Database) GetPostHistory(filePath string) ([]OperationRecord, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `SELECT id, file_path, post_title, operation_type, field, old_value, new_value, created_at, is_undone
+		FROM operation_logs
+		WHERE file_path = ?
+		ORDER BY id DESC LIMIT 50;`
+	rows, err := d.db.Query(query, filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []OperationRecord
+	for rows.Next() {
+		var op OperationRecord
+		var isUndoneInt int
+		if err := rows.Scan(
+			&op.ID, &op.FilePath, &op.PostTitle, &op.OperationType, &op.Field,
+			&op.OldValue, &op.NewValue, &op.CreatedAt, &isUndoneInt,
+		); err != nil {
+			return nil, err
+		}
+		op.IsUndone = isUndoneInt == 1
+		records = append(records, op)
+	}
+	return records, rows.Err()
+}
+
+// GetOperationByID 根据 ID 获取单条操作日志
+func (d *Database) GetOperationByID(id int64) (*OperationRecord, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `SELECT id, file_path, post_title, operation_type, field, old_value, new_value, created_at, is_undone
+		FROM operation_logs
+		WHERE id = ? LIMIT 1;`
+	var op OperationRecord
+	var isUndoneInt int
+	err := d.db.QueryRow(query, id).Scan(
+		&op.ID, &op.FilePath, &op.PostTitle, &op.OperationType, &op.Field,
+		&op.OldValue, &op.NewValue, &op.CreatedAt, &isUndoneInt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	op.IsUndone = isUndoneInt == 1
+	return &op, nil
+}
+
+// MarkUndone 标记操作记录为已撤销
+func (d *Database) MarkUndone(id int64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	_, err := d.db.Exec(`UPDATE operation_logs SET is_undone = 1 WHERE id = ?;`, id)
+	return err
+}
+
+// GetBatchOperations 获取与指定操作处于同一时间批次（时间相近且相同文件和类型）的其他操作，用于多字段原子撤销
+func (d *Database) GetBatchOperations(filePath string, createdAt time.Time, opType string) ([]OperationRecord, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	start := createdAt.Add(-2 * time.Second)
+	end := createdAt.Add(2 * time.Second)
+
+	query := `SELECT id, file_path, post_title, operation_type, field, old_value, new_value, created_at, is_undone
+		FROM operation_logs
+		WHERE file_path = ? AND operation_type = ? AND is_undone = 0 AND created_at BETWEEN ? AND ?;`
+	rows, err := d.db.Query(query, filePath, opType, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []OperationRecord
+	for rows.Next() {
+		var op OperationRecord
+		var isUndoneInt int
+		if err := rows.Scan(
+			&op.ID, &op.FilePath, &op.PostTitle, &op.OperationType, &op.Field,
+			&op.OldValue, &op.NewValue, &op.CreatedAt, &isUndoneInt,
+		); err == nil {
+			op.IsUndone = isUndoneInt == 1
+			records = append(records, op)
+		}
+	}
+	return records, nil
+}

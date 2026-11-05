@@ -2,8 +2,11 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -38,9 +41,31 @@ type Config struct {
 	InfiniteScroll   bool     `json:"infinite_scroll"`    // 瀑布流是否开启触底自动加载，默认 false (手动点击更可控)
 	DeployMode       string   `json:"deploy_mode"`        // 部署模式: "git" (GitHub Actions, 默认) 或 "hexo" (hexo deploy)
 	GitCommitTemplate string  `json:"git_commit_template,omitempty"` // 自定义 Git 提交信息模板，如 "chore(cover): update cover for {title}"
+	Theme            string   `json:"theme,omitempty"`            // 界面主题: "dark", "light", "auto" (默认 "dark")
+	CustomCSS        string   `json:"custom_css,omitempty"`       // 用户自定义 CSS 代码
 }
 
-// ConfigPath 动态解析配置文件地址，支持命令行参数、环境变量、当前目录和用户根目录 dotfile
+// AppConfigDir 返回 hpic 推荐的标准存储根目录 (~/.config/hpic)
+func AppConfigDir() string {
+	if env := strings.TrimSpace(os.Getenv("HPIC_CONFIG_DIR")); env != "" {
+		return expandHome(env)
+	}
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+		return filepath.Join(expandHome(xdg), "hpic")
+	}
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
+		if runtime.GOOS != "windows" {
+			return filepath.Join(home, ".config", "hpic")
+		}
+	}
+	if cfgDir, err := os.UserConfigDir(); err == nil && cfgDir != "" {
+		return filepath.Join(cfgDir, "hpic")
+	}
+	return filepath.Join(home, ".config", "hpic")
+}
+
+// ConfigPath 动态解析配置文件地址，支持命令行参数、环境变量、当前目录和标准/兼容配置
 func ConfigPath() string {
 	// 1. 如果通过命令行参数 -c / --config 指定了路径
 	if customConfigPath != "" {
@@ -52,16 +77,14 @@ func ConfigPath() string {
 		return expanded
 	}
 
-	// 2. 环境变量 HPIC_CONFIG (兼容 PPIC_CONFIG, BPIC_CONFIG 或 HEXOCOVER_CONFIG)
-	for _, envKey := range []string{"HPIC_CONFIG", "PPIC_CONFIG", "BPIC_CONFIG", "HEXOCOVER_CONFIG"} {
-		if envPath := strings.TrimSpace(os.Getenv(envKey)); envPath != "" {
-			expanded := expandHome(envPath)
-			abs, err := filepath.Abs(expanded)
-			if err == nil {
-				return abs
-			}
-			return expanded
+	// 2. 环境变量 HPIC_CONFIG
+	if envPath := strings.TrimSpace(os.Getenv("HPIC_CONFIG")); envPath != "" {
+		expanded := expandHome(envPath)
+		abs, err := filepath.Abs(expanded)
+		if err == nil {
+			return abs
 		}
+		return expanded
 	}
 
 	home, _ := os.UserHomeDir()
@@ -69,7 +92,7 @@ func ConfigPath() string {
 
 	// 3. 当前目录下的 dot 文件优先 (项目级配置)
 	if cwd != "" {
-		for _, name := range []string{".hpicrc", ".hpic.json", ".ppicrc", ".ppic.json", ".bpicrc", ".bpic.json", ".hexocoverrc", ".hexocover.json"} {
+		for _, name := range []string{".hpicrc", ".hpic.json"} {
 			p := filepath.Join(cwd, name)
 			if fileExists(p) {
 				return p
@@ -77,20 +100,133 @@ func ConfigPath() string {
 		}
 	}
 
-	// 4. 用户根目录下的 dot 文件 (默认位置: ~/.hpicrc)
+	// 4. 标准集中配置目录 ~/.config/hpic/config.json 优先
+	stdConfig := filepath.Join(AppConfigDir(), "config.json")
+	if fileExists(stdConfig) {
+		return stdConfig
+	}
+
+	// 5. 兼容检查用户根目录下的旧版 dot 文件 (~/.hpicrc, ~/.hpic.json)
 	if home != "" {
-		for _, name := range []string{".hpicrc", ".hpic.json", ".ppicrc", ".ppic.json", ".bpicrc", ".bpic.json", ".hexocoverrc", ".hexocover.json"} {
+		for _, name := range []string{".hpicrc", ".hpic.json"} {
 			p := filepath.Join(home, name)
 			if fileExists(p) {
 				return p
 			}
 		}
-
-		// 默认在用户根目录下新建/使用 ~/.hpicrc dot 文件
-		return filepath.Join(home, ".hpicrc")
 	}
 
-	return ".hpicrc"
+	// 6. 默认在新集中配置目录下创建/使用 ~/.config/hpic/config.json
+	return stdConfig
+}
+
+type LegacyCheckResult struct {
+	HasLegacy       bool     `json:"has_legacy"`
+	LegacyFiles     []string `json:"legacy_files"`
+	TargetDir       string   `json:"target_dir"`
+	TargetConfig    string   `json:"target_config"`
+	AlreadyMigrated bool     `json:"already_migrated"`
+}
+
+// DetectLegacy 检查是否存在旧版独立 dot 配置文件
+func DetectLegacy() LegacyCheckResult {
+	home, _ := os.UserHomeDir()
+	targetDir := AppConfigDir()
+	targetConfig := filepath.Join(targetDir, "config.json")
+
+	var legacyFiles []string
+	if home != "" {
+		for _, name := range []string{".hpicrc", ".hpic.json"} {
+			p := filepath.Join(home, name)
+			if fileExists(p) {
+				legacyFiles = append(legacyFiles, p)
+			}
+		}
+		favPath := filepath.Join(home, ".hpic_favorites.json")
+		if fileExists(favPath) {
+			legacyFiles = append(legacyFiles, favPath)
+		}
+	}
+
+	hasLegacy := len(legacyFiles) > 0
+	alreadyMigrated := fileExists(targetConfig) && !hasLegacy
+
+	return LegacyCheckResult{
+		HasLegacy:       hasLegacy,
+		LegacyFiles:     legacyFiles,
+		TargetDir:       targetDir,
+		TargetConfig:    targetConfig,
+		AlreadyMigrated: alreadyMigrated,
+	}
+}
+
+type MigrateResult struct {
+	Success       bool     `json:"success"`
+	MigratedFiles []string `json:"migrated_files"`
+	BackupFiles   []string `json:"backup_files"`
+	TargetDir     string   `json:"target_dir"`
+	Error         string   `json:"error,omitempty"`
+}
+
+// MigrateLegacy 迁移旧配置到标准 ~/.config/hpic/ 目录并自动备份
+func MigrateLegacy(backupOld bool) (*MigrateResult, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil, fmt.Errorf("无法获取用户主目录: %v", err)
+	}
+
+	targetDir := AppConfigDir()
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建新配置目录失败: %v", err)
+	}
+
+	res := &MigrateResult{
+		Success:       true,
+		TargetDir:     targetDir,
+		MigratedFiles: make([]string, 0),
+		BackupFiles:   make([]string, 0),
+	}
+
+	// 1. 迁移主配置文件 (~/.hpicrc / ~/.hpic.json -> ~/.config/hpic/config.json)
+	targetConfig := filepath.Join(targetDir, "config.json")
+	for _, name := range []string{".hpicrc", ".hpic.json"} {
+		oldPath := filepath.Join(home, name)
+		if fileExists(oldPath) {
+			data, readErr := os.ReadFile(oldPath)
+			if readErr == nil {
+				if !fileExists(targetConfig) {
+					_ = os.WriteFile(targetConfig, data, 0644)
+					res.MigratedFiles = append(res.MigratedFiles, targetConfig)
+				}
+				if backupOld {
+					bak := oldPath + ".bak"
+					_ = os.Rename(oldPath, bak)
+					res.BackupFiles = append(res.BackupFiles, bak)
+				}
+			}
+			break
+		}
+	}
+
+	// 2. 迁移收藏夹 (~/.hpic_favorites.json -> ~/.config/hpic/favorites.json)
+	oldFav := filepath.Join(home, ".hpic_favorites.json")
+	targetFav := filepath.Join(targetDir, "favorites.json")
+	if fileExists(oldFav) {
+		favData, readErr := os.ReadFile(oldFav)
+		if readErr == nil {
+			if !fileExists(targetFav) {
+				_ = os.WriteFile(targetFav, favData, 0644)
+				res.MigratedFiles = append(res.MigratedFiles, targetFav)
+			}
+			if backupOld {
+				bak := oldFav + ".bak"
+				_ = os.Rename(oldFav, bak)
+				res.BackupFiles = append(res.BackupFiles, bak)
+			}
+		}
+	}
+
+	return res, nil
 }
 
 func Load() *Config {
@@ -112,19 +248,28 @@ func Load() *Config {
 
 	targetPath := ConfigPath()
 	cfg.ConfigFilePath = targetPath
+	bakPath := targetPath + ".bak"
 
 	data, err := os.ReadFile(targetPath)
 	if err == nil {
-		_ = json.Unmarshal(data, cfg)
-	} else {
-		// 如果主路径不存在，尝试查看是否有旧版配置并进行无损迁移
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			oldPath := filepath.Join(home, ".config", "hexocover", "config.json")
-			if oldData, err := os.ReadFile(oldPath); err == nil {
-				_ = json.Unmarshal(oldData, cfg)
-				// 自动在新 dot 文件路径保存一份
-				_ = cfg.Save()
+		if decodeErr := json.Unmarshal(data, cfg); decodeErr != nil {
+			log.Printf("[config] Warning: config file %s is corrupted: %v. Attempting to recover from %s...", targetPath, decodeErr, bakPath)
+			if bakData, bakErr := os.ReadFile(bakPath); bakErr == nil {
+				if bakDecodeErr := json.Unmarshal(bakData, cfg); bakDecodeErr == nil {
+					log.Printf("[config] Successfully recovered configuration from backup %s", bakPath)
+					_ = atomicWrite(targetPath, bakData)
+				} else {
+					log.Printf("[config] Warning: backup file %s is also corrupted: %v", bakPath, bakDecodeErr)
+				}
+			} else {
+				log.Printf("[config] Warning: backup file %s not found for recovery", bakPath)
+			}
+		}
+	} else if os.IsNotExist(err) && fileExists(bakPath) {
+		if bakData, bakErr := os.ReadFile(bakPath); bakErr == nil {
+			if bakDecodeErr := json.Unmarshal(bakData, cfg); bakDecodeErr == nil {
+				log.Printf("[config] Primary config missing, restored from backup %s", bakPath)
+				_ = atomicWrite(targetPath, bakData)
 			}
 		}
 	}
@@ -152,6 +297,16 @@ func Load() *Config {
 	}
 	if cfg.DeployMode == "" {
 		cfg.DeployMode = "git"
+	}
+	if cfg.Theme == "" {
+		cfg.Theme = "dark"
+	}
+	// 外部 custom.css 双向融合
+	customCSSFile := filepath.Join(AppConfigDir(), "custom.css")
+	if cssData, err := os.ReadFile(customCSSFile); err == nil {
+		if cfg.CustomCSS == "" {
+			cfg.CustomCSS = string(cssData)
+		}
 	}
 	if cfg.GitCommitTemplate == "" {
 		cfg.GitCommitTemplate = "chore(cover): update cover for {title}"
@@ -223,6 +378,50 @@ func Load() *Config {
 	return cfg
 }
 
+// atomicWrite 将数据原子性写入目标文件，避免断电或并发写造成的配置截断损坏
+func atomicWrite(filePath string, data []byte) error {
+	dir := filepath.Dir(filePath)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	} else {
+		dir = "."
+	}
+
+	tmpFile, err := os.CreateTemp(dir, filepath.Base(filePath)+".tmp-*")
+	if err != nil {
+		return os.WriteFile(filePath, data, 0644)
+	}
+	tmpName := tmpFile.Name()
+	defer func() {
+		if tmpName != "" {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Rename(tmpName, filePath); err != nil {
+		_ = os.Remove(filePath)
+		if err := os.Rename(tmpName, filePath); err != nil {
+			return os.WriteFile(filePath, data, 0644)
+		}
+	}
+	tmpName = ""
+	return nil
+}
+
 func (c *Config) Save() error {
 	targetPath := ConfigPath()
 	c.ConfigFilePath = targetPath
@@ -242,7 +441,26 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(targetPath, data, 0644)
+
+	// 备份现有的合法配置文件 (基于动态计算的 targetPath + ".bak")
+	bakPath := targetPath + ".bak"
+	if fileExists(targetPath) {
+		if existingData, readErr := os.ReadFile(targetPath); readErr == nil && len(existingData) > 0 {
+			if json.Valid(existingData) {
+				_ = atomicWrite(bakPath, existingData)
+			}
+		}
+	}
+
+	// 同步写出 ~/.config/hpic/custom.css (若有配置或之前已有该文件)
+	cfgDir := AppConfigDir()
+	customCSSFile := filepath.Join(cfgDir, "custom.css")
+	if c.CustomCSS != "" || fileExists(customCSSFile) {
+		_ = os.MkdirAll(cfgDir, 0755)
+		_ = atomicWrite(customCSSFile, []byte(c.CustomCSS))
+	}
+
+	return atomicWrite(targetPath, data)
 }
 
 // AutoDetectHexoDir 递归向上探测 Hexo 站点根目录 (包含 _config.yml)

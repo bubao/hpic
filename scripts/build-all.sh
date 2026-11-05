@@ -22,15 +22,12 @@ echo -e "${CYAN}======================================================${NC}"
 echo -e "${CYAN}  hpic 全平台交叉编译与打包工具             ${NC}"
 echo -e "${CYAN}======================================================${NC}"
 
-# 1. 解析版本号 (多级回退: 环境变量 -> Git Tag -> CHANGELOG -> package.json)
+# 1. 解析版本号 (优先级: 外部指定环境变量 -> 根目录 VERSION 文件 -> Git Tag)
+if [ -z "$VERSION" ] && [ -f "VERSION" ]; then
+    VERSION=$(cat VERSION | tr -d '\r\n ')
+fi
 if [ -z "$VERSION" ]; then
-    VERSION=$(git describe --tags --abbrev=0 2>/dev/null || true)
-fi
-if [ -z "$VERSION" ] && [ -f "CHANGELOG.md" ]; then
-    VERSION=$(grep -E '^## \[[vV]?[0-9]+' CHANGELOG.md | head -n 1 | sed -E 's/.*\[[vV]?([0-9.]+)\].*/\1/')
-fi
-if [ -z "$VERSION" ] && [ -f "frontend/package.json" ]; then
-    VERSION=$(grep '"version"' frontend/package.json | head -n 1 | awk -F: '{ print $2 }' | sed 's/[", ]//g')
+    VERSION=$(git describe --tags --exact-match 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || true)
 fi
 VERSION="${VERSION:-0.0.1}"
 VERSION="${VERSION#v}"
@@ -75,7 +72,7 @@ if [ ! -f "assets/hpic.desktop" ]; then
     cat << 'EOF' > "assets/hpic.desktop"
 [Desktop Entry]
 Name=hpic
-Comment=Hexo Blog Cover and Drafts Image Manager (HexoPic)
+Comment=Hexo Blog Cover and Drafts Image Manager (hexo picture)
 Exec=hpic
 Icon=hpic
 Terminal=false
@@ -93,7 +90,7 @@ mkdir -p "$STAGE_DIR"
 
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
-LDFLAGS="-w -s -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT} -X main.BuildDate=${BUILD_DATE}"
+LDFLAGS="-w -s -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT} -X main.BuildDate=${BUILD_DATE} -X hpic/internal/version.Version=${VERSION} -X hpic/internal/version.GitCommit=${GIT_COMMIT} -X hpic/internal/version.BuildDate=${BUILD_DATE}"
 
 echo ""
 echo -e "${CYAN}[3/5] 开始跨平台交叉编译二进制产物...${NC}"

@@ -13,7 +13,7 @@ hpic 采用 **Go + React + 平台原生层** 的技术架构。根据你所处�
 | 软件 / 工具 | 最低版本要求 | 推荐版本 | 用途说明 |
 | :--- | :--- | :--- | :--- |
 | **Go** | >= 1.22 | >= 1.22 | 服务端内核编译、内嵌静态资源 (`embed`)、自更新与 CLI 工具链 |
-| **Node.js** | >= 18.0 | >= 20.0 LTS | 编译 React 18 前端静态产物、运行图标算法构建脚本 |
+| **Node.js** | >= 18.0 | >= 20.0 LTS | 编译 React 19 前端静态产物、运行图标算法构建脚本 |
 | **npm** | >= 9.0 | 最新稳定版 | 前端依赖管理与 Vite 构建驱动 |
 | **Git** | >= 2.0 | 最新版 | 权威版本推导 (Git Tag)、发版工作流、博客部署状态检测 |
 
@@ -111,11 +111,14 @@ hpic/
 │   ├── config.md       # 配置文件规范说明
 │   ├── development.md  # 本地开发与软件依赖指南
 │   ├── faq.md          # 常见排错与知识库
-│   └── icon-design.md  # 矢量图标数学几何与渲染引擎设计
-├── frontend/           # React 18 前端工程 (Vite + TypeScript)
+│   └── theme-guide.md  # 自定义换肤与主题样式指南
+├── frontend/           # React 19 前端工程 (Vite + TypeScript + Custom Hooks)
+│   ├── src/components/ # 原子组件、弹窗与设置分类 Tab (components/settings/)
+│   └── src/hooks/      # 领域状态解耦 Hooks (useHexoRunner / usePostList / useModalManager)
 ├── internal/           # Go 后台核心模块
-│   ├── api/            # HTTP RESTful 路由、自更新与安全代理
-│   ├── config/         # 配置文件读写与环境隔离
+│   ├── api/            # 领域拆解的 HTTP 路由 (posts / hexo / proxy / search / config)
+│   ├── config/         # 静态 JSON 配置文件读写与环境隔离
+│   ├── db/             # 纯 Go 免 CGO SQLite 审计与操作历史数据库 (hpic.db)
 │   ├── favorites/      # 收藏夹与去重规范化
 │   ├── hexo/           # Hexo CLI 智能探测与子进程生命周期
 │   ├── post/           # Markdown Frontmatter 解析与近零流量体检

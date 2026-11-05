@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrokenReport, PostInfo } from '../types';
-import { ExternalLink, Copy, Trash2, AlertTriangle, Image as ImageIcon, Star, RefreshCw, Loader2 } from 'lucide-react';
+import { ExternalLink, Copy, Trash2, AlertTriangle, Image as ImageIcon, Star, RefreshCw, Loader2, RotateCcw, History } from 'lucide-react';
 import { useFavorites } from '../context/FavoritesContext';
 import { getImageAspectRatio } from '../utils/imageMeta';
 import { ImageFilenameTag } from './ImageFilenameTag';
@@ -17,6 +17,11 @@ interface CoverAreaProps {
   onCopyText: (text: string) => void;
   onOpenSystemURL: (url: string) => void;
   onMarkBroken?: (url: string, field: string) => void;
+  onUndo?: () => void;
+  canUndo?: boolean;
+  undoDesc?: string;
+  onOpenHistory?: () => void;
+  historyCount?: number;
 }
 
 // 独立的封面图片展示卡片组件，负责清空旧图、毛玻璃加载过渡与 404 容错
@@ -121,20 +126,20 @@ const CoverImageDisplay: React.FC<CoverImageDisplayProps> = ({
   if (loadStatus === 'empty' || !url) {
     return (
       <div className="cover-img-placeholder">
-        <ImageIcon size={28} style={{ opacity: 0.4 }} />
-        <span style={{ fontSize: 12, opacity: 0.7 }}>未设置图片，可从下方选择或拖拽至此</span>
+        <ImageIcon size={28} className="cover-placeholder-icon" />
+        <span className="cover-placeholder-text">未设置图片，可从下方选择或拖拽至此</span>
       </div>
     );
   }
 
   return (
     <>
-      {/* 2. 毛玻璃微光过渡动画层 (旧图先清空，底层为干净深色背景，加载就绪前持续呈现毛玻璃流光动画) */}
+      {/* 2. 毛玻璃微光过渡动画层 */}
       {loadStatus === 'loading' && (
         <div className="cover-frosted-loader">
           <div className="cover-frosted-shine" />
           <Loader2 size={22} className="spin-icon" color="var(--primary-color)" />
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)', zIndex: 1, fontWeight: 500 }}>
+          <span className="cover-loader-text">
             正在载入封面图片...
           </span>
         </div>
@@ -147,21 +152,20 @@ const CoverImageDisplay: React.FC<CoverImageDisplayProps> = ({
           onClick={() => setRetryKey(k => k + 1)}
           title="点击重新探测加载"
         >
-          <AlertTriangle size={24} color="#ef4444" style={{ marginBottom: 2 }} />
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#fca5a5' }}>
+          <AlertTriangle size={24} color="#ef4444" />
+          <div className="cover-error-title">
             图片暂时无法载入 (防盗链或网络超时)
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          <div className="cover-error-desc">
             可点击重新检测，或从下方图库拖拽新配图替换
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <div className="cover-error-actions">
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              style={{ fontSize: 11, height: 24, padding: '0 8px' }}
               onClick={e => { e.stopPropagation(); setRetryKey(k => k + 1); }}
             >
-              <RefreshCw size={11} style={{ marginRight: 4 }} /> 重新加载
+              <RefreshCw size={11} /> 重新加载
             </button>
             {url.startsWith('http') && (
               <a
@@ -169,10 +173,9 @@ const CoverImageDisplay: React.FC<CoverImageDisplayProps> = ({
                 target="_blank"
                 rel="noreferrer"
                 className="btn btn-sm btn-ghost"
-                style={{ fontSize: 11, height: 24, padding: '0 8px', textDecoration: 'none' }}
                 onClick={e => e.stopPropagation()}
               >
-                <ExternalLink size={11} style={{ marginRight: 4 }} /> 浏览器直开
+                <ExternalLink size={11} /> 浏览器直开
               </a>
             )}
           </div>
@@ -219,6 +222,11 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
   onCopyText,
   onOpenSystemURL,
   onMarkBroken,
+  onUndo,
+  canUndo = false,
+  undoDesc = '',
+  onOpenHistory,
+  historyCount = 0,
 }) => {
   const { isFavorited, toggleFavorite } = useFavorites();
   // 查找当前文章是否真正包含 404 封面 (严格比对当前字段的真实 URL 与体检报告的 URL，若用户已替换新照片则自动解除警告)
@@ -258,10 +266,38 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
           <h2 className="current-post-title">{post.title}</h2>
           <div className="current-post-path">{post.file_name}</div>
         </div>
-        <button className="btn btn-sm btn-ghost" onClick={onClearAll} title="清空该文章的全部封面字段">
-          <Trash2 size={13} style={{ marginRight: 4 }} />
-          全部清空
-        </button>
+
+        <div className="post-head-actions">
+          {/* 专属博文撤销按钮 */}
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={onUndo}
+            disabled={!canUndo}
+            title={canUndo ? `撤销上一操作: ${undoDesc || '恢复变更前封面'}` : '当前文章暂无可撤销操作'}
+          >
+            <RotateCcw size={13} style={{ marginRight: 4 }} />
+            <span>撤销</span>
+          </button>
+
+          {/* 专属博文变更历史 */}
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={onOpenHistory}
+            title="查看此博文的所有封面演变历史与时光机快照"
+          >
+            <History size={13} style={{ marginRight: 4 }} />
+            <span>历史记录</span>
+            {historyCount > 0 && <span className="tab-count-badge">{historyCount}</span>}
+          </button>
+
+          {/* 全部清空 */}
+          <button className="btn btn-sm btn-ghost" onClick={onClearAll} title="清空该文章的全部封面字段">
+            <Trash2 size={13} style={{ marginRight: 4 }} />
+            全部清空
+          </button>
+        </div>
       </div>
 
       {brokenFieldList.length > 0 && (
@@ -288,9 +324,9 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
             >
               <div className="cover-card-header">
                 <span className="field-tag-name">{field}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="cover-card-header-right">
                   {hasImage && isFav && (
-                    <span style={{ color: '#f59e0b', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 600 }}>
+                    <span className="cover-fav-pill">
                       <Star size={11} fill="#f59e0b" color="#f59e0b" />
                       已收藏
                     </span>

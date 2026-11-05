@@ -21,21 +21,34 @@ import (
 	"hpic/internal/api"
 	"hpic/internal/config"
 	"hpic/internal/hexo"
+	"hpic/internal/version"
 )
 
 //go:generate npm --prefix frontend run build
 //go:embed web/*
 var embeddedWeb embed.FS
 
+//go:embed VERSION
+var embeddedVersion string
+
 //go:embed CHANGELOG.md
 var embeddedChangelog string
 
-// 动态构建信息，编译时通过 -ldflags 注入
+// 动态构建信息，编译时可通过 -ldflags 覆盖注入 (例如 -X main.Version=v0.0.2)
 var (
-	Version   = "0.0.1"
+	Version   = ""
 	GitCommit = "dev"
 	BuildDate = "unknown"
 )
+
+func init() {
+	if Version == "" || Version == "dev" {
+		Version = version.ResolveVersion(embeddedVersion)
+	}
+	version.Version = Version
+	version.GitCommit = GitCommit
+	version.BuildDate = BuildDate
+}
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "hpic - 极简 Hexo 博客封面与文章配图管理工具\n\n")
@@ -186,7 +199,7 @@ func main() {
 	}
 
 	httpServer := &http.Server{
-		Handler: server.Mux,
+		Handler: server,
 	}
 
 	// 启动 HTTP 服务
@@ -233,7 +246,7 @@ func checkAndActivateExistingInstance(startPort, endPort int) bool {
 			_ = resp.Body.Close()
 
 			// 验证服务标识，确保是 hpic，防止误碰占用端口的其他程序
-			if appName, ok := result["app"].(string); ok && (appName == "hpic" || appName == "ppic" || appName == "bpic" || appName == "hexocover") {
+			if appName, ok := result["app"].(string); ok && appName == "hpic" {
 				activateExistingWindow()
 				return true
 			}
@@ -259,8 +272,6 @@ func activateExistingWindow() {
 		appCandidates := []string{
 			filepath.Join(home, "Applications", "hpic.app"),
 			"/Applications/hpic.app",
-			filepath.Join(home, "Applications", "HexoPic.app"),
-			"/Applications/HexoPic.app",
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -312,8 +323,6 @@ func launchDesktopWindow(url string) {
 			filepath.Join(home, ".local", "bin", "hpic-mac-ui"),
 			filepath.Join(home, "Applications", "hpic.app", "Contents", "MacOS", "hpic-mac-ui"),
 			"/Applications/hpic.app/Contents/MacOS/hpic-mac-ui",
-			filepath.Join(home, "Applications", "HexoPic.app", "Contents", "MacOS", "hpic-mac-ui"),
-			"/Applications/HexoPic.app/Contents/MacOS/hpic-mac-ui",
 			filepath.Join(exeDir, "..", "MacOS", "hpic-mac-ui"),
 			filepath.Join(exeDir, "native_macos", "hpic-mac-ui"),
 		}

@@ -1,10 +1,10 @@
-# hpic (HexoPic) Windows 完整卸载脚本
+# hpic (hexo picture) Windows 完整卸载脚本
 # 使用方法：在 PowerShell 中执行 powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 
 $ErrorActionPreference = "SilentlyContinue"
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  hpic (HexoPic) Windows 卸载向导" -ForegroundColor Cyan
+Write-Host "  hpic (hexo picture) Windows 卸载向导" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\hpic"
@@ -73,6 +73,6 @@ if (Test-Path (Join-Path $OldLegacyDir "hpic-desktop.exe")) {
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "  hpic (HexoPic) 已从您的系统中彻底卸载" -ForegroundColor Green
+Write-Host "  hpic (hexo picture) 已从您的系统中彻底卸载" -ForegroundColor Green
 Write-Host "  * 无任何开机自启、无残留后台服务、无垃圾注册表" -ForegroundColor Gray
 Write-Host "==================================================" -ForegroundColor Cyan

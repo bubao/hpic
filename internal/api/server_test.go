@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -254,5 +255,17 @@ func TestPostAPIsAndPathValidation(t *testing.T) {
 	s.Mux.ServeHTTP(wTraversal, reqTraversal)
 	if wTraversal.Code != http.StatusForbidden {
 		t.Errorf("Expected 403 Forbidden for path outside blog, got %d", wTraversal.Code)
+	}
+
+	// 4. /api/posts/health-check/stream 流式体检接口
+	reqStream := httptest.NewRequest("GET", "/api/posts/health-check/stream", nil)
+	wStream := httptest.NewRecorder()
+	s.Mux.ServeHTTP(wStream, reqStream)
+	if wStream.Code != http.StatusOK {
+		t.Errorf("Expected 200 for /api/posts/health-check/stream, got %d", wStream.Code)
+	}
+	bodyStr := wStream.Body.String()
+	if !strings.Contains(bodyStr, "data:") {
+		t.Errorf("Expected SSE data in stream response, got: %s", bodyStr)
 	}
 }

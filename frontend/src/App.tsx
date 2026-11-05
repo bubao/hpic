@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Config, HexoStatus, PostInfo, BrokenReport, VersionInfo } from './types';
+import { Config, BrokenReport, VersionInfo, LegacyCheckResult } from './types';
 import { api } from './api';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -11,22 +11,75 @@ import { SettingsModal } from './components/SettingsModal';
 import { Lightbox } from './components/Lightbox';
 import { ManualUrlModal } from './components/ManualUrlModal';
 import { DeployModal } from './components/DeployModal';
-import { ConfirmModal, DiffPreviewData } from './components/ConfirmModal';
+import { ConfirmModal } from './components/ConfirmModal';
 import { UpdateModal } from './components/UpdateModal';
+import { CreatePostModal } from './components/CreatePostModal';
+import { PostHistoryModal } from './components/PostHistoryModal';
 import { FileText, ArrowUp } from 'lucide-react';
 import { useToast } from './context/ToastContext';
+import { useTheme, AppTheme } from './utils/useTheme';
+import { useHexoRunner } from './hooks/useHexoRunner';
+import { usePostList } from './hooks/usePostList';
+import { useModalManager } from './hooks/useModalManager';
 
 export const App: React.FC = () => {
   const toast = useToast();
   const [config, setConfig] = useState<Config | null>(null);
-  const [posts, setPosts] = useState<PostInfo[]>([]);
-  const [selectedPost, setSelectedPost] = useState<PostInfo | null>(null);
-  const [hexoStatus, setHexoStatus] = useState<HexoStatus | null>(null);
+
+  // 1. 弹窗与对话框管理器
+  const modals = useModalManager();
+
+  // 2. Hexo 运行管理模型
+  const hexo = useHexoRunner({
+    onOpenLogs: () => modals.setIsLogsOpen(true),
+  });
+
+  // 3. 博文列表与操作历史模型
+  const postList = usePostList();
+  const {
+    posts,
+    setPosts,
+    selectedPost,
+    setSelectedPost,
+    searchQuery,
+    setSearchQuery,
+    sortBy,
+    setSortBy,
+    isRefreshingPosts,
+    handleRefreshPosts,
+    loadPostsList,
+    postHistory,
+    loadPostHistory,
+  } = postList;
+
+  // 旧版配置检测与平滑迁移状态
+  const [legacyCheck, setLegacyCheck] = useState<LegacyCheckResult | null>(null);
 
   // 404 失效封面报告
   const [brokenReports, setBrokenReports] = useState<BrokenReport[]>([]);
-  // 经实时探测确认已失效的原图 URL 集合（用于在预览退出后即时在所有界面标注 404 失效）
+  // 经实时探测确认已失效的原图 URL 集合
   const [brokenUrls, setBrokenUrls] = useState<Set<string>>(new Set());
+
+  // 主题与自定义 CSS 动态挂载
+  const currentTheme = config?.theme || 'dark';
+  const customCSS = config?.custom_css || '';
+  useTheme(currentTheme, customCSS);
+
+  const handleSelectTheme = async (nextTheme: AppTheme) => {
+    if (nextTheme === currentTheme) return;
+    const nextLabel = nextTheme === 'light' ? '亮色清爽模式' : nextTheme === 'auto' ? '跟随系统' : '暗色黑夜模式';
+    toast.info(`已切换至: ${nextLabel}`);
+    if (config) {
+      const updatedConfig = { ...config, theme: nextTheme };
+      setConfig(updatedConfig);
+      await api.saveConfig({ theme: nextTheme });
+    }
+  };
+
+  const handleToggleTheme = async () => {
+    const nextTheme: AppTheme = currentTheme === 'dark' ? 'light' : currentTheme === 'light' ? 'auto' : 'dark';
+    handleSelectTheme(nextTheme);
+  };
 
   // 登记原图失效并同步注入博文体检报告与全局状态
   const handleMarkBroken = useCallback((brokenUrl: string, filePath?: string, field?: string, postTitle?: string) => {
@@ -41,59 +94,27 @@ export const App: React.FC = () => {
 
     setBrokenReports(prev => {
       const newReports = [...prev];
-      let updated = false;
-
       if (filePath && field) {
-        const exists = newReports.some(r => r.file_path === filePath && r.field === field && r.url === brokenUrl);
-        if (!exists) {
-          const matchedPost = posts.find(p => p.file_path === filePath);
-          const fName = matchedPost?.file_name || filePath.split(/[\\/]/).pop() || '';
+        const exist = newReports.some(r => r.file_path === filePath && r.field === field);
+        if (!exist) {
           newReports.push({
             file_path: filePath,
-            file_name: fName,
-            post_title: postTitle || matchedPost?.title || '未命名文章',
+            file_name: filePath.split('/').pop() || '未命名文章',
+            post_title: postTitle || '未命名文章',
             field: field,
             url: brokenUrl,
             status_code: 404,
-            error: '原图源站 404 已失效',
+            error: '图片资源失效 (404 Not Found)',
           });
-          updated = true;
         }
       }
-
-      // 自动同步反查全局包含该 URL 的所有文章与字段
-      posts.forEach(p => {
-        if (!p.images) return;
-        Object.entries(p.images).forEach(([f, u]) => {
-          if (u === brokenUrl) {
-            const exists = newReports.some(r => r.file_path === p.file_path && r.field === f);
-            if (!exists) {
-              newReports.push({
-                file_path: p.file_path,
-                file_name: p.file_name,
-                post_title: p.title,
-                field: f,
-                url: brokenUrl,
-                status_code: 404,
-                error: '原图源站 404 已失效',
-              });
-              updated = true;
-            }
-          }
-        });
-      });
-
-      return updated ? newReports : prev;
+      return newReports;
     });
-  }, [posts]);
+  }, []);
 
-  // 自动版本检测与更新
+  // 版本升级检测状态
   const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
-  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
-
-  // 状态栏
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState('date_desc');
+  const [isHealthChecking, setIsHealthChecking] = useState(false);
 
   // 右侧核心内容区滚动引用与回到顶部按钮
   const mainContentRef = useRef<HTMLElement | null>(null);
@@ -107,39 +128,15 @@ export const App: React.FC = () => {
     mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 状态操作标识
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isDeploying, setIsDeploying] = useState(false);
-  const [isHealthChecking, setIsHealthChecking] = useState(false);
-  const [deployError, setDeployError] = useState<string | null>(null);
-
-  // 弹窗状态
-  const [isHealthOpen, setIsHealthOpen] = useState(false);
-  const [isLogsOpen, setIsLogsOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isManualOpen, setIsManualOpen] = useState(false);
-  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
-  const [confirmModalState, setConfirmModalState] = useState<{
-    isOpen: boolean;
-    title: string;
-    message?: string;
-    subMessage?: string;
-    thumbUrl?: string;
-    diffPreview?: DiffPreviewData;
-    confirmText?: string;
-    cancelText?: string;
-    danger?: boolean;
-    onConfirm: () => void;
-  }>({
-    isOpen: false,
-    title: '',
-    onConfirm: () => {},
-  });
-  const [lightboxState, setLightboxState] = useState<{ isOpen: boolean; url: string; title: string; fallbackUrl?: string }>({
-    isOpen: false,
-    url: '',
-    title: '',
-  });
+  const canUndo = postHistory.some(h => !h.is_undone);
+  const undoDesc = useMemo(() => {
+    const last = postHistory.find(h => !h.is_undone);
+    if (!last) return '';
+    if (last.operation_type === 'update_cover') return `恢复变更前的封面 (${last.field || '封面'})`;
+    if (last.operation_type === 'clear_cover') return `恢复被清空的封面 (${last.field || '封面'})`;
+    if (last.operation_type === 'insert_image') return '移除追加的正文配图';
+    return '撤销上一变动';
+  }, [postHistory]);
 
   // 加载基础配置与文章列表
   const loadInitialData = async () => {
@@ -147,132 +144,81 @@ export const App: React.FC = () => {
       const cfg = await api.getConfig();
       setConfig(cfg);
       const postsRes = await api.getPosts('', 'date_desc');
-      setPosts(postsRes.posts || []);
-      if (postsRes.posts && postsRes.posts.length > 0) {
-        setSelectedPost(postsRes.posts[0]);
-      }
+      const newPosts = postsRes.posts || [];
+      setPosts(newPosts);
+      setSelectedPost(prev => {
+        if (!prev) return newPosts.length > 0 ? newPosts[0] : null;
+        const found = newPosts.find(p => p.file_path === prev.file_path || p.title === prev.title);
+        return found || prev;
+      });
     } catch (e) {
       console.error('Failed to load initial data:', e);
     }
   };
 
-  // 静默检查版本更新 (定时轮询与初次加载共用)
+  // 静默检查版本更新
   const pollVersionUpdate = async () => {
     try {
       const info = await api.checkVersion();
       setUpdateInfo(info);
     } catch {
-      // 网络离线或波动时静默忽略，不弹窗打扰博主
+      // 静默忽略
     }
-  };
-
-  const loadPostsList = async (q = searchQuery, s = sortBy) => {
-    try {
-      const res = await api.getPosts(q, s);
-      setPosts(res.posts || []);
-    } catch (e) {
-      console.error('Failed to load posts:', e);
-    }
-  };
-
-  const fetchStatus = async () => {
-    try {
-      const s = await api.getHexoStatus();
-      setHexoStatus(s);
-    } catch {}
   };
 
   useEffect(() => {
     loadInitialData();
-    fetchStatus();
+    hexo.fetchStatus();
+
+    api.checkLegacyConfig().then(res => {
+      if (res && res.has_legacy) {
+        setLegacyCheck(res);
+      }
+    }).catch(() => {});
+
     pollVersionUpdate();
-
-    // 1. Hexo 本地服务状态每 3 秒检测一次
-    const hexoTimer = setInterval(fetchStatus, 3000);
-
-    // 2. GitHub Release 版本更新：每 10 分钟自动静默轮询一次
-    const VERSION_POLL_INTERVAL = 10 * 60 * 1000;
-    const versionTimer = setInterval(pollVersionUpdate, VERSION_POLL_INTERVAL);
-
-    return () => {
-      clearInterval(hexoTimer);
-      clearInterval(versionTimer);
-    };
+    const updateTimer = setInterval(pollVersionUpdate, 30 * 60 * 1000);
+    return () => clearInterval(updateTimer);
   }, []);
 
-  // 排序与搜索变更
-  const handleSearchChange = (q: string) => {
-    setSearchQuery(q);
-    loadPostsList(q, sortBy);
-  };
+  // 监听前后端版本契约裂隙并轻提示刷新
+  useEffect(() => {
+    const unsubscribe = api.onVersionMismatch((newVersion: string) => {
+      const displayVer = newVersion.startsWith('v') || newVersion.startsWith('V') ? newVersion : `v${newVersion}`;
+      toast.info(`检测到后端服务已更新至 ${displayVer}，建议刷新页面以同步最新能力`, {
+        action: {
+          label: '刷新',
+          onClick: () => window.location.reload(),
+        },
+        duration: 8000,
+      });
+    });
+    return unsubscribe;
+  }, [toast]);
 
-  const handleSortChange = (s: string) => {
-    setSortBy(s);
-    loadPostsList(searchQuery, s);
-  };
-
-  // Hexo 服务与部署
-  const handleToggleServer = async () => {
-    const isRunning = !!(hexoStatus?.server_running || hexoStatus?.running);
-    if (isRunning) {
-      const res = await api.stopHexoServer();
-      if (res.success && res.status) {
-        setHexoStatus(res.status);
+  // 快捷键支持
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        const isInputFocused = ['INPUT', 'TEXTAREA'].includes((document.activeElement?.tagName || ''));
+        if (!isInputFocused && canUndo && selectedPost?.file_path) {
+          e.preventDefault();
+          handleUndoPost(selectedPost.file_path);
+        }
       }
-      setTimeout(fetchStatus, 300);
-      setTimeout(fetchStatus, 1000);
-    } else {
-      const res = await api.startHexoServer(4000);
-      if (res.success && res.status) {
-        setHexoStatus(res.status);
-        toast.success('Hexo 本地服务启动成功！');
-      } else {
-        toast.error(`启动 Hexo 服务失败: ${res.error || '未知错误，请查看控制台日志'}`);
-        setIsLogsOpen(true);
-      }
-      setTimeout(fetchStatus, 600);
-      setTimeout(fetchStatus, 1500);
-    }
-  };
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canUndo, selectedPost?.file_path]);
 
-  const handlePreview = () => {
-    api.openSystemURL(`http://localhost:${hexoStatus?.port || 4000}`);
-  };
-
-  const handleGenerate = async () => {
-    setIsGenerating(true);
-    try {
-      const res = await api.runHexoGenerate();
-      if (res.success) {
-        toast.success(`静态生成完成！耗时: ${res.duration}`);
-        fetchStatus();
-      } else {
-        toast.error('生成失败: ' + res.error);
-        setIsLogsOpen(true);
-      }
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleClean = async () => {
-    const res = await api.runHexoClean();
-    if (res.success) {
-      toast.success(`清理完成！耗时: ${res.duration}`);
-      fetchStatus();
-    }
-  };
-
-  // 点击顶栏部署按钮：打开部署弹窗
   const handleOpenDeployModal = () => {
-    setDeployError(null);
-    setIsDeployModalOpen(true);
+    hexo.setDeployError(null);
+    modals.setIsDeployModalOpen(true);
   };
 
-  // 部署弹窗内提交
   const handleExecuteDeploy = async (opts: { mode: 'git' | 'hexo'; commitMsg: string; files: string[] }) => {
-    setIsDeploying(true);
-    setDeployError(null);
+    hexo.setIsDeploying(true);
+    hexo.setDeployError(null);
     try {
       const res = await api.runHexoDeploy({
         mode: opts.mode,
@@ -280,25 +226,23 @@ export const App: React.FC = () => {
         files: opts.files,
       });
       if (res.success) {
-        setIsDeployModalOpen(false);
+        modals.setIsDeployModalOpen(false);
         if (opts.mode === 'git') {
           toast.success(`Git 推送成功！已触发线上构建 (耗时: ${res.duration})`);
         } else {
           toast.success(`Hexo 部署成功！耗时: ${res.duration}`);
         }
-        fetchStatus();
+        hexo.fetchStatus();
       } else {
-        setDeployError(res.error || '发布未成功，请查看上方提示');
+        hexo.setDeployError(res.error || '发布未成功，请查看上方提示');
       }
     } catch (e: any) {
-      setDeployError(e?.message || '网络连接失败');
+      hexo.setDeployError(e?.message || '网络连接失败');
     } finally {
-      setIsDeploying(false);
+      hexo.setIsDeploying(false);
     }
   };
 
-  // 应用图片到文章封面
-  // 底层执行封面写入
   const doApplyImage = async (url: string, fields: string[]) => {
     if (!selectedPost) return;
     const res = await api.updatePost({
@@ -308,56 +252,71 @@ export const App: React.FC = () => {
     });
     if (res.success && res.post) {
       setSelectedPost(res.post);
-      // 更新列表中的文章数据
       setPosts(prev => prev.map(p => p.file_path === res.post!.file_path ? res.post! : p));
-      // 核心：用户已替换了正常照片，立即从体检失效列表中移除这几个字段的失效记录！
       setBrokenReports(prev => prev.filter(b => !(b.file_path === selectedPost.file_path && fields.includes(b.field))));
+      loadPostHistory(selectedPost.file_path);
       toast.success('封面已成功更新');
     } else if (res.error) {
       toast.error(res.error);
     }
   };
 
-  // 应用图片到文章封面 (安全拦截：1. 若目标原图 404 失效，阻断使用；2. 若源站防盗链，给出明确警示；3. 若覆盖已有图片，弹出前后对比确认)
-  const handleApplyImage = async (url: string, fields: string[]) => {
+  const handleUndoPost = async (filePath?: string) => {
+    const targetPath = filePath || selectedPost?.file_path;
+    if (!targetPath) return;
+
+    try {
+      const res = await api.undoPostOperation(targetPath);
+      if (res.success && res.post) {
+        setSelectedPost(res.post);
+        setPosts(prev => prev.map(p => p.file_path === res.post!.file_path ? res.post! : p));
+        loadPostHistory(targetPath);
+        toast.success('已成功撤销上一步操作！');
+      } else {
+        toast.error(`撤销失败: ${res.error || '没有可撤销的操作'}`);
+      }
+    } catch (err: any) {
+      toast.error(`撤销异常: ${err.message || '未知错误'}`);
+    }
+  };
+
+  const handleInsertBodyImage = async (url: string, imageTitle: string) => {
     if (!selectedPost) {
       toast.info('请先在左侧选择一篇文章');
       return;
     }
 
-    // 1. 严格使用资源自己的地址，点击使用时触发源站连通性与防盗链拦截检查
-    if (url.startsWith('http')) {
-      try {
-        const check = await api.checkImageHealth(url);
-        if (check.is_broken) {
-          toast.error('【已拦截】该图片在源站已 404 失效，无法作为博客封面！请换选其他图片。');
-          return;
-        }
-        if (check.need_proxy) {
-          toast.error('【防盗链警告】该图床服务器限制外部直接引用 (Hotlink Protection)，发布到博客后很可能裂图，建议挑选其他可公开直连的壁纸！');
-          // 给予用户二次确认或直接警示
-        }
-      } catch {
-        // 网络异常时不强行阻断
+    try {
+      const res = await api.insertPostImage({
+        file_path: selectedPost.file_path,
+        image_url: url,
+        title: imageTitle,
+      });
+      if (res.success && res.post) {
+        setSelectedPost(res.post);
+        setPosts(prev => prev.map(p => p.file_path === res.post!.file_path ? res.post! : p));
+        loadPostHistory(selectedPost.file_path);
+        toast.success(`已将图片追加插入至《${selectedPost.title}》正文末尾`);
+      } else {
+        toast.error(`追加插入失败: ${res.error || '未知错误'}`);
       }
+    } catch (err: any) {
+      toast.error(`插入图片异常: ${err.message || '未知错误'}`);
     }
+  };
 
-    // 2. 检查是否有已有封面图片将被覆盖
+  const handleApplyImage = async (url: string, fields: string[]) => {
+    if (!selectedPost) return;
+
     const existingOverrides = fields
-      .map(f => {
-        const oldUrl = (selectedPost.images && selectedPost.images[f]) ||
-          (f === 'index_img' ? selectedPost.index_img : f === 'banner_img' ? selectedPost.banner_img : '') || '';
-        return { field: f, oldUrl };
-      })
-      .filter(item => item.oldUrl && item.oldUrl.trim() !== '' && item.oldUrl !== url);
+      .map(f => ({ field: f, oldUrl: selectedPost.images[f] }))
+      .filter(item => Boolean(item.oldUrl));
 
     if (existingOverrides.length > 0) {
-      // 目标字段已有封面，触发覆盖确认对比弹窗，防误触防覆盖丢失
       const overrideFields = existingOverrides.map(o => o.field);
       const firstOldUrl = existingOverrides[0].oldUrl;
 
-      setConfirmModalState({
-        isOpen: true,
+      modals.openConfirm({
         title: '覆盖封面确认',
         diffPreview: {
           oldUrl: firstOldUrl,
@@ -369,18 +328,16 @@ export const App: React.FC = () => {
         cancelText: '取消',
         danger: false,
         onConfirm: async () => {
-          setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+          modals.closeConfirm();
           await doApplyImage(url, fields);
         },
       });
       return;
     }
 
-    // 若原先字段为空，直接写入应用，无需繁琐确认打扰用户
     await doApplyImage(url, fields);
   };
 
-  // 清除单个封面字段
   const handleClearField = async (field: string) => {
     if (!selectedPost) return;
     const res = await api.updatePost({
@@ -391,22 +348,25 @@ export const App: React.FC = () => {
       setSelectedPost(res.post);
       setPosts(prev => prev.map(p => p.file_path === res.post!.file_path ? res.post! : p));
       setBrokenReports(prev => prev.filter(b => !(b.file_path === selectedPost.file_path && b.field === field)));
-      toast.success(`已清除 ${field}`);
+      toast.success(`已清除 ${field}`, {
+        action: {
+          label: '撤销',
+          onClick: () => handleUndoPost(selectedPost.file_path),
+        },
+      });
     }
   };
 
-  // 清除所有封面字段 (使用 React ConfirmModal 代替原生 confirm)
   const handleClearAll = () => {
     if (!selectedPost) return;
-    setConfirmModalState({
-      isOpen: true,
+    modals.openConfirm({
       title: '清空封面确认',
       message: `确定清除《${selectedPost.title}》的所有封面图片吗？`,
       confirmText: '确认清空',
       cancelText: '取消',
       danger: true,
       onConfirm: async () => {
-        setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+        modals.closeConfirm();
         const res = await api.updatePost({
           file_path: selectedPost.file_path,
           clear_fields: ['all'],
@@ -415,79 +375,91 @@ export const App: React.FC = () => {
           setSelectedPost(res.post);
           setPosts(prev => prev.map(p => p.file_path === res.post!.file_path ? res.post! : p));
           setBrokenReports(prev => prev.filter(b => b.file_path !== selectedPost.file_path));
-          toast.success('已清空该博文的所有封面图片');
+          toast.success('已清空全部封面');
         }
       },
     });
   };
 
-  const handleOpenManualModal = () => {
-    setIsManualOpen(true);
+  const handleOpenManualModal = (field?: string) => {
+    if (!selectedPost) {
+      toast.info('请先选择一篇文章');
+      return;
+    }
+    modals.setIsManualOpen(true);
   };
 
-  // 全局 ESC 快捷键支持
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setLightboxState(prev => ({ ...prev, isOpen: false }));
-        setIsHealthOpen(false);
-        setIsLogsOpen(false);
-        setIsSettingsOpen(false);
-        setIsManualOpen(false);
+  const handlePostCreated = (newPost: any) => {
+    setSelectedPost(newPost);
+    setPosts(prev => [newPost, ...prev]);
+    toast.success(`博文《${newPost.title}》创建成功！`);
+  };
+
+  const handleMigrateLegacy = async () => {
+    try {
+      const res = await api.migrateLegacyConfig();
+      if (res && res.success) {
+        toast.success(`成功迁移配置至标准 ~/.config/hpic/ 目录！`);
+        setLegacyCheck(null);
+        const cfg = await api.getConfig();
+        setConfig(cfg);
+        loadPostsList();
+      } else {
+        toast.error(`配置迁移失败: ${res.error || '未知错误'}`);
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    } catch (err: any) {
+      toast.error(`配置迁移异常: ${err.message || '未知错误'}`);
+    }
+  };
 
   const coverFields = config?.cover_fields || ['index_img', 'banner_img'];
-  const brokenPostPaths = useMemo(() => {
-    const paths = new Set(brokenReports.map(r => r.file_path));
-    if (brokenUrls.size > 0) {
-      posts.forEach(p => {
-        if (p.images && Object.values(p.images).some(u => brokenUrls.has(u))) {
-          paths.add(p.file_path);
-        }
-      });
-    }
-    return paths;
-  }, [brokenReports, brokenUrls, posts]);
+
+  const brokenPostPaths = useMemo(() => new Set(brokenReports.map(r => r.file_path)), [brokenReports]);
 
   return (
-    <div className="app-layout">
-      {/* 顶部控制栏 */}
+    <div className="app-container">
       <Header
-        hexoStatus={hexoStatus}
-        onToggleServer={handleToggleServer}
-        onPreview={handlePreview}
-        onGenerate={handleGenerate}
-        onClean={handleClean}
+        hexoStatus={hexo.hexoStatus}
+        onToggleServer={hexo.handleToggleServer}
+        onPreview={hexo.handlePreview}
+        onGenerate={hexo.handleGenerate}
+        onClean={hexo.handleClean}
         onDeploy={handleOpenDeployModal}
-        onOpenHealth={() => setIsHealthOpen(true)}
-        onOpenLogs={() => setIsLogsOpen(true)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        isGenerating={isGenerating}
-        isDeploying={isDeploying}
-        isHealthChecking={isHealthChecking}
+        onOpenHealth={() => modals.setIsHealthOpen(true)}
+        onOpenLogs={() => modals.setIsLogsOpen(true)}
+        onOpenSettings={() => modals.setIsSettingsOpen(true)}
+        isGenerating={hexo.isGenerating}
+        isDeploying={hexo.isDeploying}
         brokenCount={brokenReports.length}
+        isHealthChecking={isHealthChecking}
+        theme={currentTheme}
+        onToggleTheme={handleToggleTheme}
+        onSelectTheme={handleSelectTheme}
         updateInfo={updateInfo}
-        onOpenUpdate={() => setIsUpdateModalOpen(true)}
+        onOpenUpdate={() => modals.setIsUpdateModalOpen(true)}
       />
 
       <div className="app-body">
-        {/* 左侧文章列表与排序 */}
         <Sidebar
           posts={posts}
           selectedPost={selectedPost}
           onSelectPost={setSelectedPost}
           searchQuery={searchQuery}
-          onSearchChange={handleSearchChange}
+          onSearchChange={q => {
+            setSearchQuery(q);
+            loadPostsList(q, sortBy);
+          }}
           sortBy={sortBy}
-          onSortChange={handleSortChange}
+          onSortChange={s => {
+            setSortBy(s);
+            loadPostsList(searchQuery, s);
+          }}
           brokenPostPaths={brokenPostPaths}
+          isRefreshing={isRefreshingPosts}
+          onRefreshPosts={() => handleRefreshPosts(false)}
+          onOpenCreatePost={() => modals.setIsCreatePostOpen(true)}
         />
 
-        {/* 右侧核心工作区 */}
         <main
           className="app-main-content"
           ref={mainContentRef}
@@ -495,22 +467,25 @@ export const App: React.FC = () => {
         >
           {selectedPost ? (
             <>
-              {/* 动态封面展示与拖拽 */}
               <CoverArea
                 post={selectedPost}
                 coverFields={coverFields}
                 brokenReports={brokenReports}
                 brokenUrls={brokenUrls}
-                onOpenLightbox={(url, title, fallbackUrl) => setLightboxState({ isOpen: true, url, title, fallbackUrl })}
+                onOpenLightbox={(url, title, fallbackUrl) => modals.openLightbox(url, title, fallbackUrl)}
                 onClearField={handleClearField}
                 onClearAll={handleClearAll}
                 onDropImage={handleApplyImage}
                 onCopyText={url => { navigator.clipboard.writeText(url); toast.success('链接已复制到剪贴板'); }}
                 onOpenSystemURL={api.openSystemURL}
                 onMarkBroken={(url, field) => handleMarkBroken(url, selectedPost.file_path, field, selectedPost.title)}
+                onUndo={() => handleUndoPost(selectedPost.file_path)}
+                canUndo={canUndo}
+                undoDesc={undoDesc}
+                onOpenHistory={() => modals.setIsHistoryModalOpen(true)}
+                historyCount={postHistory.length}
               />
 
-              {/* 灵感配图与创作工作台 (内含 Unsplash摄影 / Wallhaven4K壁纸 / 极客生成器 / 灵感收藏夹 统一Tab) */}
               <PhotoGallery
                 post={selectedPost}
                 defaultOwner={config?.github_owner || ''}
@@ -523,7 +498,8 @@ export const App: React.FC = () => {
                 infiniteScrollEnabled={!!config?.infinite_scroll}
                 brokenUrls={brokenUrls}
                 onApplyImage={handleApplyImage}
-                onOpenLightbox={(url, title, fallbackUrl) => setLightboxState({ isOpen: true, url, title, fallbackUrl })}
+                onInsertBodyImage={handleInsertBodyImage}
+                onOpenLightbox={(url, title, fallbackUrl) => modals.openLightbox(url, title, fallbackUrl)}
                 onOpenManualModal={handleOpenManualModal}
               />
             </>
@@ -535,7 +511,6 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {/* 滚动回到顶部悬浮按钮 */}
           <button
             type="button"
             className={`back-to-top-btn ${showBackToTop ? 'visible' : ''}`}
@@ -548,9 +523,9 @@ export const App: React.FC = () => {
         </main>
       </div>
 
-      {/* 弹窗与灯箱 */}
+      {/* 弹窗挂载层 */}
       <DeployModal
-        isOpen={isDeployModalOpen}
+        isOpen={modals.isDeployModalOpen}
         deployMode={config?.deploy_mode || 'git'}
         defaultCommitMsg={(() => {
           const tmpl = config?.git_commit_template || 'chore(cover): update cover for {title}';
@@ -563,29 +538,29 @@ export const App: React.FC = () => {
             .replace(/\{date\}/g, dateStr);
         })()}
         postTitle={selectedPost?.title}
-        onClose={() => setIsDeployModalOpen(false)}
+        onClose={() => modals.setIsDeployModalOpen(false)}
         onDeploy={handleExecuteDeploy}
-        isDeploying={isDeploying}
-        deployError={deployError}
+        isDeploying={hexo.isDeploying}
+        deployError={hexo.deployError}
       />
 
       <ConfirmModal
-        isOpen={confirmModalState.isOpen}
-        title={confirmModalState.title}
-        message={confirmModalState.message}
-        subMessage={confirmModalState.subMessage}
-        thumbUrl={confirmModalState.thumbUrl}
-        diffPreview={confirmModalState.diffPreview}
-        confirmText={confirmModalState.confirmText}
-        cancelText={confirmModalState.cancelText}
-        danger={confirmModalState.danger}
-        onCancel={() => setConfirmModalState(prev => ({ ...prev, isOpen: false }))}
-        onConfirm={confirmModalState.onConfirm}
+        isOpen={modals.confirmModalState.isOpen}
+        title={modals.confirmModalState.title}
+        message={modals.confirmModalState.message}
+        subMessage={modals.confirmModalState.subMessage}
+        thumbUrl={modals.confirmModalState.thumbUrl}
+        diffPreview={modals.confirmModalState.diffPreview}
+        confirmText={modals.confirmModalState.confirmText}
+        cancelText={modals.confirmModalState.cancelText}
+        danger={modals.confirmModalState.danger}
+        onCancel={modals.closeConfirm}
+        onConfirm={modals.confirmModalState.onConfirm}
       />
 
       <HealthModal
-        isOpen={isHealthOpen}
-        onClose={() => setIsHealthOpen(false)}
+        isOpen={modals.isHealthOpen}
+        onClose={() => modals.setIsHealthOpen(false)}
         onSelectPostByPath={p => {
           const match = posts.find(x => x.file_path === p);
           if (match) setSelectedPost(match);
@@ -596,14 +571,14 @@ export const App: React.FC = () => {
       />
 
       <LogsModal
-        isOpen={isLogsOpen}
-        onClose={() => setIsLogsOpen(false)}
-        status={hexoStatus}
+        isOpen={modals.isLogsOpen}
+        onClose={() => modals.setIsLogsOpen(false)}
+        status={hexo.hexoStatus}
       />
 
       <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+        isOpen={modals.isSettingsOpen}
+        onClose={() => modals.setIsSettingsOpen(false)}
         config={config}
         onSaved={cfg => {
           setConfig(cfg);
@@ -612,29 +587,46 @@ export const App: React.FC = () => {
       />
 
       <Lightbox
-        isOpen={lightboxState.isOpen}
-        onClose={() => setLightboxState(prev => ({ ...prev, isOpen: false }))}
-        url={lightboxState.url}
-        fallbackUrl={lightboxState.fallbackUrl}
-        title={lightboxState.title}
+        isOpen={modals.lightboxState.isOpen}
+        onClose={modals.closeLightbox}
+        url={modals.lightboxState.url}
+        fallbackUrl={modals.lightboxState.fallbackUrl}
+        title={modals.lightboxState.title}
         coverFields={coverFields}
         onApplyImage={handleApplyImage}
         onMarkBroken={handleMarkBroken}
       />
 
       <ManualUrlModal
-        isOpen={isManualOpen}
-        onClose={() => setIsManualOpen(false)}
+        isOpen={modals.isManualOpen}
+        onClose={() => modals.setIsManualOpen(false)}
         coverFields={coverFields}
         postTitle={selectedPost?.title}
         onApplyImage={handleApplyImage}
       />
 
       <UpdateModal
-        isOpen={isUpdateModalOpen}
-        onClose={() => setIsUpdateModalOpen(false)}
+        isOpen={modals.isUpdateModalOpen}
+        onClose={() => modals.setIsUpdateModalOpen(false)}
         versionInfo={updateInfo}
         onUpdateInfoChange={setUpdateInfo}
+      />
+
+      <CreatePostModal
+        isOpen={modals.isCreatePostOpen}
+        onClose={() => modals.setIsCreatePostOpen(false)}
+        onPostCreated={handlePostCreated}
+      />
+
+      <PostHistoryModal
+        isOpen={modals.isHistoryModalOpen}
+        onClose={() => modals.setIsHistoryModalOpen(false)}
+        post={selectedPost}
+        onPostUpdated={updated => {
+          setSelectedPost(updated);
+          setPosts(prev => prev.map(p => p.file_path === updated.file_path ? updated : p));
+          loadPostHistory(updated.file_path);
+        }}
       />
     </div>
   );

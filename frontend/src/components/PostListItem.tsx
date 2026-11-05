@@ -1,6 +1,6 @@
 import React from 'react';
 import { PostInfo } from '../types';
-import { Calendar, FileText, Folder } from 'lucide-react';
+import { Calendar, FileText, Folder, Check } from 'lucide-react';
 
 interface PostListItemProps {
   post: PostInfo;
@@ -40,50 +40,32 @@ export const PostListItem: React.FC<PostListItemProps> = ({
 
   return (
     <div
-      className={`post-list-item ${isSelected ? 'selected' : ''} ${isBroken ? 'has-broken-cover' : ''}`}
+      className={`post-list-item ${isSelected ? 'active selected' : ''} ${isBroken ? 'has-broken-cover' : ''}`}
       onClick={() => onSelect(post)}
     >
-      <div className="item-row-header">
-        <span className="post-title-text" title={post.title}>
-          {post.is_draft ? (
-            <span
-              style={{
-                fontSize: 10,
-                color: '#f59e0b',
-                background: 'rgba(245, 158, 11, 0.15)',
-                border: '1px solid rgba(245, 158, 11, 0.3)',
-                padding: '1px 5px',
-                borderRadius: 4,
-                marginRight: 6,
-                fontWeight: 600,
-                verticalAlign: '1px',
-              }}
-            >
-              草稿
+      <div className="item-row-header item-row-top">
+        <div className="post-title-wrapper" title={post.title}>
+          <span className="post-title-text post-item-title">
+            {post.is_draft ? (
+              <span className="post-type-tag draft">草稿</span>
+            ) : post.file_path.includes('/source/_posts/') ? (
+              <span className="post-type-tag post">文章</span>
+            ) : null}
+            {post.title}
+          </span>
+        </div>
+
+        <div className="post-item-right-badges">
+          {isSelected && (
+            <span className="post-selected-badge" title="当前已选中">
+              <Check size={11} strokeWidth={3} />
             </span>
-          ) : post.file_path.includes('/source/_posts/') ? (
-            <span
-              style={{
-                fontSize: 10,
-                color: '#60a5fa',
-                background: 'rgba(96, 165, 250, 0.12)',
-                border: '1px solid rgba(96, 165, 250, 0.25)',
-                padding: '1px 5px',
-                borderRadius: 4,
-                marginRight: 6,
-                fontWeight: 500,
-                verticalAlign: '1px',
-              }}
-            >
-              文章
-            </span>
-          ) : null}
-          {post.title}
-        </span>
-        <span className={`post-badge ${badgeClass}`}>
-          <span className="badge-indicator-dot" style={{ backgroundColor: dotColor }} />
-          {badgeText}
-        </span>
+          )}
+          <span className={`post-badge ${badgeClass}`}>
+            <span className="badge-indicator-dot" style={{ backgroundColor: dotColor }} />
+            {badgeText}
+          </span>
+        </div>
       </div>
 
       <div className="item-row-meta">

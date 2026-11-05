@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { VersionInfo } from '../types';
+import { VersionInfo, DEFAULT_APP_VERSION } from '../types';
 import { api } from '../api';
 import { Modal } from './Modal';
-import { Sparkles, Copy, ExternalLink, ArrowRight, Check, RefreshCw, CheckCircle, Zap, History } from 'lucide-react';
+import { Sparkles, Copy, ExternalLink, ArrowRight, Check, RefreshCw, CheckCircle, Zap, History, Info } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { MarkdownView } from './MarkdownView';
 
 interface UpdateModalProps {
   isOpen: boolean;
@@ -115,7 +116,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
 
   const currentVer = versionInfo?.current_version
     ? (versionInfo.current_version.startsWith('v') ? versionInfo.current_version : `v${versionInfo.current_version}`)
-    : 'v0.0.1';
+    : (DEFAULT_APP_VERSION.startsWith('v') ? DEFAULT_APP_VERSION : `v${DEFAULT_APP_VERSION}`);
 
   const noRelease = !versionInfo?.latest_version || !!versionInfo?.no_release;
 
@@ -131,64 +132,27 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
       onClose={onClose}
       title="软件更新与版本管理"
       icon={<Sparkles size={18} style={{ color: hasUpdate ? '#a855f7' : (noRelease ? '#94a3b8' : '#10b981') }} />}
-      size="md"
+      size="lg"
     >
       <div className="update-modal-body">
         {/* Tab 导航切换 */}
-        <div style={{
-          display: 'flex',
-          borderBottom: '1px solid var(--border-color)',
-          marginBottom: 16,
-          gap: 16,
-          paddingBottom: 2
-        }}>
+        <div className="update-tabs-nav">
           <button
             type="button"
             onClick={() => setActiveTab('current')}
-            style={{
-              padding: '6px 12px',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: 'pointer',
-              background: 'transparent',
-              border: 'none',
-              borderBottom: activeTab === 'current' ? '2px solid var(--accent-color)' : '2px solid transparent',
-              color: activeTab === 'current' ? 'var(--accent-color)' : 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6
-            }}
+            className={`update-tab-btn ${activeTab === 'current' ? 'active' : ''}`}
           >
             <Sparkles size={14} />
             <span>版本检测</span>
             {hasUpdate && (
-              <span style={{
-                background: '#a855f7',
-                color: '#fff',
-                fontSize: 10,
-                padding: '1px 5px',
-                borderRadius: 10,
-                lineHeight: 1.2
-              }}>NEW</span>
+              <span className="update-new-badge">NEW</span>
             )}
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('history')}
-            style={{
-              padding: '6px 12px',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: 'pointer',
-              background: 'transparent',
-              border: 'none',
-              borderBottom: activeTab === 'history' ? '2px solid var(--accent-color)' : '2px solid transparent',
-              color: activeTab === 'history' ? 'var(--accent-color)' : 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6
-            }}
+            className={`update-tab-btn ${activeTab === 'history' ? 'active' : ''}`}
           >
             <History size={14} />
             <span>版本历史 (CHANGELOG)</span>
@@ -217,7 +181,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                     <span className="ver-number">{currentVer}</span>
                   </div>
                   <div className="ver-arrow-flow">
-                    {hasUpdate ? <ArrowRight size={18} /> : (noRelease ? <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>vs</span> : <Check size={18} />)}
+                    {hasUpdate ? <ArrowRight size={18} /> : (noRelease ? <span className="ver-label">vs</span> : <Check size={18} />)}
                   </div>
                   <div className="ver-tag-pill ver-latest">
                     <span className="ver-label">GitHub 最新发布</span>
@@ -227,19 +191,12 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
 
                 {/* 仓库尚未发布 Release 的提示 */}
                 {noRelease && (
-                  <div style={{
-                    margin: '12px 0',
-                    padding: '12px 14px',
-                    borderRadius: 8,
-                    background: 'rgba(148, 163, 184, 0.1)',
-                    border: '1px solid rgba(148, 163, 184, 0.25)',
-                    fontSize: 13,
-                    color: 'var(--text-color)'
-                  }}>
-                    <div style={{ fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span>ℹ️ 官方 GitHub 仓库暂无正式 Release 记录</span>
+                  <div className="update-no-release-card">
+                    <div className="update-no-release-title">
+                      <Info size={14} className="update-no-release-title-icon" />
+                      <span>官方 GitHub 仓库暂无正式 Release 记录</span>
                     </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.5 }}>
+                    <div className="update-no-release-desc">
                       当前已连接至仓库 <code>{versionInfo?.repo || 'bubao/hpic'}</code>。当开发者推送并发布新版本后，此处将自动展示更新日志并提供就地一键安装！
                     </div>
                   </div>
@@ -251,7 +208,8 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                     <div className="release-notes-card">
                       <div className="notes-header">
                         <span className="notes-title">
-                          {versionInfo?.release_name ? versionInfo.release_name : `${versionInfo?.latest_version} 版本更新内容`}
+                          <Sparkles size={15} style={{ color: '#a855f7' }} />
+                          <span>{versionInfo?.release_name ? versionInfo.release_name : `${versionInfo?.latest_version} 版本更新内容`}</span>
                         </span>
                         {versionInfo?.published_at && (
                           <span className="notes-date">
@@ -261,9 +219,9 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                       </div>
                       <div className="notes-scroll-area">
                         {versionInfo?.release_notes ? (
-                          <pre className="notes-text-pre">{versionInfo.release_notes}</pre>
+                          <MarkdownView content={versionInfo.release_notes} />
                         ) : (
-                          <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: 12 }}>
+                          <div className="update-notes-empty">
                             该版本暂无详细文字说明，主要包含性能优化与功能体验增强。
                           </div>
                         )}
@@ -283,8 +241,8 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                   !noRelease && (
                     <div className="already-latest-box">
                       <CheckCircle size={28} color="#10b981" />
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>太棒了！当前已是最新版本 ({currentVer})</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                      <div className="update-latest-title">太棒了！当前已是最新版本 ({currentVer})</div>
+                      <div className="update-latest-desc">
                         已与 GitHub Releases 保持同步，暂无更新。
                       </div>
                     </div>
@@ -297,33 +255,16 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
 
         {/* Tab 2: 完整版本历史 CHANGELOG */}
         {activeTab === 'history' && (
-          <div style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 8,
-            padding: '14px 16px',
-            maxHeight: 380,
-            overflowY: 'auto'
-          }}>
+          <div className="update-changelog-card">
             {loadingChangelog ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '36px 0', gap: 8, color: 'var(--text-muted)' }}>
+              <div className="update-status-box">
                 <RefreshCw size={16} className="spin" />
                 <span>正在加载版本历史...</span>
               </div>
             ) : changelogContent ? (
-              <pre style={{
-                margin: 0,
-                fontSize: 12.5,
-                lineHeight: 1.6,
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                color: 'var(--text-color)',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word'
-              }}>
-                {changelogContent}
-              </pre>
+              <MarkdownView content={changelogContent} />
             ) : (
-              <div style={{ textAlign: 'center', padding: '36px 0', color: 'var(--text-muted)', fontSize: 13 }}>
+              <div className="update-status-box">
                 暂未加载到版本历史记录。
               </div>
             )}
