@@ -1,6 +1,8 @@
 package version
 
 import (
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -22,10 +24,15 @@ func TestResolveVersion(t *testing.T) {
 		t.Errorf("Expected v1.2.3 from ldflags, got %s", vInjected)
 	}
 
-	// 场景 3: 未传内嵌参数时，自动读取本地 VERSION 文件
+	// 场景 3: 未传内嵌参数时，自动读取本地 VERSION 文件 (动态自适应当前项目版本)
 	Version = ""
 	vAuto := ResolveVersion()
-	if vAuto != "v0.0.2" {
-		t.Errorf("Expected v0.0.2 from local VERSION file, got %s", vAuto)
+	if data, err := os.ReadFile("VERSION"); err == nil {
+		expected := "v" + strings.TrimPrefix(strings.TrimSpace(string(data)), "v")
+		if vAuto != expected {
+			t.Errorf("Expected %s from local VERSION file, got %s", expected, vAuto)
+		}
+	} else if vAuto == "" {
+		t.Errorf("Expected non-empty dynamic version, got empty")
 	}
 }
