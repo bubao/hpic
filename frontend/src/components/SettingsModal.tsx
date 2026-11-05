@@ -77,6 +77,30 @@ interface SettingsModalProps {
   onSaved: (cfg: Config) => void;
 }
 
+const FALLBACK_CONFIG: Config = {
+  hexo_dir: '',
+  posts_dir: '',
+  cover_fields: ['index_img', 'banner_img'],
+  date_field: 'date',
+  updated_field: 'updated',
+  orientation: 'landscape',
+  image_size: 'large',
+  min_width: 1200,
+  min_height: 600,
+  image_width: 1200,
+  image_quality: 80,
+  github_owner: '',
+  socialify_pattern: 'Signal',
+  socialify_theme: 'Dark',
+  proxy: '',
+  deploy_mode: 'git',
+  git_commit_template: 'chore(cover): update cover for {title}',
+  auto_search: false,
+  infinite_scroll: false,
+  theme: 'dark',
+  custom_css: '',
+};
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
@@ -84,6 +108,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaved,
 }) => {
   const toast = useToast();
+  const [localConfig, setLocalConfig] = useState<Config | null>(null);
+  const activeConfig = config || localConfig || FALLBACK_CONFIG;
+
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>('blog');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -134,31 +161,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isLoadingChangelog, setIsLoadingChangelog] = useState(false);
   const [hasCopiedPath, setHasCopiedPath] = useState(false);
 
-  // 初始化加载配置数据
+  // 初始化加载配置数据：支持本地自动拉取兜底
   useEffect(() => {
-    if (config) {
-      setHexoDir(config.hexo_dir || '');
-      setCoverFields((config.cover_fields || ['index_img', 'banner_img']).join(', '));
-      setDateField(config.date_field || 'date');
-      setUpdatedField(config.updated_field || 'updated');
-      setOrientation(config.orientation || 'landscape');
-      setImageSize(config.image_size || 'large');
-      setMinWidth(config.min_width || 1200);
-      setMinHeight(config.min_height || 600);
-      setImageWidth(config.image_width || 1200);
-      setImageQuality(config.image_quality || 80);
-      setGithubOwner(config.github_owner || '');
-      setSocialifyPattern(config.socialify_pattern || 'Signal');
-      setSocialifyTheme(config.socialify_theme || 'Dark');
-      setProxy(config.proxy || '');
-      setDeployMode(config.deploy_mode || 'git');
-      setGitCommitTemplate(config.git_commit_template || 'chore(cover): update cover for {title}');
-      setAutoSearch(!!config.auto_search);
-      setInfiniteScroll(!!config.infinite_scroll);
-      setTheme(config.theme || 'dark');
-      setCustomCSS(config.custom_css || '');
+    if (!config && isOpen && typeof api?.getConfig === 'function') {
+      api.getConfig()
+        .then(res => {
+          if (res) setLocalConfig(res);
+        })
+        .catch(() => {});
     }
   }, [config, isOpen]);
+
+  useEffect(() => {
+    setHexoDir(activeConfig.hexo_dir || '');
+    setCoverFields((activeConfig.cover_fields || ['index_img', 'banner_img']).join(', '));
+    setDateField(activeConfig.date_field || 'date');
+    setUpdatedField(activeConfig.updated_field || 'updated');
+    setOrientation(activeConfig.orientation || 'landscape');
+    setImageSize(activeConfig.image_size || 'large');
+    setMinWidth(activeConfig.min_width || 1200);
+    setMinHeight(activeConfig.min_height || 600);
+    setImageWidth(activeConfig.image_width || 1200);
+    setImageQuality(activeConfig.image_quality || 80);
+    setGithubOwner(activeConfig.github_owner || '');
+    setSocialifyPattern(activeConfig.socialify_pattern || 'Signal');
+    setSocialifyTheme(activeConfig.socialify_theme || 'Dark');
+    setProxy(activeConfig.proxy || '');
+    setDeployMode(activeConfig.deploy_mode || 'git');
+    setGitCommitTemplate(activeConfig.git_commit_template || 'chore(cover): update cover for {title}');
+    setAutoSearch(!!activeConfig.auto_search);
+    setInfiniteScroll(!!activeConfig.infinite_scroll);
+    setTheme(activeConfig.theme || 'dark');
+    setCustomCSS(activeConfig.custom_css || '');
+  }, [config, localConfig, isOpen]);
 
   // 键盘快捷键监听 (Escape 退出)
   useEffect(() => {
@@ -187,7 +222,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [activeCategory, changelogContent]);
 
-  if (!isOpen || !config) return null;
+  if (!isOpen) return null;
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -198,7 +233,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         .filter(Boolean);
 
       const updated: Config = {
-        ...config,
+        ...activeConfig,
         hexo_dir: hexoDir.trim(),
         cover_fields: rawFields.length > 0 ? rawFields : ['index_img', 'banner_img'],
         date_field: dateField.trim() || 'date',
@@ -323,14 +358,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleCopyConfigPath = () => {
-    const p = config.config_file_path || '~/.hpicrc';
+    const p = activeConfig.config_file_path || '~/.hpicrc';
     navigator.clipboard.writeText(p);
     setHasCopiedPath(true);
     toast.success('配置文件路径已复制到剪贴板');
     setTimeout(() => setHasCopiedPath(false), 2000);
   };
 
-  const computedPostsDir = hexoDir ? `${hexoDir}/source/_posts` : (config.posts_dir || '未指定');
+  const computedPostsDir = hexoDir ? `${hexoDir}/source/_posts` : (activeConfig.posts_dir || '未指定');
   const computedDraftsDir = hexoDir ? `${hexoDir}/source/_drafts` : '未指定';
   const currentCategoryMeta = CATEGORIES.find(c => c.id === activeCategory);
 
@@ -482,7 +517,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               {activeCategory === 'about' && (
                 <AboutTab
-                  config={config}
+                  config={activeConfig}
                   isCheckingVersion={isCheckingVersion}
                   versionResult={versionResult}
                   isInstalling={isInstalling}
