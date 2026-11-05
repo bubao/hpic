@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { api, normalizeVersion, isVersionMismatch, onVersionMismatch, resetVersionMismatchState, checkResponseVersion } from './api';
+import { DEFAULT_APP_VERSION } from './types';
 
 describe('Version Contract and Guard (api.ts)', () => {
   beforeEach(() => {
@@ -72,8 +73,8 @@ describe('Version Contract and Guard (api.ts)', () => {
     const unsubscribe = onVersionMismatch(callback);
 
     const mockHeaders = new Headers();
-    // Default version in package.json / types.ts is '0.0.2'
-    mockHeaders.set('X-Hpic-Version', 'v0.0.2');
+    // Use dynamic DEFAULT_APP_VERSION so tests adapt to releases automatically
+    mockHeaders.set('X-Hpic-Version', `v${DEFAULT_APP_VERSION}`);
     const mockResponse = new Response('{}', { headers: mockHeaders });
 
     checkResponseVersion(mockResponse);
