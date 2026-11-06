@@ -2,14 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { PostInfo, OperationRecord } from '../types';
 import { api } from '../api';
 import { Modal } from './Modal';
-import { History, RotateCcw, Clock, ArrowRight, CheckCircle2, AlertCircle, RefreshCw, Layers } from 'lucide-react';
+import { Icon } from './common/Icon';
 import { useToast } from '../context/ToastContext';
+import { isSvgUrl } from '../utils/imageMeta';
+import { SvgSafeImage } from './common/SvgSafeImage';
 
 interface PostHistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   post: PostInfo | null;
   onPostUpdated: (updatedPost: PostInfo) => void;
+  onHistoryChanged?: () => void;
 }
 
 export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
@@ -17,12 +20,17 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
   onClose,
   post,
   onPostUpdated,
+  onHistoryChanged,
 }) => {
   const toast = useToast();
   const [history, setHistory] = useState<OperationRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revertingId, setRevertingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const fetchHistory = async () => {
     if (!post?.file_path) return;
@@ -49,6 +57,8 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
   useEffect(() => {
     if (isOpen && post?.file_path) {
       fetchHistory();
+      setConfirmDeleteId(null);
+      setShowClearConfirm(false);
     }
   }, [isOpen, post?.file_path]);
 
@@ -59,9 +69,10 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
     try {
       const res = await api.undoPostOperation(post.file_path, record.id);
       if (res.success && res.post) {
-        toast.success(`已成功回滚该次变动！`);
+        toast.success('已成功回滚该次变动！');
         onPostUpdated(res.post);
         await fetchHistory();
+        onHistoryChanged?.();
       } else {
         toast.error(res.error || '回滚未成功');
       }
@@ -69,6 +80,44 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
       toast.error('回滚操作失败: ' + (e?.message || '网络连接异常'));
     } finally {
       setRevertingId(null);
+    }
+  };
+
+  const handleDeleteRecord = async (record: OperationRecord) => {
+    setDeletingId(record.id);
+    try {
+      const res = await api.deletePostHistory(record.id);
+      if (res.success) {
+        toast.success('已移除该条操作记录');
+        setHistory(prev => prev.filter(item => item.id !== record.id && (!record.batch_id || item.batch_id !== record.batch_id)));
+        setConfirmDeleteId(null);
+        onHistoryChanged?.();
+      } else {
+        toast.error(res.error || '删除失败');
+      }
+    } catch (e: any) {
+      toast.error('删除操作记录失败: ' + (e?.message || '网络连接异常'));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleClearAllHistory = async () => {
+    setIsClearing(true);
+    try {
+      const res = await api.clearPostHistory(post.file_path);
+      if (res.success) {
+        toast.success('已清空全部操作历史记录');
+        setHistory([]);
+        setShowClearConfirm(false);
+        onHistoryChanged?.();
+      } else {
+        toast.error(res.error || '清空失败');
+      }
+    } catch (e: any) {
+      toast.error('清空历史记录失败: ' + (e?.message || '网络连接异常'));
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -93,7 +142,7 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={`文章封面变更历史 - 《${post.title}》`}
-      icon={<History size={18} style={{ color: 'var(--accent-color)' }} />}
+      icon={<Icon name="history" size="lg" variant="primary" />}
       size="lg"
     >
       <div className="post-history-modal-body">
@@ -102,29 +151,70 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
             <span className="history-meta-title">{post.title}</span>
             <span className="history-meta-path">{post.file_name}</span>
           </div>
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
-            onClick={fetchHistory}
-            disabled={loading}
-            title="刷新历史记录"
-          >
-            <RefreshCw size={12} className={loading ? 'spin' : ''} />
-            <span>刷新</span>
-          </button>
+
+          <div className="history-head-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {history.length > 0 && (
+              <>
+                {showClearConfirm ? (
+                  <div className="history-clear-confirm-group" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, color: 'var(--danger-color, #ef4444)' }}>确定清空全部记录？</span>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      onClick={handleClearAllHistory}
+                      disabled={isClearing}
+                      style={{ padding: '2px 8px', fontSize: 12 }}
+                    >
+                      {isClearing ? '清空中...' : '确定'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => setShowClearConfirm(false)}
+                      style={{ padding: '2px 8px', fontSize: 12 }}
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost history-clear-btn"
+                    onClick={() => setShowClearConfirm(true)}
+                    title="清空当前文章的所有操作记录"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    <Icon name="trash" size="xs" variant="muted" />
+                    <span>清空记录</span>
+                  </button>
+                )}
+              </>
+            )}
+
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={fetchHistory}
+              disabled={loading}
+              title="刷新历史记录"
+            >
+              <Icon name="refresh" size="xs" animation={loading ? 'spin' : 'none'} />
+              <span>刷新</span>
+            </button>
+          </div>
         </div>
 
         {loading ? (
           <div className="history-empty-state">
-            <RefreshCw size={24} className="spin history-empty-icon" />
+            <Icon name="loading" size="xl" animation="spin" variant="primary" className="history-empty-icon" />
             <div className="history-loading-text">
               正在加载变更历史...
             </div>
           </div>
         ) : error ? (
           <div className="history-empty-state">
-            <AlertCircle size={36} style={{ color: '#ef4444', opacity: 0.8 }} />
-            <div className="history-empty-title" style={{ color: '#ef4444' }}>
+            <Icon name="alertCircle" size="xl" variant="danger" />
+            <div className="history-empty-title" style={{ color: 'var(--danger-color, #ef4444)' }}>
               {error}
             </div>
             <button
@@ -133,13 +223,13 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
               onClick={fetchHistory}
               style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
-              <RefreshCw size={12} />
+              <Icon name="refresh" size="xs" />
               <span>重试加载</span>
             </button>
           </div>
         ) : history.length === 0 ? (
           <div className="history-empty-state">
-            <Layers size={36} className="history-empty-icon" />
+            <Icon name="layers" size="xl" variant="muted" className="history-empty-icon" />
             <div className="history-empty-title">
               暂无历史变动记录
             </div>
@@ -154,6 +244,8 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
               const isCoverOp = item.operation_type === 'update_cover';
               const isClearOp = item.operation_type === 'clear_cover';
               const isInsertOp = item.operation_type === 'insert_image';
+              const isConfirmingDelete = confirmDeleteId === item.id;
+              const isDeleting = deletingId === item.id;
 
               return (
                 <div key={item.id} className={`history-timeline-card ${item.is_undone ? 'is-undone' : ''}`}>
@@ -167,19 +259,21 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
                       )}
                       {item.is_undone ? (
                         <span className="history-status-pill undone" title="该记录已被撤销回滚">
-                          <AlertCircle size={10} />
+                          <Icon name="alertCircle" size="xs" variant="warning" />
                           <span>已撤销</span>
                         </span>
                       ) : (
                         <span className="history-status-pill active" title="当前该次变动正在生效">
-                          <CheckCircle2 size={10} />
+                          <Icon name="checkCircle" size="xs" variant="success" />
                           <span>生效中</span>
                         </span>
                       )}
                     </div>
-                    <div className="history-timestamp">
-                      <Clock size={11} />
-                      <span>{formatTime(item.created_at)}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div className="history-timestamp">
+                        <Icon name="clock" size="xs" variant="muted" />
+                        <span>{formatTime(item.created_at)}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -190,22 +284,40 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
                           <span className="diff-label">修改前：</span>
                           {item.old_value ? (
                             <div className="diff-thumb-box" title={item.old_value}>
-                              <img src={item.old_value} alt="原封面" referrerPolicy="no-referrer" />
+                              {isSvgUrl(item.old_value) ? (
+                                <SvgSafeImage
+                                  src={item.old_value || ''}
+                                  alt="原封面"
+                                  fitMode="contain"
+                                  style={{ width: '100%', height: '100%' }}
+                                />
+                              ) : (
+                                <img src={item.old_value} alt="原封面" referrerPolicy="no-referrer" />
+                              )}
                             </div>
                           ) : (
-                            <div className="diff-thumb-empty">原无配图</div>
+                            <div className="diff-thumb-empty">此前无封面</div>
                           )}
                         </div>
 
-                        <div className="diff-arrow-indicator">
-                          <ArrowRight size={16} />
+                        <div className="diff-arrow-icon">
+                          <Icon name="arrowRight" size="md" variant="muted" />
                         </div>
 
                         <div className="diff-side diff-new">
                           <span className="diff-label">修改后：</span>
                           {item.new_value ? (
                             <div className="diff-thumb-box" title={item.new_value}>
-                              <img src={item.new_value} alt="新封面" referrerPolicy="no-referrer" />
+                              {isSvgUrl(item.new_value) ? (
+                                <SvgSafeImage
+                                  src={item.new_value || ''}
+                                  alt="新封面"
+                                  fitMode="contain"
+                                  style={{ width: '100%', height: '100%' }}
+                                />
+                              ) : (
+                                <img src={item.new_value} alt="新封面" referrerPolicy="no-referrer" />
+                              )}
                             </div>
                           ) : (
                             <div className="diff-thumb-empty">已清空</div>
@@ -220,7 +332,16 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
                           <span className="diff-label">被清空的原图：</span>
                           {item.old_value ? (
                             <div className="diff-thumb-box" title={item.old_value}>
-                              <img src={item.old_value} alt="原封面" referrerPolicy="no-referrer" />
+                              {isSvgUrl(item.old_value) ? (
+                                <SvgSafeImage
+                                  src={item.old_value || ''}
+                                  alt="原封面"
+                                  fitMode="contain"
+                                  style={{ width: '100%', height: '100%' }}
+                                />
+                              ) : (
+                                <img src={item.old_value} alt="原封面" referrerPolicy="no-referrer" />
+                              )}
                             </div>
                           ) : (
                             <div className="diff-thumb-empty">原值为空</div>
@@ -235,29 +356,80 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
                           <span className="diff-label">追加插入正文的图片：</span>
                           {item.field ? (
                             <div className="diff-thumb-box" title={item.field}>
-                              <img src={item.field} alt="插入正文配图" referrerPolicy="no-referrer" />
+                              {isSvgUrl(item.field) ? (
+                                <SvgSafeImage
+                                  src={item.field || ''}
+                                  alt="插入正文配图"
+                                  fitMode="contain"
+                                  style={{ width: '100%', height: '100%' }}
+                                />
+                              ) : (
+                                <img src={item.field} alt="插入正文配图" referrerPolicy="no-referrer" />
+                              )}
                             </div>
-                          ) : null}
-                          <code className="diff-code-snippet">{item.new_value}</code>
+                          ) : (
+                            <div className="diff-thumb-empty">无图片地址</div>
+                          )}
                         </div>
                       </div>
                     )}
                   </div>
 
-                  <div className="history-card-footer">
-                    <span className="history-seq-text">记录 #{history.length - idx}</span>
-                    {isUndoable && (
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-ghost highlight-rollback-btn"
-                        onClick={() => handleRollback(item)}
-                        disabled={revertingId === item.id}
-                        title="将此博文还原回退到此次操作之前的状态"
-                      >
-                        <RotateCcw size={12} className={revertingId === item.id ? 'spin' : ''} />
-                        <span>{revertingId === item.id ? '回退中...' : '撤销回退至此时'}</span>
-                      </button>
-                    )}
+                  <div className="history-card-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div className="history-record-id-meta" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      #{item.id} {item.batch_id ? `(批次 ${item.batch_id})` : ''}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {/* 移除单条记录 */}
+                      {isConfirmingDelete ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 11, color: 'var(--danger-color, #ef4444)' }}>确定移除？</span>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            onClick={() => handleDeleteRecord(item)}
+                            disabled={isDeleting}
+                            style={{ padding: '2px 6px', fontSize: 11 }}
+                          >
+                            {isDeleting ? '移除中...' : '确定'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-ghost"
+                            onClick={() => setConfirmDeleteId(null)}
+                            style={{ padding: '2px 6px', fontSize: 11 }}
+                          >
+                            取消
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost history-delete-item-btn"
+                          onClick={() => setConfirmDeleteId(item.id)}
+                          title="从历史列表中移除此条记录"
+                          style={{ padding: '3px 8px', fontSize: 11.5, color: 'var(--text-muted)' }}
+                        >
+                          <Icon name="trash" size="xs" variant="muted" />
+                          <span>移除</span>
+                        </button>
+                      )}
+
+                      {/* 回退还原按钮 */}
+                      {isUndoable && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost highlight-rollback-btn"
+                          onClick={() => handleRollback(item)}
+                          disabled={revertingId === item.id}
+                          title="将此博文还原回退到此次操作之前的状态"
+                        >
+                          <Icon name="undo" size="xs" animation={revertingId === item.id ? 'spin' : 'none'} />
+                          <span>{revertingId === item.id ? '回退中...' : '撤销回退至此时'}</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );

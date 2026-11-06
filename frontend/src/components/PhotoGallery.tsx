@@ -262,6 +262,12 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
     }
   }, [source, hasMore, isLoadingMore, isLoading, doSearch, searchKeyword, page]);
 
+  // 使用 ref 保存 handleLoadMore，避免 scroll effect 频繁重建
+  const handleLoadMoreRef = useRef(handleLoadMore);
+  useEffect(() => {
+    handleLoadMoreRef.current = handleLoadMore;
+  }, [handleLoadMore]);
+
   // 触底自动加载支持 (根据用户配置开启)
   useEffect(() => {
     if (!infiniteScrollEnabled || source === 'generators' || source === 'favorites') {
@@ -271,20 +277,19 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
     const scrollContainer = document.querySelector('.app-main-content');
 
     const handleScroll = () => {
-      if (!hasMore || isLoading || isLoadingMore) return;
+      // 触底检测：距底部 300px 时触发加载更多
+      let isNearBottom = false;
       if (scrollContainer) {
         const { scrollTop, clientHeight, scrollHeight } = scrollContainer;
-        if (scrollTop + clientHeight >= scrollHeight - 300) {
-          handleLoadMore();
-        }
+        isNearBottom = scrollTop + clientHeight >= scrollHeight - 300;
       } else {
         const scrollY = window.scrollY || document.documentElement.scrollTop;
         const windowHeight = window.innerHeight;
         const docHeight = document.documentElement.scrollHeight;
-        if (scrollY + windowHeight >= docHeight - 300) {
-          handleLoadMore();
-        }
+        isNearBottom = scrollY + windowHeight >= docHeight - 300;
       }
+      // 通过 ref 获取最新的 handleLoadMore，避免依赖变化导致 listener 频繁重建
+      if (isNearBottom) handleLoadMoreRef.current();
     };
 
     if (scrollContainer) {
@@ -294,7 +299,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
       window.addEventListener('scroll', handleScroll, { passive: true });
       return () => window.removeEventListener('scroll', handleScroll);
     }
-  }, [infiniteScrollEnabled, source, hasMore, isLoading, isLoadingMore, handleLoadMore]);
+  }, [infiniteScrollEnabled, source]);
 
   const handleSaveTags = async (idOrUrl: string, tags: string[]) => {
     await updateTags(idOrUrl, tags);

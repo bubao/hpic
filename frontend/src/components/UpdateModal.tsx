@@ -1,10 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { VersionInfo, DEFAULT_APP_VERSION } from '../types';
 import { api } from '../api';
 import { Modal } from './Modal';
-import { Sparkles, Copy, ExternalLink, ArrowRight, Check, RefreshCw, CheckCircle, Zap, History, Info } from 'lucide-react';
+import { Sparkles, Copy, ExternalLink, ArrowRight, Check, RefreshCw, CheckCircle, Zap, History, Info, RotateCcw, Power } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { MarkdownView } from './MarkdownView';
+
+const PENDING_RESTART_TTL_MS = 2 * 60 * 60 * 1000; // 2 小时有效（期间若尚未重启则应已手动处理）
+
+interface PendingRestartState {
+  latestVersion: string;
+  installedAt: number;
+}
 
 interface UpdateModalProps {
   isOpen: boolean;
@@ -25,8 +32,15 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
   const [isInstalling, setIsInstalling] = useState(false);
   const [installSuccessMsg, setInstallSuccessMsg] = useState<string | null>(null);
   const [isRechecking, setIsRechecking] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [restartCountdown, setRestartCountdown] = useState(0);
   const [changelogContent, setChangelogContent] = useState<string>('');
   const [loadingChangelog, setLoadingChangelog] = useState(false);
+
+  // 使用 ref 管理待重启状态，避免模块级可变变量
+  const pendingRestartRef = useRef<PendingRestartState | null>(null);
+  // 使用 ref 管理重启倒计时 timer，避免污染 window 对象
+  const restartTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 加载全量版本历史
   const loadChangelog = async () => {
@@ -49,16 +63,64 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
     }
   }, [isOpen]);
 
+  // 清除重启倒计时 timer 的辅助函数
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearInterval(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+  }, []);
+
+  // 组件卸载时清理 timer
+  useEffect(() => {
+    return () => {
+      clearRestartTimer();
+    };
+  }, [clearRestartTimer]);
+
   if (!isOpen) return null;
+
+  // 清除过期的 pending-restart 记录
+  const clearExpiredPendingRestart = () => {
+    const pendingRestart = pendingRestartRef.current;
+    if (pendingRestart && Date.now() - pendingRestart.installedAt > PENDING_RESTART_TTL_MS) {
+      pendingRestartRef.current = null;
+    }
+  };
+
+  // 将 pending-restart 状态合并到 fresh check 结果
+  const applyPendingRestart = (info: VersionInfo): VersionInfo => {
+    clearExpiredPendingRestart();
+    const pendingRestart = pendingRestartRef.current;
+    if (pendingRestart && info.has_update) {
+      // 版本号匹配（latest 未变）且仍在 TTL 窗口内 → 维持"待重启"标记
+      const latestV = info.latest_version.startsWith('v') ? info.latest_version : `v${info.latest_version}`;
+      if (latestV === pendingRestart.latestVersion ||
+          info.latest_version === pendingRestart.latestVersion ||
+          latestV === pendingRestart.latestVersion.replace(/^v/, '')) {
+        return { ...info, install_pending_restart: true };
+      }
+    }
+    // 如果 running version 已等于 latest 版本 → 真正已是最新，清除标记
+    const curV = (info.current_version || '').replace(/^v/, '');
+    const latV = (info.latest_version || '').replace(/^v/, '');
+    if (!info.has_update && curV && latV && curV === latV) {
+      pendingRestartRef.current = null;
+    }
+    return info;
+  };
 
   // 手动重新检查
   const handleRecheck = async () => {
     setIsRechecking(true);
     setInstallSuccessMsg(null);
     try {
-      const info = await api.checkVersion();
+      const rawInfo = await api.checkVersion();
+      const info = applyPendingRestart(rawInfo);
       onUpdateInfoChange?.(info);
-      if (info.has_update) {
+      if (info.install_pending_restart) {
+        toast.info(`已安装 ${info.latest_version}，重启后生效`);
+      } else if (info.has_update) {
         toast.info(`发现新版本: ${info.latest_version}`);
       } else {
         toast.success(`当前已是最新版本 (${info.current_version})`);
@@ -80,13 +142,25 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
       if (res.success) {
         setInstallSuccessMsg(res.message || `已成功安装 ${versionInfo.latest_version}！`);
         toast.success('更新安装成功！');
-        // 更新本地已感知版本
+
+        // 记录待重启状态到 ref（modal 重新打开后可恢复标记）
+        if (res.need_restart) {
+          pendingRestartRef.current = { latestVersion: versionInfo.latest_version, installedAt: Date.now() };
+        }
+
+        // 透传后端标记的 need_restart，由父组件依据此字段切换至"请重启"引导 UI
         if (onUpdateInfoChange && versionInfo) {
           onUpdateInfoChange({
             ...versionInfo,
-            current_version: versionInfo.latest_version,
-            has_update: false,
+            current_version: res.need_restart ? versionInfo.current_version : versionInfo.latest_version,
+            has_update: res.need_restart ? true : false,
+            install_pending_restart: res.need_restart === true,
           });
+        }
+
+        // 启动倒计时 5 秒后自动重启应用
+        if (res.need_restart) {
+          startAutoRestart();
         }
       } else {
         toast.error(res.message || '安装更新未成功');
@@ -95,6 +169,42 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
       toast.error('自动升级安装失败: ' + (e?.message || '未知错误'));
     } finally {
       setIsInstalling(false);
+    }
+  };
+
+  // 自动重启倒计时：安装成功后 5 秒内用户可手动取消，否则调用后端 restart 接口
+  const startAutoRestart = () => {
+    // 清除已有 timer
+    clearRestartTimer();
+    setIsRestarting(true);
+    setRestartCountdown(5);
+    let counter = 5;
+    restartTimerRef.current = setInterval(() => {
+      counter--;
+      setRestartCountdown(counter);
+      if (counter <= 0) {
+        clearRestartTimer();
+        doRestart();
+      }
+    }, 1000);
+  };
+
+  const cancelAutoRestart = () => {
+    clearRestartTimer();
+    setIsRestarting(false);
+    setRestartCountdown(0);
+    toast.info('已取消自动重启，您可稍后手动重启应用');
+  };
+
+  const doRestart = async () => {
+    setIsRestarting(true);
+    setRestartCountdown(0);
+    try {
+      await api.restartVersion();
+      // 后端会在 300ms 内退出进程；前端无需额外操作
+    } catch (e: any) {
+      setIsRestarting(false);
+      toast.error('自动重启失败: ' + (e?.message || '未知错误') + '，请手动重启应用');
     }
   };
 
@@ -162,15 +272,40 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
         {/* Tab 1: 当前版本与更新 */}
         {activeTab === 'current' && (
           <>
-            {/* 安装成功展示 */}
+            {/* 安装成功展示（待重启/倒计时重启中） */}
             {installSuccessMsg ? (
               <div className="update-success-banner image-fade-in">
-                <CheckCircle size={32} color="#10b981" />
-                <div className="success-text-group">
-                  <div className="success-title">新版本已成功安装生效</div>
-                  <div className="success-desc">{installSuccessMsg}</div>
-                  <div className="success-hint">提示：重新启动应用即可体验最新功能。</div>
-                </div>
+                {isRestarting ? (
+                  <>
+                    <Power size={32} color="#f59e0b" className={restartCountdown > 0 ? 'pulse-animation' : ''} />
+                    <div className="success-text-group">
+                      <div className="success-title">
+                        {restartCountdown > 0
+                          ? `应用将在 ${restartCountdown} 秒后自动重启`
+                          : '正在重启应用...'}
+                      </div>
+                      <div className="success-desc">{installSuccessMsg}</div>
+                      {restartCountdown > 0 && (
+                        <button
+                          className="btn btn-ghost restart-cancel-btn"
+                          onClick={cancelAutoRestart}
+                          title="取消自动重启"
+                        >
+                          <span>取消自动重启 ({restartCountdown}s)</span>
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw size={32} color="#a855f7" />
+                    <div className="success-text-group">
+                      <div className="success-title">新版本已安装到磁盘</div>
+                      <div className="success-desc">{installSuccessMsg}</div>
+                      <div className="success-hint">提示：<strong>请重新启动 hpic 应用</strong> 后即可运行最新功能。</div>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <>
@@ -202,8 +337,25 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                   </div>
                 )}
 
-                {/* 发现新版本的更新日志说明 */}
-                {hasUpdate ? (
+                {/* 已安装新版、待重启 */}
+                {hasUpdate && versionInfo?.install_pending_restart ? (
+                  <div className="update-pending-restart-card image-fade-in">
+                    <div className="pending-restart-icon-wrap">
+                      <RotateCcw size={28} color="#a855f7" />
+                    </div>
+                    <div className="pending-restart-content">
+                      <div className="pending-restart-title">已安装 v{versionInfo?.latest_version}，请重启以生效</div>
+                      <div className="pending-restart-desc">
+                        新版二进制已写入磁盘。当前运行的仍是旧版本 (<code>{currentVer}</code>)，
+                        退出当前应用后重新启动即可切换到新版本。
+                      </div>
+                      <div className="pending-restart-hint">
+                        <Info size={13} />
+                        <span>关闭应用后重新启动 hpic</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : hasUpdate ? (
                   <>
                     <div className="release-notes-card">
                       <div className="notes-header">
@@ -294,7 +446,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
             </button>
           )}
 
-          {hasUpdate && !installSuccessMsg && activeTab === 'current' && (
+          {hasUpdate && !installSuccessMsg && activeTab === 'current' && !versionInfo?.install_pending_restart && (
             <button
               className="btn btn-primary highlight-upgrade-btn"
               onClick={handleAutoInstall}
@@ -312,6 +464,13 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                   <span>一键自动更新并安装</span>
                 </>
               )}
+            </button>
+          )}
+
+          {hasUpdate && !installSuccessMsg && activeTab === 'current' && versionInfo?.install_pending_restart && (
+            <button className="btn btn-primary" onClick={onClose} title="关闭窗口，退出应用后重启即可生效">
+              <RotateCcw size={14} />
+              <span>关闭，稍后重启</span>
             </button>
           )}
 

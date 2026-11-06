@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,16 @@ import (
 
 	"hpic/internal/config"
 )
+
+// newLocalRequest 构造一个能通过 isLocalRequest 校验的本地回环请求。
+// httptest.NewRequest 默认 RemoteAddr 为 192.0.2.1:1234、Host 为 example.com，
+// 会触发 isLocalRequest 的 DNS rebinding 防御，因此测试需显式声明回环来源。
+func newLocalRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Host = "localhost"
+	return req
+}
 
 func TestSystemOpenValidation(t *testing.T) {
 	cfg := &config.Config{
@@ -48,7 +59,7 @@ func TestSystemOpenValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			body, _ := json.Marshal(map[string]string{"url": tt.payloadURL})
-			req := httptest.NewRequest("POST", "/api/system/open", bytes.NewBuffer(body))
+			req := newLocalRequest("POST", "/api/system/open", bytes.NewBuffer(body))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 
@@ -120,8 +131,7 @@ func TestHandleConfigPost(t *testing.T) {
 	}
 	body, _ := json.Marshal(updatePayload)
 
-	req := httptest.NewRequest("POST", "/api/config", bytes.NewReader(body))
-	req.RemoteAddr = "127.0.0.1:54321"
+	req := newLocalRequest("POST", "/api/config", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 
 	s.Mux.ServeHTTP(w, req)
@@ -159,7 +169,7 @@ func TestImageProxySecurity(t *testing.T) {
 	s := NewServer(cfg, mockFS)
 
 	// 1. 测试空 URL
-	reqEmpty := httptest.NewRequest("GET", "/api/image/proxy?url=", nil)
+	reqEmpty := newLocalRequest("GET", "/api/image/proxy?url=", nil)
 	wEmpty := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wEmpty, reqEmpty)
 	if wEmpty.Code != http.StatusBadRequest {
@@ -167,7 +177,7 @@ func TestImageProxySecurity(t *testing.T) {
 	}
 
 	// 2. 测试非法 Scheme (file://)
-	reqFile := httptest.NewRequest("GET", "/api/image/proxy?url=file:///etc/passwd", nil)
+	reqFile := newLocalRequest("GET", "/api/image/proxy?url=file:///etc/passwd", nil)
 	wFile := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wFile, reqFile)
 	if wFile.Code != http.StatusBadRequest {
@@ -185,7 +195,7 @@ func TestImageProxySecurity(t *testing.T) {
 	}
 
 	for _, target := range blockedTargets {
-		reqBlock := httptest.NewRequest("GET", "/api/image/proxy?url="+target, nil)
+		reqBlock := newLocalRequest("GET", "/api/image/proxy?url="+target, nil)
 		wBlock := httptest.NewRecorder()
 		s.Mux.ServeHTTP(wBlock, reqBlock)
 		if wBlock.Code != http.StatusForbidden {
@@ -199,16 +209,16 @@ func TestSystemOpenSecurity(t *testing.T) {
 	mockFS := fstest.MapFS{}
 	s := NewServer(cfg, mockFS)
 
-	// 1. 拒绝 GET 请求
-	reqGet := httptest.NewRequest("GET", "/api/system/open", nil)
+	// 1. 拒绝 GET 请求（本地请求才会到达方法校验分支）
+	reqGet := newLocalRequest("GET", "/api/system/open", nil)
 	wGet := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wGet, reqGet)
 	if wGet.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected 405 MethodNotAllowed for GET, got %d", wGet.Code)
 	}
 
-	// 2. 拒绝来自非本机的跨站请求
-	reqEvilOrigin := httptest.NewRequest("POST", "/api/system/open", bytes.NewReader([]byte(`{"url":"https://google.com"}`)))
+	// 2. 拒绝来自非本机的跨站请求（回环来源但携带外部 Origin，仍应被拒绝）
+	reqEvilOrigin := newLocalRequest("POST", "/api/system/open", bytes.NewReader([]byte(`{"url":"https://google.com"}`)))
 	reqEvilOrigin.Header.Set("Origin", "https://evil-attacker.com")
 	wEvil := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wEvil, reqEvilOrigin)

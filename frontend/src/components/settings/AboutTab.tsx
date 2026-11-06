@@ -56,7 +56,7 @@ export const AboutTab: React.FC<AboutTabProps> = ({
               <span>{isCheckingVersion ? '检查中...' : '检查新版本'}</span>
             </button>
 
-            {versionResult?.has_update && (
+            {versionResult?.has_update && !versionResult?.install_pending_restart && (
               <button
                 type="button"
                 className="btn btn-sm btn-primary"
@@ -65,6 +65,18 @@ export const AboutTab: React.FC<AboutTabProps> = ({
               >
                 <Download size={13} className={isInstalling ? 'spin' : ''} />
                 <span>{isInstalling ? '下载安装中...' : `一键升级至 ${versionResult.latest_version}`}</span>
+              </button>
+            )}
+
+            {versionResult?.install_pending_restart && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                style={{ border: '1px solid var(--border-color)', color: 'var(--accent-color)' }}
+                title="新版已安装到磁盘，退出当前应用后重启即可生效"
+              >
+                <RefreshCw size={13} />
+                <span>请重启以应用更新</span>
               </button>
             )}
           </div>

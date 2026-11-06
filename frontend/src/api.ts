@@ -1,4 +1,4 @@
-import { Config, FavoriteItem, GitFileStatus, HealthCheckResult, HealthProgressEvent, HexoStatus, ImageCheckResult, LegacyCheckResult, Photo, PostInfo, SelectDirectoryResult, TagStat, VersionInfo, OperationRecord, DEFAULT_APP_VERSION } from './types';
+import { Config, FavoriteItem, GitFileStatus, HealthCheckResult, HealthProgressEvent, HexoStatus, ImageCheckResult, LegacyCheckResult, Photo, PostInfo, SelectDirectoryResult, TagStat, VersionInfo, OperationRecord, DoctorReport, DEFAULT_APP_VERSION, LocalesListResponse } from './types';
 
 export type VersionMismatchCallback = (newVersion: string, currentVersion: string) => void;
 
@@ -70,6 +70,7 @@ async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<R
   return res;
 }
 
+
 export const api = {
   // 版本契约与裂隙防护监听
   onVersionMismatch,
@@ -82,6 +83,7 @@ export const api = {
   // 配置
   getConfig: async (): Promise<Config> => {
     const res = await apiFetch('/api/config');
+    if (!res.ok) throw new Error(`获取配置失败 (HTTP ${res.status})`);
     return res.json();
   },
   saveConfig: async (cfg: Partial<Config>): Promise<{ success: boolean; config: Config; error?: string }> => {
@@ -124,15 +126,18 @@ export const api = {
   // 文章
   getPosts: async (query = '', sort = 'date_desc'): Promise<{ posts: PostInfo[]; total: number; last_modified?: number }> => {
     const res = await apiFetch(`/api/posts?q=${encodeURIComponent(query)}&sort=${encodeURIComponent(sort)}`);
+    if (!res.ok) throw new Error(`获取文章列表失败 (HTTP ${res.status})`);
     return res.json();
   },
   getPostsStatus: async (dir?: string): Promise<{ success?: boolean; last_modified: number; count: number }> => {
     const url = dir ? `/api/posts/status?dir=${encodeURIComponent(dir)}` : '/api/posts/status';
     const res = await apiFetch(url);
+    if (!res.ok) throw new Error(`获取文章状态失败 (HTTP ${res.status})`);
     return res.json();
   },
   getPost: async (path: string): Promise<PostInfo> => {
     const res = await apiFetch(`/api/post?path=${encodeURIComponent(path)}`);
+    if (!res.ok) throw new Error(`获取文章详情失败 (HTTP ${res.status})`);
     return res.json();
   },
   createPost: async (payload: {
@@ -194,12 +199,32 @@ export const api = {
     error?: string;
   }> => {
     const res = await apiFetch(`/api/post/history?file_path=${encodeURIComponent(filePath)}`);
+    if (!res.ok) throw new Error(`获取历史版本失败 (HTTP ${res.status})`);
+    return res.json();
+  },
+  deletePostHistory: async (id: number): Promise<{ success: boolean; error?: string }> => {
+    const res = await apiFetch('/api/post/history/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    if (!res.ok) throw new Error(`删除历史记录失败 (HTTP ${res.status})`);
+    return res.json();
+  },
+  clearPostHistory: async (filePath: string): Promise<{ success: boolean; error?: string }> => {
+    const res = await apiFetch('/api/post/history/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_path: filePath }),
+    });
+    if (!res.ok) throw new Error(`清空历史记录失败 (HTTP ${res.status})`);
     return res.json();
   },
 
   // 封面健康检查 (404 检测)
   checkHealth: async (): Promise<HealthCheckResult> => {
     const res = await apiFetch('/api/posts/health-check');
+    if (!res.ok) throw new Error(`健康检查失败 (HTTP ${res.status})`);
     return res.json();
   },
 
@@ -283,9 +308,28 @@ export const api = {
     return res.json();
   },
 
+  // Doctor 只读自检诊断
+  getDoctorReport: async (includeNetwork = true): Promise<DoctorReport> => {
+    const res = await apiFetch(`/api/doctor?include_network=${includeNetwork ? 'true' : 'false'}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `诊断失败 (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+  exportDoctorReport: async (includeNetwork = true): Promise<Blob> => {
+    const res = await apiFetch(`/api/doctor/export?include_network=${includeNetwork ? 'true' : 'false'}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `导出诊断包失败 (HTTP ${res.status})`);
+    }
+    return res.blob();
+  },
+
   // 收藏夹
   getFavorites: async (tag = '', query = ''): Promise<{ items: FavoriteItem[]; tags: TagStat[]; total: number }> => {
     const res = await apiFetch(`/api/favorites?tag=${encodeURIComponent(tag)}&q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error(`获取收藏列表失败 (HTTP ${res.status})`);
     return res.json();
   },
   addFavorite: async (item: Partial<FavoriteItem>): Promise<{ success: boolean; item?: FavoriteItem }> => {
@@ -414,12 +458,21 @@ export const api = {
     }
     return res.json();
   },
-  installVersion: async (): Promise<{ success: boolean; message: string; new_version?: string; already_latest?: boolean }> => {
-    const res = await apiFetch('/api/version/install', { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || `HTTP ${res.status}`);
-    }
+installVersion: async (): Promise<{ success: boolean; message: string; new_version?: string; already_latest?: boolean; need_restart?: boolean }> => {
+	const res = await apiFetch('/api/version/install', { method: 'POST' });
+	const data = await res.json();
+	if (!res.ok) {
+		throw new Error(data.error || `HTTP ${res.status}`);
+	}
+	return data;
+},
+
+restartVersion: async (): Promise<{ success: boolean; message: string }> => {
+	const res = await apiFetch('/api/version/restart', { method: 'POST' });
+	const data = await res.json();
+	if (!res.ok) {
+		throw new Error(data.error || `HTTP ${res.status}`);
+	}
     return data;
   },
   getChangelog: async (): Promise<{ success: boolean; changelog: string; version: string }> => {
@@ -428,6 +481,28 @@ export const api = {
       throw new Error(`HTTP ${res.status}`);
     }
     return res.json();
+  },
+
+  /**
+   * 拉取图片原始文本（SVG 矢量修复专用）：
+   * 直连受 CORS / 防盗链限制时，回退到本地图像代理转发。
+   * 返回 null 表示所有路径均不可用。
+   */
+  fetchImageText: async (url: string): Promise<string | null> => {
+    const candidates = [url];
+    if (/^https?:\/\//i.test(url)) {
+      candidates.push(`/api/image/proxy?url=${encodeURIComponent(url)}`);
+    }
+    for (const target of candidates) {
+      try {
+        const res = await apiFetch(target);
+        if (!res.ok) continue;
+        return await res.text();
+      } catch {
+        // 网络失败 / CORS 拒绝，尝试下一个目标
+      }
+    }
+    return null;
   },
 
   // 单张图片健康连通性与防盗链预检
@@ -442,4 +517,62 @@ export const api = {
       return { url, ok: false, status_code: 0, need_proxy: false, is_broken: true, error: e?.message };
     }
   },
+
+  // ------------------------------------------------------------------
+  // 语言与国际化动态扩展接口 (i18n)
+  // ------------------------------------------------------------------
+
+  getI18nLocales: async (): Promise<LocalesListResponse> => {
+    const res = await apiFetch('/api/i18n/locales');
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  getI18nBundle: async (lang: string): Promise<Record<string, any>> => {
+    const res = await apiFetch(`/api/i18n/bundle?lang=${encodeURIComponent(lang)}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  saveI18nCustom: async (lang: string, content: any): Promise<{ success: boolean }> => {
+    const res = await apiFetch('/api/i18n/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang, content }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  resetI18nCustom: async (lang: string): Promise<{ success: boolean }> => {
+    const res = await apiFetch('/api/i18n/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  openI18nFolder: async (): Promise<{ success: boolean }> => {
+    const res = await apiFetch('/api/i18n/open-folder', {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
 };
+

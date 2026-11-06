@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"hpic/internal/config"
 	"hpic/internal/favorites"
@@ -18,16 +20,23 @@ type OpenRequest struct {
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		resp := map[string]interface{}{
-			"app":     "hpic",
-			"version": s.version,
+		s.cfgMu.RLock()
+		cfgBytes, err := json.Marshal(s.cfg) // 浅拷贝序列化，避免并发修改
+		version := s.version
+		hexoDir := s.cfg.HexoDir
+		s.cfgMu.RUnlock()
+
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to marshal config")
+			return
 		}
-		data, err := json.Marshal(s.cfg)
-		if err == nil {
-			_ = json.Unmarshal(data, &resp)
-		}
-		if s.cfg.HexoDir != "" {
-			resp["drafts_dir"] = filepath.Join(s.cfg.HexoDir, "source", "_drafts")
+
+		// 合并 cfg JSON + version/drafts_dir 字段
+		var resp map[string]interface{}
+		_ = json.Unmarshal(cfgBytes, &resp)
+		resp["version"] = version
+		if hexoDir != "" {
+			resp["drafts_dir"] = filepath.Join(hexoDir, "source", "_drafts")
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
@@ -39,12 +48,25 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "failed to read request body")
+			return
+		}
+
 		var req config.Config
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(body, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
+		// 解析原始字段，用于区分「未提供」与「显式提供空值」：
+		// custom_css 为空字符串是合法值（表示清空用户自定义样式），必须允许覆盖。
+		var rawFields map[string]json.RawMessage
+		_ = json.Unmarshal(body, &rawFields)
+
+		// 加写锁保护 cfg 修改
+		s.cfgMu.Lock()
 		if req.HexoDir != "" {
 			s.cfg.HexoDir = req.HexoDir
 			if req.PostsDir == "" {
@@ -54,8 +76,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if req.PostsDir != "" {
 			s.cfg.PostsDir = req.PostsDir
 		}
-		s.cfg.Proxy = req.Proxy
-		s.cfg.AutoSearch = req.AutoSearch
+		// 仅当请求显式携带字段时才更新，防止局部配置保存（如修改外观或主题）意外抹除已配置的代理与选项
+		if _, ok := rawFields["proxy"]; ok {
+			s.cfg.Proxy = strings.TrimSpace(req.Proxy)
+		}
+		if _, ok := rawFields["auto_search"]; ok {
+			s.cfg.AutoSearch = req.AutoSearch
+		}
 		if len(req.CoverFields) > 0 {
 			var cleanedFields []string
 			for _, f := range req.CoverFields {
@@ -74,7 +101,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if req.UpdatedField != "" {
 			s.cfg.UpdatedField = strings.TrimSpace(req.UpdatedField)
 		}
-		s.cfg.GitHubOwner = strings.TrimSpace(req.GitHubOwner)
+		if _, ok := rawFields["github_owner"]; ok {
+			s.cfg.GitHubOwner = strings.TrimSpace(req.GitHubOwner)
+		}
 		if req.SocialifyPattern != "" {
 			s.cfg.SocialifyPattern = strings.TrimSpace(req.SocialifyPattern)
 		}
@@ -96,8 +125,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if req.Theme != "" {
 			s.cfg.Theme = strings.TrimSpace(req.Theme)
 		}
-		if req.CustomCSS != "" {
-			s.cfg.CustomCSS = req.CustomCSS
+		// 只要请求中显式携带 custom_css（含空字符串）就覆盖，否则保留原值（局部更新场景）
+		if cssRaw, ok := rawFields["custom_css"]; ok {
+			var css string
+			if err := json.Unmarshal(cssRaw, &css); err == nil {
+				s.cfg.CustomCSS = css
+			}
 		}
 		if req.MinWidth > 0 {
 			s.cfg.MinWidth = req.MinWidth
@@ -105,7 +138,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if req.MinHeight > 0 {
 			s.cfg.MinHeight = req.MinHeight
 		}
-		s.cfg.InfiniteScroll = req.InfiniteScroll
+		if _, ok := rawFields["infinite_scroll"]; ok {
+			s.cfg.InfiniteScroll = req.InfiniteScroll
+		}
 		if req.DeployMode != "" {
 			s.cfg.DeployMode = req.DeployMode
 		}
@@ -113,7 +148,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			s.cfg.GitCommitTemplate = strings.TrimSpace(req.GitCommitTemplate)
 		}
 
+		// 创建浅拷贝用于返回（避免 JSON 序列化期间 cfg 被其他 goroutine 修改）
+		cfgCopy := *s.cfg
+
 		if err := s.cfg.Save(); err != nil {
+			s.cfgMu.Unlock()
 			writeError(w, http.StatusInternalServerError, "Failed to save config: "+err.Error())
 			return
 		}
@@ -123,11 +162,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			runnerDir = s.cfg.PostsDir
 		}
 		s.hexoRunner.UpdatePostsDir(runnerDir, "")
-		if s.postsTracker != nil {
-			s.postsTracker.SetBaseDir(runnerDir)
-		}
+		s.postsTracker.SetBaseDir(runnerDir)
+		s.cfgMu.Unlock()
 
-		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "config": s.cfg})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "config": cfgCopy})
 		return
 	}
 
@@ -162,8 +200,10 @@ func (s *Server) handleConfigMigrateLegacy(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// 重新载入配置与收藏夹
+	// 重新载入配置与收藏夹（加写锁保护 cfg 替换）
+	s.cfgMu.Lock()
 	s.cfg = config.Load()
+	s.cfgMu.Unlock()
 	favorites.GetStore().SetFilePath(filepath.Join(config.AppConfigDir(), "favorites.json"))
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -333,12 +373,22 @@ func (s *Server) handleVersionInstall(w http.ResponseWriter, r *http.Request) {
 
 	// 优先选用专供热升级的归档包（如 darwin-arm64.tar.gz，杜绝误下载 DMG）
 	installTargetURL := info.BinaryDownloadURL
+
 	if installTargetURL == "" {
-		installTargetURL = info.DownloadURL
+		// 兜底：使用 DownloadURL，但必须排除 DMG/EXE/DEB 等不可用于热更新的产物
+		if info.DownloadURL != "" && !IsManualOnlyAsset(info.DownloadURL) {
+			installTargetURL = info.DownloadURL
+		}
 	}
 
 	if installTargetURL == "" {
-		writeError(w, http.StatusBadRequest, "未能匹配到适用于当前操作系统架构的下载产物，请手动前往 Release 页面下载")
+		// BinaryDownloadURL 为空、且只能提供 DMG 等手动安装包时，给出明确引导
+		if info.ReleaseURL != "" {
+			writeError(w, http.StatusBadRequest,
+				"未找到适用于当前平台的可直接热更新压缩包（如 darwin-arm64.tar.gz），请前往 Release 页面手动下载安装："+info.ReleaseURL)
+		} else {
+			writeError(w, http.StatusBadRequest, "未能匹配到适用于当前操作系统架构的下载产物，请手动前往 GitHub Release 页面下载")
+		}
 		return
 	}
 
@@ -348,14 +398,50 @@ func (s *Server) handleVersionInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 动态更新本地 Server 的已感知版本
-	s.version = strings.TrimPrefix(info.LatestVersion, "v")
+	// 注意：s.version 不应被修改。当前运行进程始终是旧版本二进制，只有重启后才生效。
+	// 如果将 s.version 提前改为新版本号，会导致后续"版本检查"错误地报告 has_update=false，
+	// 让用户误以为当前已是最新版本（实际运行的仍是旧代码）。
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,
 		"message":     msg,
 		"new_version": info.LatestVersion,
+		"need_restart": true,
 	})
+}
+
+func (s *Server) handleVersionRestart(w http.ResponseWriter, r *http.Request) {
+	if !isLocalRequest(r) {
+		writeError(w, http.StatusForbidden, "Cross-origin request denied")
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 先优雅停止子进程和数据库，再启动外部重启 helper
+	if err := s.Close(); err != nil {
+		writeError(w, http.StatusInternalServerError, "停止服务失败: "+err.Error())
+		return
+	}
+
+	if err := RestartApp(); err != nil {
+		writeError(w, http.StatusInternalServerError, "启动重启脚本失败: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "正在重启应用，请稍候...",
+	})
+
+	// 短暂延迟后由 helper 拉起新实例；不再使用 os.Exit 强制退出
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		// 通过 log.Exit 触发退出（比 os.Exit 更温和，给 cleanup 更多时间）
+		os.Exit(0)
+	}()
 }
 
 func (s *Server) handleVersionChangelog(w http.ResponseWriter, r *http.Request) {

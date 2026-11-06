@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FavoriteItem } from '../types';
 import { Tag, Plus, Check, X } from 'lucide-react';
 import { Modal } from './Modal';
+import { SvgSafeImage } from './common/SvgSafeImage';
 
 interface TagEditorModalProps {
   isOpen: boolean;
@@ -70,10 +71,11 @@ export const TagEditorModal: React.FC<TagEditorModalProps> = ({
       width={440}
     >
       <div className="tag-editor-preview-row">
-        <img
+        <SvgSafeImage
           src={item.thumb_url || item.url}
           alt={item.title}
           className="tag-editor-thumb"
+          fitMode="contain"
         />
         <div className="tag-editor-meta">
           <div className="tag-editor-title">

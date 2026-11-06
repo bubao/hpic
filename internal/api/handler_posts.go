@@ -38,23 +38,28 @@ type UndoPostRequest struct {
 }
 
 func (s *Server) recordPostsChange() {
-	if s.postsTracker != nil {
-		s.postsTracker.RecordChange()
-	}
+	// PostsTracker.RecordChange() 内部已为 nil-safe，无需重复检查
+	s.postsTracker.RecordChange()
 }
 
 func (s *Server) handleListPosts(w http.ResponseWriter, r *http.Request) {
 	keyword := r.URL.Query().Get("q")
 	sortBy := r.URL.Query().Get("sort")
 	scanDir := r.URL.Query().Get("dir")
+
+	s.cfgMu.RLock()
 	if scanDir == "" {
 		scanDir = s.cfg.HexoDir
 	}
 	if scanDir == "" {
 		scanDir = s.cfg.PostsDir
 	}
+	coverFields := s.cfg.CoverFields
+	dateField := s.cfg.DateField
+	updatedField := s.cfg.UpdatedField
+	s.cfgMu.RUnlock()
 
-	posts, err := post.ListPosts(scanDir, keyword, s.cfg.CoverFields, sortBy, s.cfg.DateField, s.cfg.UpdatedField)
+	posts, err := post.ListPosts(scanDir, keyword, coverFields, sortBy, dateField, updatedField)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -85,12 +90,14 @@ func (s *Server) handlePostsStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scanDir := r.URL.Query().Get("dir")
+	s.cfgMu.RLock()
 	if scanDir == "" {
 		scanDir = s.cfg.HexoDir
 	}
 	if scanDir == "" {
 		scanDir = s.cfg.PostsDir
 	}
+	s.cfgMu.RUnlock()
 
 	var status post.PostsStatus
 	var err error
@@ -118,12 +125,18 @@ func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.cfgMu.RLock()
+	coverFields := s.cfg.CoverFields
+	dateField := s.cfg.DateField
+	updatedField := s.cfg.UpdatedField
+	s.cfgMu.RUnlock()
+
 	if err := s.validatePathInBlogDir(filePath); err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 
-	info, err := post.ParsePost(filePath, s.cfg.CoverFields, s.cfg.DateField, s.cfg.UpdatedField)
+	info, err := post.ParsePost(filePath, coverFields, dateField, updatedField)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -158,13 +171,20 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 读取 coverFields（加读锁保护）
+	s.cfgMu.RLock()
+	coverFields := s.cfg.CoverFields
+	dateField := s.cfg.DateField
+	updatedField := s.cfg.UpdatedField
+	s.cfgMu.RUnlock()
+
 	finalUpdates := make(map[string]string)
 
 	// 1. 处理清除字段逻辑
 	if len(req.ClearFields) > 0 {
 		for _, f := range req.ClearFields {
 			if f == "all" {
-				for _, cf := range s.cfg.CoverFields {
+				for _, cf := range coverFields {
 					finalUpdates[cf] = "CLEAR"
 				}
 			} else if f != "" {
@@ -177,7 +197,7 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 	if req.RawURL != "" {
 		fieldsToApply := req.ApplyFields
 		if len(fieldsToApply) == 0 {
-			fieldsToApply = s.cfg.CoverFields
+			fieldsToApply = coverFields
 		}
 		for _, f := range fieldsToApply {
 			if f != "" {
@@ -202,20 +222,21 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 写入数据库审计日志并提供撤销支撑
-	currentPost, _ := post.ParsePost(req.FilePath, s.cfg.CoverFields, s.cfg.DateField, s.cfg.UpdatedField)
+	// 写入数据库审计日志并提供撤销支撑（同一批次的多次更新共享同一 batch_id）
+	currentPost, _ := post.ParsePost(req.FilePath, coverFields, dateField, updatedField)
 	postTitle := ""
 	if currentPost != nil {
 		postTitle = currentPost.Title
 	}
 	if s.database != nil && currentPost != nil {
+		batchID := db.NextBatchID()
 		for f, newVal := range finalUpdates {
 			oldVal := currentPost.Images[f]
 			opType := "update_cover"
 			if newVal == "CLEAR" {
 				opType = "clear_cover"
 			}
-			_, _ = s.database.RecordOperation(req.FilePath, postTitle, opType, f, oldVal, newVal)
+			_, _ = s.database.RecordOperationWithBatch(batchID, req.FilePath, postTitle, opType, f, oldVal, newVal)
 		}
 	}
 
@@ -225,7 +246,7 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordPostsChange()
 
-	updated, err := post.ParsePost(req.FilePath, s.cfg.CoverFields, s.cfg.DateField, s.cfg.UpdatedField)
+	updated, err := post.ParsePost(req.FilePath, coverFields, dateField, updatedField)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 		return
@@ -250,7 +271,15 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := post.CreatePost(s.cfg.HexoDir, s.cfg.PostsDir, req.Title, req.FileName, req.Categories, req.Tags, req.IsDraft, s.cfg.CoverFields, s.cfg.DateField, s.cfg.UpdatedField)
+	s.cfgMu.RLock()
+	hexoDir := s.cfg.HexoDir
+	postsDir := s.cfg.PostsDir
+	coverFields := s.cfg.CoverFields
+	dateField := s.cfg.DateField
+	updatedField := s.cfg.UpdatedField
+	s.cfgMu.RUnlock()
+
+	p, err := post.CreatePost(hexoDir, postsDir, req.Title, req.FileName, req.Categories, req.Tags, req.IsDraft, coverFields, dateField, updatedField)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -289,7 +318,13 @@ func (s *Server) handleInsertImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, mdStr, err := post.InsertBodyImage(req.FilePath, req.ImageURL, req.Title, s.cfg.CoverFields, s.cfg.DateField, s.cfg.UpdatedField)
+	s.cfgMu.RLock()
+	coverFields := s.cfg.CoverFields
+	dateField := s.cfg.DateField
+	updatedField := s.cfg.UpdatedField
+	s.cfgMu.RUnlock()
+
+	p, mdStr, err := post.InsertBodyImage(req.FilePath, req.ImageURL, req.Title, coverFields, dateField, updatedField)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -336,13 +371,20 @@ func (s *Server) handleUndoPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 加读锁保护 cfg 字段读取
+	s.cfgMu.RLock()
+	coverFields := s.cfg.CoverFields
+	dateField := s.cfg.DateField
+	updatedField := s.cfg.UpdatedField
+	s.cfgMu.RUnlock()
+
 	var p *post.PostInfo
 	var op *db.OperationRecord
 	var err error
 	if req.LogID > 0 {
-		p, op, err = post.UndoSpecificOperation(s.database, req.LogID, s.cfg.CoverFields, s.cfg.DateField, s.cfg.UpdatedField)
+		p, op, err = post.UndoSpecificOperation(s.database, req.LogID, coverFields, dateField, updatedField)
 	} else {
-		p, op, err = post.UndoOperation(s.database, req.FilePath, s.cfg.CoverFields, s.cfg.DateField, s.cfg.UpdatedField)
+		p, op, err = post.UndoOperation(s.database, req.FilePath, coverFields, dateField, updatedField)
 	}
 
 	if err != nil {
@@ -399,13 +441,100 @@ func (s *Server) handlePostHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleDeletePostHistory 删除指定操作历史记录
+func (s *Server) handleDeletePostHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if !isLocalRequest(r) {
+		writeError(w, http.StatusForbidden, "Cross-origin request denied")
+		return
+	}
+
+	var req struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if req.ID <= 0 {
+		writeError(w, http.StatusBadRequest, "valid id is required")
+		return
+	}
+
+	if s.database == nil {
+		writeError(w, http.StatusInternalServerError, "数据库未初始化")
+		return
+	}
+
+	if err := s.database.DeleteOperation(req.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+	})
+}
+
+// handleClearPostHistory 清空指定文章的全部操作历史记录
+func (s *Server) handleClearPostHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if !isLocalRequest(r) {
+		writeError(w, http.StatusForbidden, "Cross-origin request denied")
+		return
+	}
+
+	var req struct {
+		FilePath string `json:"file_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if req.FilePath == "" {
+		writeError(w, http.StatusBadRequest, "file_path is required")
+		return
+	}
+
+	if err := s.validatePathInBlogDir(req.FilePath); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if s.database == nil {
+		writeError(w, http.StatusInternalServerError, "数据库未初始化")
+		return
+	}
+
+	if err := s.database.ClearPostOperations(req.FilePath); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+	})
+}
+
 func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	postsDir := r.URL.Query().Get("dir")
+	s.cfgMu.RLock()
 	if postsDir == "" {
 		postsDir = s.cfg.PostsDir
 	}
+	coverFields := s.cfg.CoverFields
+	proxy := s.cfg.Proxy
+	s.cfgMu.RUnlock()
 
-	result, err := post.CheckImageHealth(postsDir, s.cfg.CoverFields, s.cfg.Proxy)
+	result, err := post.CheckImageHealth(postsDir, coverFields, proxy)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -427,9 +556,13 @@ func (s *Server) handleHealthCheckStream(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	postsDir := r.URL.Query().Get("dir")
+	s.cfgMu.RLock()
 	if postsDir == "" {
 		postsDir = s.cfg.PostsDir
 	}
+	coverFields := s.cfg.CoverFields
+	proxy := s.cfg.Proxy
+	s.cfgMu.RUnlock()
 
 	var writeMu sync.Mutex
 	sendEvent := func(evt post.HealthProgressEvent) {
@@ -442,7 +575,7 @@ func (s *Server) handleHealthCheckStream(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	_, err := post.CheckImageHealthStream(postsDir, s.cfg.CoverFields, s.cfg.Proxy, sendEvent)
+	_, err := post.CheckImageHealthStream(postsDir, coverFields, proxy, sendEvent)
 	if err != nil {
 		sendEvent(post.HealthProgressEvent{
 			Type:  "error",

@@ -91,4 +91,30 @@ func TestDatabaseOperations(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Expected error or no rows after marking undone")
 	}
+
+	// 4. Test DeleteOperation & ClearPostOperations
+	opID2, err := database.RecordOperation(filePath, "Test Post", "update_cover", "banner_img", "", "https://banner.jpg")
+	if err != nil || opID2 <= 0 {
+		t.Fatalf("RecordOperation 2 failed: %v", err)
+	}
+	history, err := database.GetPostHistory(filePath)
+	if err != nil || len(history) != 2 {
+		t.Fatalf("Expected 2 history records, got %d, err: %v", len(history), err)
+	}
+
+	if err := database.DeleteOperation(opID2); err != nil {
+		t.Fatalf("DeleteOperation failed: %v", err)
+	}
+	history, _ = database.GetPostHistory(filePath)
+	if len(history) != 1 {
+		t.Fatalf("Expected 1 history record after delete, got %d", len(history))
+	}
+
+	if err := database.ClearPostOperations(filePath); err != nil {
+		t.Fatalf("ClearPostOperations failed: %v", err)
+	}
+	history, _ = database.GetPostHistory(filePath)
+	if len(history) != 0 {
+		t.Fatalf("Expected 0 history records after clear, got %d", len(history))
+	}
 }

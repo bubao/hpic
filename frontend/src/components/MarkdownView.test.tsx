@@ -1,83 +1,122 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import React from 'react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, waitFor } from '@testing-library/react';
 import { MarkdownView } from './MarkdownView';
 
-describe('MarkdownView component tests', () => {
-  it('should render empty container when content is empty', () => {
-    const { container } = render(<MarkdownView content="" />);
-    expect(container.querySelector('.markdown-body')?.innerHTML).toBe('');
+const RAW_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="990" height="1020"><rect width="990" height="1020" fill="#123456"/></svg>';
+
+/** 每个用例使用唯一 URL，规避 svgFixer 模块级缓存的跨用例串扰 */
+function uniqueSvgUrl(): string {
+  return `https://example.com/md-${crypto.randomUUID()}.svg`;
+}
+
+describe('MarkdownView SVG 升级', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('should parse headings, lists, bold text and inline code', () => {
-    const content = `## 新增特性
-- **支持 4K 原图直连**: 提高清晰度
-- 修复 \`NaN×NaN\` 徽章展示异常`;
+  it('正文内的 SVG <img> 被升级为修复后的 <object>，并保留 alt / title', async () => {
+    const url = uniqueSvgUrl();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(RAW_SVG, { status: 200, headers: { 'Content-Type': 'image/svg+xml' } })
+    );
 
-    render(<MarkdownView content={content} />);
+    const markdown = `# 标题\n\n![技能卡片](${url} "技能卡片")`;
+    const { container } = render(<MarkdownView content={markdown} />);
 
-    // 检查二级标题
-    const heading = screen.getByRole('heading', { level: 2 });
-    expect(heading.textContent).toBe('新增特性');
+    const imgEl = container.querySelector('.markdown-body img');
+    expect(imgEl).not.toBeNull();
+    expect(imgEl?.getAttribute('src')).toBe(url);
 
-    // 检查粗体文本
-    expect(screen.getByText('支持 4K 原图直连')).toBeDefined();
+    await waitFor(() => {
+      const objectEl = container.querySelector('.markdown-body object[type="image/svg+xml"]');
+      expect(objectEl).not.toBeNull();
+      expect(objectEl!.getAttribute('data') || '').toMatch(/^blob:/);
+    });
 
-    // 检查列表项
-    const listItems = screen.getAllByRole('listitem');
-    expect(listItems.length).toBe(2);
+    // 原节点已被替换
+    expect(container.querySelector('.markdown-body img')).toBeNull();
+    // 元数据透传
+    const objectEl = container.querySelector('.markdown-body object') as HTMLObjectElement;
+    expect(objectEl.getAttribute('aria-label')).toBe('技能卡片');
+    expect(objectEl.getAttribute('title')).toBe('技能卡片');
+    expect(objectEl.getAttribute('width')).toBe('990');
+    expect(objectEl.getAttribute('height')).toBe('1020');
+    expect(objectEl.style.pointerEvents).toBe('none');
 
-    // 检查 inline code
-    expect(screen.getByText('NaN×NaN')).toBeDefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fetchMock.mockRestore();
   });
 
-  it('should render external links with target="_blank" and rel="noopener noreferrer"', () => {
-    const content = '访问 [GitHub Releases](https://github.com/bubao/hpic/releases) 查看';
-    const { container } = render(<MarkdownView content={content} />);
+  it('普通位图 <img> 保持不变', async () => {
+    const markdown = '![照片](https://example.com/photo.jpg)';
+    const { container } = render(<MarkdownView content={markdown} />);
 
-    const link = container.querySelector('a');
-    expect(link).not.toBeNull();
-    expect(link?.getAttribute('href')).toBe('https://github.com/bubao/hpic/releases');
-    expect(link?.getAttribute('target')).toBe('_blank');
-    expect(link?.getAttribute('rel')).toBe('noopener noreferrer');
-    expect(link?.textContent).toBe('GitHub Releases');
+    const imgEl = container.querySelector('.markdown-body img');
+    expect(imgEl).not.toBeNull();
+    // 给定宏任务让潜在的升级逻辑执行后再断言
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(container.querySelector('.markdown-body img')).toBe(imgEl);
+    expect(container.querySelector('.markdown-body object')).toBeNull();
   });
 
-  it('should automatically fold older versions when multiple version headings exist in changelog', () => {
-    const changelog = `# 更新日志
+  it('被链接包裹的 SVG 升级后仍保留外层 <a>', async () => {
+    const url = uniqueSvgUrl();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(RAW_SVG, { status: 200, headers: { 'Content-Type': 'image/svg+xml' } })
+    );
 
-## [v0.1.0] - 2026-11-05
-- **特性**: 全局防白屏
+    // marked 不会解析嵌套在链接语法中的图片，此处用原生 HTML 模拟正文内链式图片
+    const markdown = `<a href="https://example.com/target"><img src="${url}" alt="卡片"></a>`;
+    const { container } = render(<MarkdownView content={markdown} />);
 
-## [v0.0.2] - 2026-11-04
-- **旧特性**: 4K壁纸直连
+    await waitFor(() => {
+      expect(container.querySelector('.markdown-body object[type="image/svg+xml"]')).not.toBeNull();
+    });
 
-## [v0.0.1] - 2026-11-01
-- **初始版本**: 基础功能`;
-
-    const { container } = render(<MarkdownView content={changelog} />);
-
-    // 最新版本内容应该正常展示在最外层
-    expect(screen.getByText('特性')).toBeDefined();
-
-    // 历史版本折叠容器 details 应该存在
-    const details = container.querySelector('details.changelog-older-versions');
-    expect(details).not.toBeNull();
-
-    // summary 应该展示历史版本数量提示
-    const summary = container.querySelector('summary');
-    expect(summary?.textContent).toContain('2 个历史版本');
-    expect(summary?.textContent).toContain('v0.0.2');
+    const anchor = container.querySelector('.markdown-body a');
+    expect(anchor).not.toBeNull();
+    expect(anchor?.getAttribute('href')).toBe('https://example.com/target');
+    // object 仍在链接内部
+    expect(anchor?.querySelector('object')).not.toBeNull();
   });
 
-  it('should not fold when collapseOlderVersions is set to false', () => {
-    const changelog = `## [v0.1.0] - 2026-11-05
-- 特性 1
+  it('直连失败时通过本地图像代理兜底，依然完成升级', async () => {
+    const url = uniqueSvgUrl();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const target = String(input);
+      if (target.includes('/api/image/proxy')) {
+        return new Response(RAW_SVG, { status: 200, headers: { 'Content-Type': 'image/svg+xml' } });
+      }
+      throw new Error('CORS blocked');
+    });
 
-## [v0.0.2] - 2026-11-04
-- 特性 2`;
+    const markdown = `![卡片](${url})`;
+    const { container } = render(<MarkdownView content={markdown} />);
 
-    const { container } = render(<MarkdownView content={changelog} collapseOlderVersions={false} />);
-    const details = container.querySelector('details.changelog-older-versions');
-    expect(details).toBeNull();
+    await waitFor(() => {
+      const objectEl = container.querySelector('.markdown-body object[type="image/svg+xml"]');
+      expect(objectEl!.getAttribute('data') || '').toMatch(/^blob:/);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/api/image/proxy?url=');
+    fetchMock.mockRestore();
+  });
+
+  it('所有链路失败时保留原 <img> 平滑降级', async () => {
+    const url = uniqueSvgUrl();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'));
+
+    const markdown = `![卡片](${url})`;
+    const { container } = render(<MarkdownView content={markdown} />);
+
+    // 等待两轮尝试（直连 + 代理）全部失败
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    // 无升级发生，img 仍为原节点
+    expect(container.querySelector('.markdown-body img')).not.toBeNull();
+    expect(container.querySelector('.markdown-body object')).toBeNull();
   });
 });

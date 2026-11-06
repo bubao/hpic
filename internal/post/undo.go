@@ -40,8 +40,15 @@ func applyRollback(database *db.Database, op *db.OperationRecord, targetFields [
 	filePath := op.FilePath
 	switch op.OperationType {
 	case "update_cover", "clear_cover":
-		// 回滚同一批次（同一秒同时写入的多个封面字段，例如 index_img 和 banner_img 同时更新）
-		batchOps, _ := database.GetBatchOperations(filePath, op.CreatedAt, op.OperationType)
+		// 优先使用 batch_id 精确获取同批次的操作，否则降级为时间窗口查找
+		var batchOps []db.OperationRecord
+		if op.BatchID > 0 {
+			batchOps, _ = database.GetOperationsByBatch(op.BatchID)
+		}
+		if len(batchOps) == 0 {
+			// 兼容旧数据或单条操作：使用 GetBatchOperations 时间窗口降级查找
+			batchOps, _ = database.GetBatchOperations(filePath, op.CreatedAt, op.OperationType)
+		}
 		if len(batchOps) == 0 {
 			batchOps = []db.OperationRecord{*op}
 		}
@@ -57,7 +64,14 @@ func applyRollback(database *db.Database, op *db.OperationRecord, targetFields [
 				restoreVal = "CLEAR"
 			}
 			updates[field] = restoreVal
-			_ = database.MarkUndone(bOp.ID)
+		}
+		// 使用 MarkBatchUndone 一次性标记整批撤销
+		if op.BatchID > 0 {
+			_ = database.MarkBatchUndone(op.BatchID)
+		} else {
+			for _, bOp := range batchOps {
+				_ = database.MarkUndone(bOp.ID)
+			}
 		}
 
 		if err := UpdateDynamicFields(filePath, updates); err != nil {

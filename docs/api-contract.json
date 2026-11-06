@@ -1,0 +1,1785 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "internal/api/contract_test.go (reflection over Go wire structs)",
+  "dtos": [
+    {
+      "goType": "config.Config",
+      "tsType": "Config",
+      "fields": [
+        {
+          "name": "App",
+          "json": "app",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "ConfigFilePath",
+          "json": "config_file_path",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "HexoDir",
+          "json": "hexo_dir",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "PostsDir",
+          "json": "posts_dir",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "Proxy",
+          "json": "proxy",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ImageWidth",
+          "json": "image_width",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ImageQuality",
+          "json": "image_quality",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "AutoSearch",
+          "json": "auto_search",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "CoverFields",
+          "json": "cover_fields",
+          "goKind": "slice",
+          "ts": "string[]",
+          "tsKind": "array-primitive",
+          "omitempty": false
+        },
+        {
+          "name": "DateField",
+          "json": "date_field",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "UpdatedField",
+          "json": "updated_field",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "GitHubOwner",
+          "json": "github_owner",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "SocialifyPattern",
+          "json": "socialify_pattern",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "SocialifyTheme",
+          "json": "socialify_theme",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Orientation",
+          "json": "orientation",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ImageSize",
+          "json": "image_size",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "MinWidth",
+          "json": "min_width",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "MinHeight",
+          "json": "min_height",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "InfiniteScroll",
+          "json": "infinite_scroll",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "DeployMode",
+          "json": "deploy_mode",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "GitCommitTemplate",
+          "json": "git_commit_template",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "Theme",
+          "json": "theme",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "CustomCSS",
+          "json": "custom_css",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        }
+      ]
+    },
+    {
+      "goType": "config.LegacyCheckResult",
+      "tsType": "LegacyCheckResult",
+      "fields": [
+        {
+          "name": "HasLegacy",
+          "json": "has_legacy",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "LegacyFiles",
+          "json": "legacy_files",
+          "goKind": "slice",
+          "ts": "string[]",
+          "tsKind": "array-primitive",
+          "omitempty": false
+        },
+        {
+          "name": "TargetDir",
+          "json": "target_dir",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "TargetConfig",
+          "json": "target_config",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "AlreadyMigrated",
+          "json": "already_migrated",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "config.MigrateResult",
+      "fields": [
+        {
+          "name": "Success",
+          "json": "success",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "MigratedFiles",
+          "json": "migrated_files",
+          "goKind": "slice",
+          "ts": "string[]",
+          "tsKind": "array-primitive",
+          "omitempty": false
+        },
+        {
+          "name": "BackupFiles",
+          "json": "backup_files",
+          "goKind": "slice",
+          "ts": "string[]",
+          "tsKind": "array-primitive",
+          "omitempty": false
+        },
+        {
+          "name": "TargetDir",
+          "json": "target_dir",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Error",
+          "json": "error",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        }
+      ]
+    },
+    {
+      "goType": "post.PostInfo",
+      "tsType": "PostInfo",
+      "fields": [
+        {
+          "name": "FilePath",
+          "json": "file_path",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "FileName",
+          "json": "file_name",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Title",
+          "json": "title",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Date",
+          "json": "date",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Updated",
+          "json": "updated",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Categories",
+          "json": "categories",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Tags",
+          "json": "tags",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Images",
+          "json": "images",
+          "goKind": "map",
+          "ts": "Record\u003cstring, string\u003e",
+          "tsKind": "record",
+          "omitempty": false
+        },
+        {
+          "name": "IndexImg",
+          "json": "index_img",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "BannerImg",
+          "json": "banner_img",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HasAllImages",
+          "json": "has_all_images",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Status",
+          "json": "status",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "IsDraft",
+          "json": "is_draft",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ModTime",
+          "json": "mod_time",
+          "goKind": "struct",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ParsedDate",
+          "json": "parsed_date",
+          "goKind": "struct",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ParsedUpdate",
+          "json": "parsed_update",
+          "goKind": "struct",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "post.PostsStatus",
+      "fields": [
+        {
+          "name": "LastModified",
+          "json": "last_modified",
+          "goKind": "int64",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Count",
+          "json": "count",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "post.BrokenImageReport",
+      "tsType": "BrokenReport",
+      "fields": [
+        {
+          "name": "PostTitle",
+          "json": "post_title",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "FilePath",
+          "json": "file_path",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "FileName",
+          "json": "file_name",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Field",
+          "json": "field",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "URL",
+          "json": "url",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "StatusCode",
+          "json": "status_code",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Error",
+          "json": "error",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "post.HealthCheckResult",
+      "tsType": "HealthCheckResult",
+      "fields": [
+        {
+          "name": "TotalPosts",
+          "json": "total_posts",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "TotalImages",
+          "json": "total_images",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HealthyImages",
+          "json": "healthy_images",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "BrokenCount",
+          "json": "broken_count",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "BrokenReports",
+          "json": "broken_reports",
+          "goKind": "slice",
+          "ts": "BrokenReport[]",
+          "tsKind": "array-struct",
+          "omitempty": false
+        },
+        {
+          "name": "Duration",
+          "json": "duration",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "post.HealthProgressEvent",
+      "tsType": "HealthProgressEvent",
+      "fields": [
+        {
+          "name": "Type",
+          "json": "type",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "TotalPosts",
+          "json": "total_posts",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "TotalImages",
+          "json": "total_images",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ScannedImages",
+          "json": "scanned_images",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HealthyImages",
+          "json": "healthy_images",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "BrokenCount",
+          "json": "broken_count",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "CurrentURL",
+          "json": "current_url",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "LastReport",
+          "json": "last_report",
+          "goKind": "ptr",
+          "ts": "BrokenReport",
+          "tsKind": "struct",
+          "omitempty": true
+        },
+        {
+          "name": "BrokenReports",
+          "json": "broken_reports",
+          "goKind": "slice",
+          "ts": "BrokenReport[]",
+          "tsKind": "array-struct",
+          "omitempty": true
+        },
+        {
+          "name": "Duration",
+          "json": "duration",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "Error",
+          "json": "error",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        }
+      ]
+    },
+    {
+      "goType": "db.OperationRecord",
+      "tsType": "OperationRecord",
+      "fields": [
+        {
+          "name": "ID",
+          "json": "id",
+          "goKind": "int64",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "BatchID",
+          "json": "batch_id",
+          "goKind": "int64",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "FilePath",
+          "json": "file_path",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "PostTitle",
+          "json": "post_title",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "OperationType",
+          "json": "operation_type",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Field",
+          "json": "field",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "OldValue",
+          "json": "old_value",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "NewValue",
+          "json": "new_value",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "CreatedAt",
+          "json": "created_at",
+          "goKind": "struct",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "IsUndone",
+          "json": "is_undone",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "favorites.FavoriteItem",
+      "tsType": "FavoriteItem",
+      "fields": [
+        {
+          "name": "ID",
+          "json": "id",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "URL",
+          "json": "url",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ThumbURL",
+          "json": "thumb_url",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Title",
+          "json": "title",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Source",
+          "json": "source",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Tags",
+          "json": "tags",
+          "goKind": "slice",
+          "ts": "string[]",
+          "tsKind": "array-primitive",
+          "omitempty": false
+        },
+        {
+          "name": "CreatedAt",
+          "json": "created_at",
+          "goKind": "struct",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "favorites.TagStat",
+      "tsType": "TagStat",
+      "fields": [
+        {
+          "name": "Name",
+          "json": "name",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Count",
+          "json": "count",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "unsplash.Photo",
+      "tsType": "Photo",
+      "fields": [
+        {
+          "name": "ID",
+          "json": "id",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Width",
+          "json": "width",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Height",
+          "json": "height",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Color",
+          "json": "color",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Description",
+          "json": "description",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "AltDescription",
+          "json": "alt_description",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Urls",
+          "json": "urls",
+          "goKind": "struct",
+          "ts": "PhotoURLs",
+          "tsKind": "struct",
+          "omitempty": false
+        },
+        {
+          "name": "User",
+          "json": "user",
+          "goKind": "struct",
+          "ts": "User",
+          "tsKind": "struct",
+          "omitempty": false
+        },
+        {
+          "name": "Source",
+          "json": "source",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "unsplash.PhotoURLs",
+      "tsType": "PhotoURLs",
+      "fields": [
+        {
+          "name": "Raw",
+          "json": "raw",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Full",
+          "json": "full",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Regular",
+          "json": "regular",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Small",
+          "json": "small",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Thumb",
+          "json": "thumb",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "hexo.StatusResponse",
+      "tsType": "HexoStatus",
+      "fields": [
+        {
+          "name": "Running",
+          "json": "running",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ServerRunning",
+          "json": "server_running",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Port",
+          "json": "port",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "URL",
+          "json": "url",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "PID",
+          "json": "pid",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ServerPID",
+          "json": "server_pid",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "UptimeSeconds",
+          "json": "uptime_seconds",
+          "goKind": "int64",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HexoRoot",
+          "json": "hexo_root",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HasHexo",
+          "json": "has_hexo",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "GenerateRunning",
+          "json": "generate_running",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "GenerateWatch",
+          "json": "generate_watch",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Logs",
+          "json": "logs",
+          "goKind": "slice",
+          "ts": "string[]",
+          "tsKind": "array-primitive",
+          "omitempty": false
+        },
+        {
+          "name": "RecentLogs",
+          "json": "recent_logs",
+          "goKind": "slice",
+          "ts": "string[]",
+          "tsKind": "array-primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Env",
+          "json": "env",
+          "goKind": "struct",
+          "ts": "HexoEnvironment",
+          "tsKind": "struct",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "hexo.EnvironmentInfo",
+      "tsType": "HexoEnvironment",
+      "fields": [
+        {
+          "name": "NodePath",
+          "json": "node_path",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "NpxPath",
+          "json": "npx_path",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HexoBin",
+          "json": "hexo_bin",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HexoRoot",
+          "json": "hexo_root",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HasHexo",
+          "json": "has_hexo",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "PathDirs",
+          "json": "path_dirs",
+          "goKind": "slice",
+          "ts": "string[]",
+          "tsKind": "array-primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "hexo.GenerateResult",
+      "fields": [
+        {
+          "name": "Success",
+          "json": "success",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Output",
+          "json": "output",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Duration",
+          "json": "duration",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Error",
+          "json": "error",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        }
+      ]
+    },
+    {
+      "goType": "hexo.GitFileStatus",
+      "tsType": "GitFileStatus",
+      "fields": [
+        {
+          "name": "Status",
+          "json": "status",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Path",
+          "json": "path",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "doctor.Report",
+      "tsType": "DoctorReport",
+      "fields": [
+        {
+          "name": "Version",
+          "json": "version",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Platform",
+          "json": "platform",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "GoVersion",
+          "json": "go_version",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Overall",
+          "json": "overall",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Summary",
+          "json": "summary",
+          "goKind": "struct",
+          "ts": "DoctorSummary",
+          "tsKind": "struct",
+          "omitempty": false
+        },
+        {
+          "name": "Probes",
+          "json": "probes",
+          "goKind": "slice",
+          "ts": "DoctorProbe[]",
+          "tsKind": "array-struct",
+          "omitempty": false
+        },
+        {
+          "name": "GeneratedAt",
+          "json": "generated_at",
+          "goKind": "struct",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "doctor.Probe",
+      "tsType": "DoctorProbe",
+      "fields": [
+        {
+          "name": "ID",
+          "json": "id",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Name",
+          "json": "name",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Category",
+          "json": "category",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Status",
+          "json": "status",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Message",
+          "json": "message",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Fix",
+          "json": "fix",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "Duration",
+          "json": "duration",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "Details",
+          "json": "details",
+          "goKind": "map",
+          "ts": "Record\u003cstring, unknown\u003e",
+          "tsKind": "record",
+          "omitempty": true
+        }
+      ]
+    },
+    {
+      "goType": "doctor.Summary",
+      "tsType": "DoctorSummary",
+      "fields": [
+        {
+          "name": "Total",
+          "json": "total",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "OK",
+          "json": "ok",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Warn",
+          "json": "warn",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Error",
+          "json": "error",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Info",
+          "json": "info",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "doctor.ExportBundle",
+      "tsType": "DoctorExportBundle",
+      "fields": [
+        {
+          "name": "SchemaVersion",
+          "json": "schema_version",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Exporter",
+          "json": "exporter",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ExporterVersion",
+          "json": "exporter_version",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ExportedAt",
+          "json": "exported_at",
+          "goKind": "struct",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Report",
+          "json": "report",
+          "goKind": "struct",
+          "ts": "DoctorReport",
+          "tsKind": "struct",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "api.VersionCheckResponse",
+      "tsType": "VersionInfo",
+      "fields": [
+        {
+          "name": "CurrentVersion",
+          "json": "current_version",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "LatestVersion",
+          "json": "latest_version",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HasUpdate",
+          "json": "has_update",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "NoRelease",
+          "json": "no_release",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Repo",
+          "json": "repo",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ReleaseName",
+          "json": "release_name",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ReleaseNotes",
+          "json": "release_notes",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "PublishedAt",
+          "json": "published_at",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "ReleaseURL",
+          "json": "release_url",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "DownloadURL",
+          "json": "download_url",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "AssetFileName",
+          "json": "asset_file_name",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "BinaryDownloadURL",
+          "json": "binary_download_url",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "BinaryAssetFileName",
+          "json": "binary_asset_file_name",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "Platform",
+          "json": "platform",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    }
+  ],
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/config",
+      "response": "Config",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/check-legacy",
+      "response": "LegacyCheckResult",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/migrate-legacy",
+      "response": "MigrateResult",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/proxy-test",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/doctor",
+      "response": "DoctorReport",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/doctor/export",
+      "response": "DoctorExportBundle",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/favorites",
+      "response": "FavoriteItem",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/add",
+      "response": "FavoriteItem",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/favorites/check"
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/remove",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/tags",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/hexo/clean",
+      "response": "GenerateResult",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/hexo/deploy",
+      "response": "GenerateResult",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/hexo/generate",
+      "response": "GenerateResult",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/hexo/generate/stop",
+      "response": "StatusResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/api/hexo/git/status",
+      "response": "GitFileStatus",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/hexo/server/start",
+      "response": "StatusResponse",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/hexo/server/stop",
+      "response": "StatusResponse",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/hexo/status",
+      "response": "StatusResponse",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/i18n/bundle",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/i18n/locales",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/i18n/open-folder",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/i18n/reset",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/i18n/save",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/image/check",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/image/proxy",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp"
+    },
+    {
+      "method": "GET",
+      "path": "/api/post",
+      "response": "PostInfo",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/post/create",
+      "response": "PostInfo",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/post/history",
+      "response": "OperationRecord",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/post/history/clear",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/post/history/delete",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/post/insert-image",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/post/undo",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/post/update",
+      "response": "PostInfo",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts/health-check",
+      "response": "HealthCheckResult",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts/health-check/stream",
+      "response": "HealthProgressEvent",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts/status",
+      "response": "PostsStatus",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/skillicons/preview"
+    },
+    {
+      "method": "GET",
+      "path": "/api/socialify/preview"
+    },
+    {
+      "method": "POST",
+      "path": "/api/system/open",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/system/select-directory",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/unsplash/search",
+      "response": "SearchResponse",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/version/changelog",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/version/check",
+      "response": "VersionCheckResponse",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/version/install",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/version/restart",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/version/upgrade",
+      "frontend": true
+    }
+  ]
+}

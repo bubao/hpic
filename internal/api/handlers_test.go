@@ -102,8 +102,7 @@ func TestPostsHandlersLifecycle(t *testing.T) {
 		"tags":       "Go, Hexo",
 		"is_draft":   false,
 	})
-	reqCreate := httptest.NewRequest("POST", "/api/post/create", bytes.NewReader(createBody))
-	reqCreate.RemoteAddr = "127.0.0.1:12345"
+	reqCreate := newLocalRequest("POST", "/api/post/create", bytes.NewReader(createBody))
 	wCreate := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wCreate, reqCreate)
 	if wCreate.Code != http.StatusOK {
@@ -116,8 +115,7 @@ func TestPostsHandlersLifecycle(t *testing.T) {
 		"file_name": "new-draft",
 		"is_draft":  true,
 	})
-	reqDraft := httptest.NewRequest("POST", "/api/post/create", bytes.NewReader(draftBody))
-	reqDraft.RemoteAddr = "127.0.0.1:12345"
+	reqDraft := newLocalRequest("POST", "/api/post/create", bytes.NewReader(draftBody))
 	wDraft := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wDraft, reqDraft)
 	if wDraft.Code != http.StatusOK {
@@ -125,8 +123,7 @@ func TestPostsHandlersLifecycle(t *testing.T) {
 	}
 
 	// 创建文章验证缺少标题返回错误
-	reqNoTitle := httptest.NewRequest("POST", "/api/post/create", bytes.NewReader([]byte(`{}`)))
-	reqNoTitle.RemoteAddr = "127.0.0.1:12345"
+	reqNoTitle := newLocalRequest("POST", "/api/post/create", bytes.NewReader([]byte(`{}`)))
 	wNoTitle := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wNoTitle, reqNoTitle)
 	if wNoTitle.Code != http.StatusInternalServerError && wNoTitle.Code != http.StatusBadRequest {
@@ -139,8 +136,7 @@ func TestPostsHandlersLifecycle(t *testing.T) {
 		"raw_url":      "https://example.com/updated.jpg",
 		"apply_fields": []string{"index_img"},
 	})
-	reqUpdate := httptest.NewRequest("POST", "/api/post/update", bytes.NewReader(updateBody))
-	reqUpdate.RemoteAddr = "127.0.0.1:12345"
+	reqUpdate := newLocalRequest("POST", "/api/post/update", bytes.NewReader(updateBody))
 	wUpdate := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wUpdate, reqUpdate)
 	if wUpdate.Code != http.StatusOK {
@@ -152,8 +148,7 @@ func TestPostsHandlersLifecycle(t *testing.T) {
 		"file_path":    postFile,
 		"clear_fields": []string{"all"},
 	})
-	reqClear := httptest.NewRequest("POST", "/api/post/update", bytes.NewReader(clearBody))
-	reqClear.RemoteAddr = "127.0.0.1:12345"
+	reqClear := newLocalRequest("POST", "/api/post/update", bytes.NewReader(clearBody))
 	wClear := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wClear, reqClear)
 	if wClear.Code != http.StatusOK {
@@ -166,8 +161,7 @@ func TestPostsHandlersLifecycle(t *testing.T) {
 		"image_url": "https://example.com/body-pic.jpg",
 		"title":     "插图",
 	})
-	reqInsert := httptest.NewRequest("POST", "/api/post/insert-image", bytes.NewReader(insertBody))
-	reqInsert.RemoteAddr = "127.0.0.1:12345"
+	reqInsert := newLocalRequest("POST", "/api/post/insert-image", bytes.NewReader(insertBody))
 	wInsert := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wInsert, reqInsert)
 	if wInsert.Code != http.StatusOK {
@@ -186,8 +180,7 @@ func TestPostsHandlersLifecycle(t *testing.T) {
 	undoBody, _ := json.Marshal(map[string]interface{}{
 		"file_path": postFile,
 	})
-	reqUndo := httptest.NewRequest("POST", "/api/post/undo", bytes.NewReader(undoBody))
-	reqUndo.RemoteAddr = "127.0.0.1:12345"
+	reqUndo := newLocalRequest("POST", "/api/post/undo", bytes.NewReader(undoBody))
 	wUndo := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wUndo, reqUndo)
 	if wUndo.Code != http.StatusOK {
@@ -296,8 +289,7 @@ func TestHexoAndProxyHandlers(t *testing.T) {
 
 	// 3. handleProxyTest (缺参拦截)
 	proxyBody, _ := json.Marshal(map[string]string{"proxy": ""})
-	reqProxy := httptest.NewRequest("POST", "/api/config/proxy-test", bytes.NewReader(proxyBody))
-	reqProxy.RemoteAddr = "127.0.0.1:12345"
+	reqProxy := newLocalRequest("POST", "/api/config/proxy-test", bytes.NewReader(proxyBody))
 	wProxy := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wProxy, reqProxy)
 	if wProxy.Code != http.StatusBadRequest {
@@ -341,8 +333,7 @@ func TestConfigHandlers(t *testing.T) {
 	}
 
 	// 3. handleConfigMigrateLegacy
-	reqMigrate := httptest.NewRequest("POST", "/api/config/migrate-legacy", nil)
-	reqMigrate.RemoteAddr = "127.0.0.1:12345"
+	reqMigrate := newLocalRequest("POST", "/api/config/migrate-legacy", nil)
 	wMigrate := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wMigrate, reqMigrate)
 	if wMigrate.Code != http.StatusOK {
@@ -351,8 +342,7 @@ func TestConfigHandlers(t *testing.T) {
 
 	// 4. handleSelectDirectory
 	bodyValid, _ := json.Marshal(map[string]string{"path": tmpDir})
-	reqSel := httptest.NewRequest("POST", "/api/system/select-directory", bytes.NewReader(bodyValid))
-	reqSel.RemoteAddr = "127.0.0.1:12345"
+	reqSel := newLocalRequest("POST", "/api/system/select-directory", bytes.NewReader(bodyValid))
 	wSel := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wSel, reqSel)
 	if wSel.Code != http.StatusOK {
@@ -361,8 +351,7 @@ func TestConfigHandlers(t *testing.T) {
 
 	// handleSelectDirectory 验证无前端交互环境下的返回值
 	bodyInvalid, _ := json.Marshal(map[string]string{"path": "/non-existent-directory-xyz-123"})
-	reqSelFail := httptest.NewRequest("POST", "/api/system/select-directory", bytes.NewReader(bodyInvalid))
-	reqSelFail.RemoteAddr = "127.0.0.1:12345"
+	reqSelFail := newLocalRequest("POST", "/api/system/select-directory", bytes.NewReader(bodyInvalid))
 	wSelFail := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wSelFail, reqSelFail)
 	if wSelFail.Code != http.StatusOK {
@@ -375,8 +364,7 @@ func TestHexoCleanAndDeploy(t *testing.T) {
 	defer cleanup()
 
 	// 1. handleHexoClean
-	reqClean := httptest.NewRequest("POST", "/api/hexo/clean", nil)
-	reqClean.RemoteAddr = "127.0.0.1:12345"
+	reqClean := newLocalRequest("POST", "/api/hexo/clean", nil)
 	wClean := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wClean, reqClean)
 	// Hexo 未安装或执行 clean 会返回 200 并携带 result.Success
@@ -385,8 +373,7 @@ func TestHexoCleanAndDeploy(t *testing.T) {
 	}
 
 	// 2. handleHexoGenerateStop
-	reqGenStop := httptest.NewRequest("POST", "/api/hexo/generate/stop", nil)
-	reqGenStop.RemoteAddr = "127.0.0.1:12345"
+	reqGenStop := newLocalRequest("POST", "/api/hexo/generate/stop", nil)
 	wGenStop := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wGenStop, reqGenStop)
 	if wGenStop.Code != http.StatusOK {
@@ -394,8 +381,7 @@ func TestHexoCleanAndDeploy(t *testing.T) {
 	}
 
 	// 3. handleHexoServerStop
-	reqServStop := httptest.NewRequest("POST", "/api/hexo/server/stop", nil)
-	reqServStop.RemoteAddr = "127.0.0.1:12345"
+	reqServStop := newLocalRequest("POST", "/api/hexo/server/stop", nil)
 	wServStop := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wServStop, reqServStop)
 	if wServStop.Code != http.StatusOK {
@@ -407,8 +393,7 @@ func TestHexoCleanAndDeploy(t *testing.T) {
 		"mode":           "git",
 		"commit_message": "test commit",
 	})
-	reqDeploy := httptest.NewRequest("POST", "/api/hexo/deploy", bytes.NewReader(deployBody))
-	reqDeploy.RemoteAddr = "127.0.0.1:12345"
+	reqDeploy := newLocalRequest("POST", "/api/hexo/deploy", bytes.NewReader(deployBody))
 	wDeploy := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wDeploy, reqDeploy)
 	if wDeploy.Code != http.StatusOK && wDeploy.Code != http.StatusInternalServerError {
@@ -431,8 +416,8 @@ func TestSSRFAndSecurityGuards(t *testing.T) {
 		t.Errorf("8.8.8.8 should not be recognized as private/local host")
 	}
 
-	// 2. handleImageProxy SSRF 拦截
-	reqSSRF := httptest.NewRequest("GET", "/api/image/proxy?url=http://127.0.0.1:8080/secret", nil)
+	// 2. handleImageProxy SSRF 拦截（本地请求才会进入 SSRF 守卫分支）
+	reqSSRF := newLocalRequest("GET", "/api/image/proxy?url=http://127.0.0.1:8080/secret", nil)
 	wSSRF := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wSSRF, reqSSRF)
 	if wSSRF.Code != http.StatusForbidden {

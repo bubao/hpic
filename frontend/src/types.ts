@@ -54,6 +54,7 @@ export interface GitFileStatus {
 
 export interface OperationRecord {
   id: number;
+  batch_id?: number;
   file_path: string;
   post_title: string;
   operation_type: 'update_cover' | 'clear_cover' | 'insert_image';
@@ -69,7 +70,9 @@ export interface PostInfo {
   file_name: string;
   title: string;
   date: string;
+  parsed_date?: string;
   updated: string;
+  parsed_update?: string;
   categories: string;
   tags: string;
   images: Record<string, string>;
@@ -93,6 +96,7 @@ export interface Photo {
   id: string;
   width?: number;
   height?: number;
+  color?: string;
   description?: string;
   alt_description?: string;
   urls: PhotoURLs;
@@ -132,11 +136,13 @@ export interface HexoStatus {
   running?: boolean;
   server_running?: boolean;
   port: number;
+  url?: string;
   server_pid?: number;
   pid?: number;
   uptime_seconds: number;
   generate_running: boolean;
   generate_watch: boolean;
+  has_hexo?: boolean;
   hexo_root: string;
   hexo_bin: string;
   posts_dir: string;
@@ -188,19 +194,117 @@ export interface HealthProgressEvent {
 }
 
 export interface VersionInfo {
-  current_version: string;
-  latest_version: string;
-  has_update: boolean;
-  no_release?: boolean;
-  repo?: string;
-  release_name: string;
-  release_notes: string;
-  published_at: string;
-  release_url: string;
-  download_url: string;
-  asset_file_name: string;
-  platform: string;
+	current_version: string;
+	latest_version: string;
+	has_update: boolean;
+	no_release?: boolean;
+	repo?: string;
+	release_name: string;
+	release_notes: string;
+	published_at: string;
+	release_url: string;
+	download_url: string;
+	asset_file_name: string;
+	binary_download_url?: string;
+	binary_asset_file_name?: string;
+	platform: string;
+	install_pending_restart?: boolean;  // 已安装新版但需重启当前进程才能生效
 }
+
+// Doctor 只读自检诊断（Report/Probe 与后端 wire 契约镜像一致）
+export type DoctorStatus = 'ok' | 'warn' | 'error' | 'info';
+
+export interface DoctorProbe {
+  id: string;
+  name: string;
+  category: 'app' | 'environment' | 'config' | 'storage' | 'network';
+  status: DoctorStatus;
+  message: string;
+  fix?: string;
+  duration?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface DoctorSummary {
+  total: number;
+  ok: number;
+  warn: number;
+  error: number;
+  info: number;
+}
+
+export interface DoctorReport {
+  version: string;
+  platform: string;
+  go_version: string;
+  overall: DoctorStatus;
+  summary: DoctorSummary;
+  probes: DoctorProbe[];
+  generated_at: string;
+}
+
+export interface DoctorExportBundle {
+  schema_version: number;
+  exporter: string;
+  exporter_version: string;
+  exported_at: string;
+  report: DoctorReport;
+}
+
+// ------------------------------------------------------------------
+// ⌘K 命令面板（条目模型；索引/匹配/频次排序由 utils/commandMatcher 提供）
+// ------------------------------------------------------------------
+
+/** 命令分组定义（顺序即展示顺序） */
+export interface CommandGroup {
+  id: string;
+  label: string;
+  order?: number;
+}
+
+/** 单个可执行命令；run 由应用装配层注入 */
+export interface CommandItem {
+  id: string;
+  /** 分组 id，对应 CommandGroup.id */
+  group: string;
+  title: string;
+  /** 中文 / 英文 / 拼音别名（全拼或首字母），用于模糊检索 */
+  keywords?: string[];
+  /** 展示用快捷键提示，例如 ⌘K、⌘Z */
+  shortcut?: string;
+  /** 同组内排序（越小越靠前，为空时按标题） */
+  order?: number;
+  /** 是否可出现在面板中（默认 true；禁用命令直接隐藏） */
+  enabled?: boolean;
+  /** 执行回调（由应用装配层注入，面板只负责调度与埋点） */
+  run: () => void;
+}
+
+/** 单条命令的累计使用记录 */
+export interface CommandUsageEntry {
+  count: number;
+  /** 最后一次使用的时间戳（epoch ms），用于衰减 */
+  last_used: number;
+}
+
+// ------------------------------------------------------------------
+// 语言与国际化扩展模型 (i18n)
+// ------------------------------------------------------------------
+
+export interface LocaleMeta {
+  code: string;
+  name: string;
+  is_builtin: boolean;
+  has_override: boolean;
+}
+
+export interface LocalesListResponse {
+  locales: LocaleMeta[];
+  locales_dir: string;
+}
+
+
+export type UsageStats = Record<string, CommandUsageEntry>;
 
 // 提取图片的物理唯一主键（剔除裁剪尺寸、格式、质量等可变参数，杜绝重复收藏与匹配偏差）
 export function getCanonicalImageKey(url?: string): string {

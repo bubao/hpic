@@ -24,16 +24,23 @@ export function usePostList(options?: UsePostListOptions) {
   });
   const isCheckingRef = useRef(false);
 
+  // 组件卸载保护 ref，避免在已卸载组件上调用 setState
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
+
   // 加载当前选中文章的变更历史与可撤销记录
   const loadPostHistory = useCallback(async (filePath?: string) => {
     const target = filePath || selectedPost?.file_path;
     if (!target) {
-      setPostHistory([]);
+      if (isMountedRef.current) setPostHistory([]);
       return;
     }
     try {
       const res = await api.getPostHistory(target);
-      if (res.success) {
+      if (res.success && isMountedRef.current) {
         setPostHistory(res.history || []);
       }
     } catch {
@@ -52,6 +59,8 @@ export function usePostList(options?: UsePostListOptions) {
     try {
       const res = await api.getPosts(q, s);
       const newPosts = res.posts || [];
+      if (!isMountedRef.current) return;
+
       setPosts(newPosts);
 
       if (typeof res.last_modified === 'number') {
@@ -70,12 +79,12 @@ export function usePostList(options?: UsePostListOptions) {
         toast.success(`已刷新博文列表 (共 ${newPosts.length} 篇)`);
       }
     } catch (err: unknown) {
-      if (!silent) {
+      if (!silent && isMountedRef.current) {
         const message = err instanceof Error ? err.message : '刷新博文列表失败';
         toast.error(message);
       }
     } finally {
-      setIsRefreshingPosts(false);
+      if (isMountedRef.current) setIsRefreshingPosts(false);
     }
   }, [searchQuery, sortBy, toast]);
 

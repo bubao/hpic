@@ -1,7 +1,40 @@
 import { describe, it, expect } from 'vitest';
-import { extractImageFilename, getImageAspectRatio, getImageQualityBadge, extractTargetDimensions } from './imageMeta';
+import { extractImageFilename, getImageAspectRatio, getImageQualityBadge, extractTargetDimensions, isSvgUrl } from './imageMeta';
 
 describe('imageMeta utility tests', () => {
+  describe('isSvgUrl', () => {
+    it('should correctly identify SVG urls', () => {
+      expect(isSvgUrl('https://example.com/logo.svg')).toBe(true);
+      expect(isSvgUrl('https://cdn.jsdelivr.net/gh/bubao/picgo_db_tiny/img/20210325223847.svg')).toBe(true);
+      expect(isSvgUrl('https://example.com/logo.SVG?v=1')).toBe(true);
+      expect(isSvgUrl('data:image/svg+xml;utf8,<svg></svg>')).toBe(true);
+      expect(isSvgUrl('https://skillicons.dev/icons?i=go,docker,linux')).toBe(true);
+      expect(isSvgUrl('https://carbon.now.sh/embed/abc')).toBe(true);
+      expect(isSvgUrl('https://ray.so/embed/xyz')).toBe(true);
+    });
+
+    it('should return false for non-SVG urls', () => {
+      expect(isSvgUrl('https://example.com/photo.jpg')).toBe(false);
+      expect(isSvgUrl('https://example.com/photo.png')).toBe(false);
+      expect(isSvgUrl('https://example.com/photo.webp')).toBe(false);
+      expect(isSvgUrl('')).toBe(false);
+      expect(isSvgUrl(null)).toBe(false);
+      expect(isSvgUrl(undefined)).toBe(false);
+    });
+
+    it('should not treat bitmap urls that merely contain generator keywords as SVG', () => {
+      expect(isSvgUrl('https://example.com/carbon-lighting.webp')).toBe(false);
+      expect(isSvgUrl('https://example.com/photo-ray.so.png')).toBe(false);
+      expect(isSvgUrl('https://notray.so/img.png')).toBe(false);
+      expect(isSvgUrl('https://mycarbon.example.com/a.png')).toBe(false);
+      expect(isSvgUrl('data:image/png;base64,AAAA')).toBe(false);
+    });
+
+    it('should recognize SVG generators hostnames with subdomains', () => {
+      expect(isSvgUrl('https://www.skillicons.dev/icons?i=go')).toBe(true);
+      expect(isSvgUrl('https://cdn.ray.so/a/b.svg')).toBe(true);
+    });
+  });
   describe('extractImageFilename', () => {
     it('should handle empty or whitespace URLs', () => {
       expect(extractImageFilename('')).toBe('');

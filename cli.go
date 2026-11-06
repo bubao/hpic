@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,10 @@ import (
 
 	"hpic/internal/api"
 	"hpic/internal/config"
+	"hpic/internal/db"
+	"hpic/internal/hexo"
+	"hpic/internal/mcp"
+	"hpic/internal/post"
 )
 
 // runCLIUpdate 执行命令行版本检测与就地升级
@@ -69,11 +75,17 @@ func runCLIUpdate() {
 
 	installTargetURL := info.BinaryDownloadURL
 	if installTargetURL == "" {
-		installTargetURL = info.DownloadURL
+		// 兜底：使用 DownloadURL，但必须排除 DMG/EXE/DEB 等不可用于热更新的产物
+		if info.DownloadURL != "" && !api.IsManualOnlyAsset(info.DownloadURL) {
+			installTargetURL = info.DownloadURL
+		}
 	}
 
 	if installTargetURL == "" {
-		fmt.Printf("[WARN] 未匹配到适配当前系统 (%s/%s) 的安装包，请手动访问: %s\n", runtime.GOOS, runtime.GOARCH, info.ReleaseURL)
+		fmt.Printf("[WARN] 未匹配到适配当前系统 (%s/%s) 的可直接热更新压缩包\n", runtime.GOOS, runtime.GOARCH)
+		if info.ReleaseURL != "" {
+			fmt.Printf("[HINT] 请手动访问 Release 页面下载: %s\n", info.ReleaseURL)
+		}
 		return
 	}
 
@@ -208,3 +220,23 @@ func runCLIChangelog() {
 	}
 	fmt.Println("")
 }
+
+// runCLIMCP 运行基于标准输入输出的 MCP (Model Context Protocol) 协议服务
+func runCLIMCP() {
+	cfg := config.Load()
+	baseDir := cfg.HexoDir
+	if baseDir == "" {
+		baseDir, _ = os.Getwd()
+	}
+	runner := hexo.NewRunner(baseDir, "")
+	dbPath := filepath.Join(config.AppConfigDir(), "hpic.db")
+	database, _ := db.Init(dbPath)
+	tracker := post.NewPostsTracker(baseDir)
+
+	host := mcp.NewHost(cfg, runner, database, tracker, Version)
+	if err := host.RunStdio(context.Background()); err != nil && err != io.EOF {
+		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
+		os.Exit(1)
+	}
+}
+

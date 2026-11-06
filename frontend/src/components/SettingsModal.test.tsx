@@ -65,7 +65,7 @@ describe('SettingsModal full-coverage tests', () => {
     expect(screen.getAllByText('博客与路径').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('图库与尺寸')).toBeDefined();
     expect(screen.getByText('外观与样式')).toBeDefined();
-    expect(screen.getByText('开源与生成器')).toBeDefined();
+    expect(screen.getByText('卡片生成器')).toBeDefined();
     expect(screen.getByText('网络与部署')).toBeDefined();
     expect(screen.getByText('关于与更新')).toBeDefined();
 
@@ -147,7 +147,8 @@ describe('SettingsModal full-coverage tests', () => {
     await waitFor(() => {
       expect(api.saveConfig).toHaveBeenCalled();
       expect(handleSaved).toHaveBeenCalled();
-      expect(handleClose).toHaveBeenCalled();
+      // 应用后保持设置面板展开，不自动退出
+      expect(handleClose).not.toHaveBeenCalled();
     });
   });
 
@@ -166,18 +167,59 @@ describe('SettingsModal full-coverage tests', () => {
     const appearanceNav = screen.getByText('外观与样式');
     fireEvent.click(appearanceNav);
 
-    expect(screen.getByText('界面主题色彩模式')).toBeDefined();
-    expect(screen.getByText('亮色清爽 (Light)')).toBeDefined();
+    // 统一后的外观预设卡片
+    expect(screen.getByText('外观样式')).toBeDefined();
+    expect(screen.getByText('亮色清爽')).toBeDefined();
 
-    // 点击亮色模式
-    const lightCard = screen.getByText('亮色清爽 (Light)');
-    fireEvent.click(lightCard);
+    // 展开自定义 CSS 面板以读取内容
+    fireEvent.click(screen.getByText('自定义 CSS'));
 
-    // 点击赛博霓虹预设按钮
-    const cyberpunkBtn = screen.getByText('赛博霓虹');
-    fireEvent.click(cyberpunkBtn);
+    // 点击亮色预设
+    fireEvent.click(screen.getByText('亮色清爽'));
+
+    // 点击赛博霓虹预设
+    fireEvent.click(screen.getByText('赛博霓虹'));
 
     const textarea = screen.getByPlaceholderText(/例如自定义强调色与圆角/i) as HTMLTextAreaElement;
     expect(textarea.value).toContain('赛博朋克深紫霓虹风格');
+  });
+
+  it('should intercept tab switching and closing when form is dirty', async () => {
+    const handleClose = vi.fn();
+    render(
+      <ToastProvider>
+        <SettingsModal
+          isOpen={true}
+          onClose={handleClose}
+          config={dummyConfig}
+          onSaved={vi.fn()}
+        />
+      </ToastProvider>
+    );
+
+    // 修改 hexoDir 使表单处于 dirty 状态
+    const hexoInput = screen.getByPlaceholderText('/Users/username/my-hexo-blog');
+    fireEvent.change(hexoInput, { target: { value: '/Users/test/dirty-hexo' } });
+
+    // 尝试切换到 "图库与尺寸"
+    fireEvent.click(screen.getByText('图库与尺寸'));
+
+    // 验证弹出未保存拦截弹窗
+    expect(screen.getByText('检测到未保存的设置更改')).toBeDefined();
+    expect(screen.getByText('保存更改')).toBeDefined();
+    expect(screen.getByText('放弃更改')).toBeDefined();
+
+    // 点击“取消 (留在此页)”
+    fireEvent.click(screen.getByText('取消 (留在此页)'));
+    expect(screen.queryByText('检测到未保存的设置更改')).toBeNull();
+
+    // 点击右上角/左上角“取消”尝试关闭
+    const cancelBtn = screen.getByRole('button', { name: '取消' });
+    fireEvent.click(cancelBtn);
+    expect(screen.getByText('检测到未保存的设置更改')).toBeDefined();
+
+    // 点击“放弃更改”后允许继续关闭
+    fireEvent.click(screen.getByText('放弃更改'));
+    expect(handleClose).toHaveBeenCalledTimes(1);
   });
 });

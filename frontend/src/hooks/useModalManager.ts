@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { DiffPreviewData } from '../components/ConfirmModal';
+import { SettingsCategory } from '../components/SettingsModal';
 
 export interface ConfirmState {
   isOpen: boolean;
@@ -23,6 +24,7 @@ export interface LightboxState {
 
 export function useModalManager() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsCategory, setSettingsCategory] = useState<SettingsCategory>('blog');
   const [isHealthOpen, setIsHealthOpen] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -30,6 +32,12 @@ export function useModalManager() {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+
+  const openSettings = useCallback((category: SettingsCategory = 'blog') => {
+    setSettingsCategory(category);
+    setIsSettingsOpen(true);
+  }, []);
 
   const [confirmModalState, setConfirmModalState] = useState<ConfirmState>({
     isOpen: false,
@@ -70,6 +78,9 @@ export function useModalManager() {
   return {
     isSettingsOpen,
     setIsSettingsOpen,
+    settingsCategory,
+    setSettingsCategory,
+    openSettings,
     isHealthOpen,
     setIsHealthOpen,
     isLogsOpen,
@@ -84,6 +95,8 @@ export function useModalManager() {
     setIsManualOpen,
     isUpdateModalOpen,
     setIsUpdateModalOpen,
+    isCommandPaletteOpen,
+    setIsCommandPaletteOpen,
     confirmModalState,
     setConfirmModalState,
     openConfirm,

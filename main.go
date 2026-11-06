@@ -55,6 +55,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "用法:\n")
 	fmt.Fprintf(os.Stderr, "  hpic [命令 / 选项]\n\n")
 	fmt.Fprintf(os.Stderr, "常用命令:\n")
+	fmt.Fprintf(os.Stderr, "  mcp               启动标准输入输出 MCP (Model Context Protocol) 协议服务\n")
 	fmt.Fprintf(os.Stderr, "  update            检查 GitHub Releases 并自动下载安装最新版本\n")
 	fmt.Fprintf(os.Stderr, "  uninstall         从当前系统中完全卸载 hpic 及桌面集成\n")
 	fmt.Fprintf(os.Stderr, "  changelog         查看软件版本更新历史记录 (CHANGELOG)\n")
@@ -81,6 +82,9 @@ func main() {
 	if len(os.Args) > 1 {
 		firstArg := strings.ToLower(strings.TrimSpace(os.Args[1]))
 		switch firstArg {
+		case "mcp":
+			runCLIMCP()
+			return
 		case "version", "-v", "--version":
 			printVersion()
 			return

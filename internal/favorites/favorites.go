@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"hpic/internal/config"
-	"hpic/internal/db"
 )
 
 type FavoriteItem struct {
@@ -38,11 +37,6 @@ type Store struct {
 	items    []FavoriteItem
 }
 
-var (
-	defaultStore *Store
-	once         sync.Once
-)
-
 func fileExists(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && !info.IsDir()
@@ -64,12 +58,24 @@ func DefaultFavoritesPath() string {
 	return stdPath
 }
 
+// GetStore 返回全局默认 Store 实例（首次调用时初始化）
+// 注意：SetFilePath 后 store 会自动加载新路径的数据
 func GetStore() *Store {
-	once.Do(func() {
+	// 使用 sync.OnceValue (Go 1.21+) 或手写 once 逻辑
+	return getStoreOnce()
+}
+
+var (
+	storeInstance *Store
+	storeOnce     sync.Once
+)
+
+func getStoreOnce() *Store {
+	storeOnce.Do(func() {
 		p := DefaultFavoritesPath()
-		defaultStore = NewStore(p)
+		storeInstance = NewStore(p)
 	})
-	return defaultStore
+	return storeInstance
 }
 
 func (s *Store) SetFilePath(p string) {
@@ -160,40 +166,60 @@ func (s *Store) load() {
 	s.items = deduped
 }
 
+// save 将收藏列表持久化到 JSON 文件。
+// 注意：不再异步写入 SQLite。原因：
+//   1. 异步写入会导致 JSON 与 SQLite 数据不一致（JSON 先写成功，SQLite 后写失败）
+//   2. 每次 save 都 Init+Close DB 连接，连接池限为 1，并发场景下争抢严重
+//   3. SQLite 中的 favorites 表由独立的数据库管理流程维护（如需要同步，应在 Store 初始化时一次性导入）
 func (s *Store) save() error {
 	dir := filepath.Dir(s.filePath)
 	if dir != "" && dir != "." {
-		_ = os.MkdirAll(dir, 0755)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
 	}
 	data, err := json.MarshalIndent(s.items, "", "  ")
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(s.filePath, data, 0644)
+	return atomicWriteFileJSON(s.filePath, data)
+}
 
-	// 异步持久化至 SQLite 数据库保持双重可靠性
-	go func(items []FavoriteItem) {
-		dbPath := filepath.Join(config.AppConfigDir(), "hpic.db")
-		database, dbErr := db.Init(dbPath)
-		if dbErr == nil && database != nil {
-			defer database.Close()
-			records := make([]db.FavoriteRecord, len(items))
-			for i, it := range items {
-				records[i] = db.FavoriteRecord{
-					ID:        it.ID,
-					URL:       it.URL,
-					ThumbURL:  it.ThumbURL,
-					Title:     it.Title,
-					Source:    it.Source,
-					Tags:      it.Tags,
-					CreatedAt: it.CreatedAt,
-				}
-			}
-			_ = database.SaveFavorites(records)
+// atomicWriteFileJSON 原子写入 JSON 文件（写临时文件后 rename，防断电截断）
+func atomicWriteFileJSON(filePath string, data []byte) error {
+	dir := filepath.Dir(filePath)
+	if dir == "" || dir == "." {
+		dir = "."
+	}
+	tmpFile, err := os.CreateTemp(dir, filepath.Base(filePath)+".tmp-*")
+	if err != nil {
+		return os.WriteFile(filePath, data, 0644)
+	}
+	tmpName := tmpFile.Name()
+	defer func() {
+		if tmpName != "" {
+			_ = os.Remove(tmpName)
 		}
-	}(s.items)
-
-	return err
+	}()
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, filePath); err != nil {
+		_ = os.Remove(filePath)
+		if err2 := os.Rename(tmpName, filePath); err2 != nil {
+			return os.WriteFile(filePath, data, 0644)
+		}
+	}
+	tmpName = ""
+	return nil
 }
 
 func HashURL(urlStr string) string {

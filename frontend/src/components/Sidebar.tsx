@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { PostInfo } from '../types';
-import { Search, FileText, X, RotateCw, FilePlus } from 'lucide-react';
 import { PostListItem } from './PostListItem';
+import { Icon } from './common/Icon';
 
 export type ArticleScope = 'all' | 'posts' | 'drafts';
 export type CoverStatusFilter = 'all' | 'missing' | 'complete' | 'broken';
@@ -42,6 +42,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // 分类筛选
   const [selectedCategory, setSelectedCategory] = useState<string>('');
 
+  // 视图模式：list (紧凑列表带缩略图与悬浮预览) | gallery (大图卡片模式)
+  const [viewMode, setViewMode] = useState<'list' | 'gallery'>(() => {
+    try {
+      return (localStorage.getItem('hpic_sidebar_view_mode') as 'list' | 'gallery') || 'list';
+    } catch {
+      return 'list';
+    }
+  });
+
+  const handleToggleViewMode = (mode: 'list' | 'gallery') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('hpic_sidebar_view_mode', mode);
+    } catch {}
+  };
+
   // 搜索关键词防抖支持 (优化大体量博文库快速键入时的渲染性能)
   const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery);
 
@@ -64,12 +80,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     let uncategorized = 0;
 
     for (const p of posts) {
-      const catStr = (p.categories || '').trim();
-      if (!catStr) {
+      const raw = (p.categories || '').trim();
+      if (!raw) {
         uncategorized++;
         continue;
       }
-      const cats = catStr.split(/[,，]+/).map(c => c.trim()).filter(Boolean);
+      const cats = raw.split(/[,，]+/).map(c => c.trim()).filter(Boolean);
       if (cats.length === 0) {
         uncategorized++;
       } else {
@@ -122,27 +138,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }
       }
 
-      // (4) 智能搜索过滤 (支持标题、文件名、分类、标签任意字段模糊匹配)
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchTitle = (p.title || '').toLowerCase().includes(q);
-        const matchFile = (p.file_name || '').toLowerCase().includes(q);
-        const matchCat = (p.categories || '').toLowerCase().includes(q);
-        const matchTags = (p.tags || '').toLowerCase().includes(q);
-        if (!matchTitle && !matchFile && !matchCat && !matchTags) return false;
-      }
-
-      return true;
+      // (4) 模糊检索
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      const matchTitle = (p.title || '').toLowerCase().includes(q);
+      const matchFile = (p.file_name || '').toLowerCase().includes(q);
+      const matchCat = (p.categories || '').toLowerCase().includes(q);
+      const matchTag = (p.tags || '').toLowerCase().includes(q);
+      return matchTitle || matchFile || matchCat || matchTag;
     });
   }, [posts, scopeTab, statusTab, selectedCategory, searchQuery, brokenPostPaths]);
 
   return (
     <aside className="app-sidebar">
       <div className="sidebar-header">
-        {/* 搜索栏与刷新按钮：支持标题分类检索与一键重新扫描 */}
         <div className="search-row">
           <div className="search-wrap">
-            <Search size={14} className="search-icon" />
+            <Icon name="search" size="xs" variant="muted" className="search-icon" />
             <input
               type="text"
               className="search-input"
@@ -160,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 title="清空搜索"
               >
-                <X size={12} />
+                <Icon name="close" size="xs" />
               </button>
             )}
           </div>
@@ -172,7 +184,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               disabled={isRefreshing}
               title="重新扫描并刷新博文列表 (快捷同步外部新建/修改的文章)"
             >
-              <RotateCw size={13} />
+              <Icon name="refresh" size="xs" animation={isRefreshing ? 'spin' : 'none'} />
             </button>
           )}
           {onOpenCreatePost && (
@@ -183,13 +195,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               title="新建文章或本地草稿"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 32, padding: '0 8px', flexShrink: 0 }}
             >
-              <FilePlus size={13} />
+              <Icon name="filePlus" size="xs" />
               <span>新建</span>
             </button>
           )}
         </div>
 
-        {/* 分类筛选与排序方式并排下拉框 */}
+        {/* 分类筛选与排序方式并排下拉框，以及视图模式切换器 */}
         <div className="filter-controls-row">
           <select
             className="sort-select"
@@ -223,6 +235,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <option value="missing_first">缺封面置顶</option>
             <option value="title_asc">标题 (A - Z)</option>
           </select>
+
+          {/* 视图模式切换 (紧凑列表 vs 图文画廊卡片) */}
+          <div className="sidebar-view-toggle" title="切换列表紧凑度与看图模式">
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
+              onClick={() => handleToggleViewMode('list')}
+              title="紧凑列表 (带缩略图与免点击大图悬浮预览)"
+            >
+              <Icon name="list" size="xs" />
+            </button>
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'gallery' ? 'active' : ''}`}
+              onClick={() => handleToggleViewMode('gallery')}
+              title="图文卡片模式 (封面大图直接呈现)"
+            >
+              <Icon name="grid" size="xs" />
+            </button>
+          </div>
         </div>
 
         {/* 层级一：文章类型与范围分段控制器 (全部 / 正式文章 / 草稿) */}
@@ -257,40 +289,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={`filter-pill ${statusTab === 'all' ? 'active' : ''}`}
             onClick={() => setStatusTab('all')}
           >
-            全部 <span className="tab-count-badge">{scopePosts.length}</span>
+            全部
           </button>
           <button
             type="button"
             className={`filter-pill ${statusTab === 'missing' ? 'active' : ''}`}
             onClick={() => setStatusTab('missing')}
           >
-            待配图 <span className="tab-count-badge">{countMissingInScope}</span>
+            待配图 <span className="filter-pill-count">{countMissingInScope}</span>
           </button>
           <button
             type="button"
             className={`filter-pill ${statusTab === 'complete' ? 'active' : ''}`}
             onClick={() => setStatusTab('complete')}
           >
-            已完成 <span className="tab-count-badge">{countCompleteInScope}</span>
+            已配图 <span className="filter-pill-count">{countCompleteInScope}</span>
           </button>
           {countBrokenInScope > 0 && (
             <button
               type="button"
-              className={`filter-pill broken-pill-tab ${statusTab === 'broken' ? 'active' : ''}`}
+              className={`filter-pill broken ${statusTab === 'broken' ? 'active' : ''}`}
               onClick={() => setStatusTab('broken')}
-              title="当前范围内封面链接返回 404 或失效的文章"
             >
-              失效 <span className="tab-count-badge">{countBrokenInScope}</span>
+              配图失效 <span className="filter-pill-count">{countBrokenInScope}</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* 文章卡片垂直滚动列表 */}
-      <div className="posts-list-scroll">
+      {/* 文章列表 / 图文卡片滚动容器 */}
+      <div className={`posts-list-scroll ${viewMode === 'gallery' ? 'gallery-mode' : 'list-mode'}`}>
         {filteredPosts.length === 0 ? (
           <div className="empty-hint" style={{ padding: '32px 16px', textAlign: 'center' }}>
-            <FileText size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
+            <Icon name="fileText" size="xl" variant="muted" style={{ marginBottom: 8 }} />
             <div>暂无匹配文章</div>
             {(selectedCategory || searchQuery || statusTab !== 'all' || scopeTab !== 'all') && (
               <button
@@ -315,6 +346,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               post={p}
               isSelected={selectedPost?.file_path === p.file_path}
               isBroken={brokenPostPaths.has(p.file_path)}
+              viewMode={viewMode}
               onSelect={onSelectPost}
               onSelectCategory={cat => setSelectedCategory(cat)}
             />

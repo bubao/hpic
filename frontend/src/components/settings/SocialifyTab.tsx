@@ -22,7 +22,7 @@ export const SocialifyTab: React.FC<SocialifyTabProps> = ({
     <div className="settings-card">
       <div className="settings-card-title">
         <Sparkles size={16} style={{ color: '#f59e0b' }} />
-        <span>开源项目卡片生成配置 (Socialify / SkillIcons)</span>
+        <span>卡片生成器偏好配置 (Socialify / SkillIcons)</span>
       </div>
 
       <div className="form-group">

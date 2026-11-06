@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Config, BrokenReport, VersionInfo, LegacyCheckResult } from './types';
+import { Config, BrokenReport, VersionInfo, LegacyCheckResult, CommandItem } from './types';
 import { api } from './api';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -15,9 +15,10 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { UpdateModal } from './components/UpdateModal';
 import { CreatePostModal } from './components/CreatePostModal';
 import { PostHistoryModal } from './components/PostHistoryModal';
+import { CommandPalette } from './components/CommandPalette';
 import { FileText, ArrowUp } from 'lucide-react';
 import { useToast } from './context/ToastContext';
-import { useTheme, AppTheme } from './utils/useTheme';
+import { useTheme, AppTheme, applyTheme, applyCustomCSS, getCurrentCustomCSS, triggerThemeTransition } from './utils/useTheme';
 import { useHexoRunner } from './hooks/useHexoRunner';
 import { usePostList } from './hooks/usePostList';
 import { useModalManager } from './hooks/useModalManager';
@@ -71,6 +72,8 @@ export const App: React.FC = () => {
     toast.info(`已切换至: ${nextLabel}`);
     if (config) {
       const updatedConfig = { ...config, theme: nextTheme };
+      // 先播放扫屏动画，动画内部会立即应用新主题
+      triggerThemeTransition(nextTheme);
       setConfig(updatedConfig);
       await api.saveConfig({ theme: nextTheme });
     }
@@ -80,6 +83,45 @@ export const App: React.FC = () => {
     const nextTheme: AppTheme = currentTheme === 'dark' ? 'light' : currentTheme === 'light' ? 'auto' : 'dark';
     handleSelectTheme(nextTheme);
   };
+
+  /**
+   * 外观持久化定时器：连续切换预设或微调 CSS 时合并请求
+   */
+  const saveAppearanceTimer = useRef<number | null>(null);
+
+  /**
+   * 外观（主题 / 自定义 CSS）变更：立即应用并持久化。
+   * 由设置面板内的外观预设调用，面板保持展开不影响操作。
+   */
+  const handleAppearanceChange = useCallback(
+    async (nextTheme: AppTheme, nextCss: string) => {
+      const prevTheme = (document.documentElement.getAttribute('data-theme') as AppTheme) || 'dark';
+      // 以当前 DOM 生效的自定义 CSS 为准，保证快照旧外观
+      const prevCss = getCurrentCustomCSS();
+
+      setConfig(prev => (prev ? { ...prev, theme: nextTheme, custom_css: nextCss } : prev));
+
+      // 主题或自定义 CSS 任一变化都播放扫屏过渡（如 暗色 ↔ 赛博霓虹）
+      if (nextTheme !== prevTheme || nextCss !== prevCss) {
+        triggerThemeTransition(nextTheme, { toCSS: nextCss });
+      } else {
+        applyTheme(nextTheme);
+        applyCustomCSS(nextCss);
+      }
+
+      // 外观变更防抖持久化，关闭或取消面板后仍然生效
+      if (saveAppearanceTimer.current !== null) {
+        window.clearTimeout(saveAppearanceTimer.current);
+      }
+      saveAppearanceTimer.current = window.setTimeout(() => {
+        saveAppearanceTimer.current = null;
+        api.saveConfig({ theme: nextTheme, custom_css: nextCss }).catch(() => {
+          // 静默失败：下次整体保存时会再次同步
+        });
+      }, 600);
+    },
+    []
+  );
 
   // 登记原图失效并同步注入博文体检报告与全局状态
   const handleMarkBroken = useCallback((brokenUrl: string, filePath?: string, field?: string, postTitle?: string) => {
@@ -156,7 +198,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // 静默检查版本更新
+  // 后台静默轮询版本更新（每 10 分钟轻量查询一次 GitHub Releases，失败静默忽略）
   const pollVersionUpdate = async () => {
     try {
       const info = await api.checkVersion();
@@ -177,9 +219,27 @@ export const App: React.FC = () => {
     }).catch(() => {});
 
     pollVersionUpdate();
-    const updateTimer = setInterval(pollVersionUpdate, 30 * 60 * 1000);
+    const updateTimer = setInterval(pollVersionUpdate, 10 * 60 * 1000);
     return () => clearInterval(updateTimer);
   }, []);
+
+  // 轮询发现新版本时主动提醒一次（同一版本只提示一次，不每 10 分钟重复打扰）
+  const lastRemindedVersionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!updateInfo?.has_update || !updateInfo.latest_version) return;
+    if (lastRemindedVersionRef.current === updateInfo.latest_version) return;
+    lastRemindedVersionRef.current = updateInfo.latest_version;
+    const displayVer = updateInfo.latest_version.startsWith('v') || updateInfo.latest_version.startsWith('V')
+      ? updateInfo.latest_version
+      : `v${updateInfo.latest_version}`;
+    toast.info(`发现新版本 ${displayVer}，可一键自动下载并安装更新`, {
+      action: {
+        label: '查看更新',
+        onClick: () => modals.setIsUpdateModalOpen(true),
+      },
+      duration: 10000,
+    });
+  }, [updateInfo, toast]);
 
   // 监听前后端版本契约裂隙并轻提示刷新
   useEffect(() => {
@@ -196,20 +256,26 @@ export const App: React.FC = () => {
     return unsubscribe;
   }, [toast]);
 
-  // 快捷键支持
+  // 快捷键支持（⌘K 打开命令面板，⌘Z 撤销）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        modals.setIsCommandPaletteOpen(prev => !prev);
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
         const isInputFocused = ['INPUT', 'TEXTAREA'].includes((document.activeElement?.tagName || ''));
         if (!isInputFocused && canUndo && selectedPost?.file_path) {
           e.preventDefault();
-          handleUndoPost(selectedPost.file_path);
+          // 通过 ref 获取最新的函数，总是操作当前选中文件
+          handleUndoPostRef.current?.(selectedPost.file_path);
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, selectedPost?.file_path]);
+  }, [canUndo, selectedPost?.file_path, modals]);
 
   const handleOpenDeployModal = () => {
     hexo.setDeployError(null);
@@ -279,6 +345,12 @@ export const App: React.FC = () => {
       toast.error(`撤销异常: ${err.message || '未知错误'}`);
     }
   };
+
+  // 使用 ref 保存最新的 handleUndoPost，避免快捷键闭包捕获 stale 函数
+  const handleUndoPostRef = useRef<((filePath: string) => Promise<void>) | null>(null);
+  useEffect(() => {
+    handleUndoPostRef.current = handleUndoPost;
+  }, [handleUndoPost]);
 
   const handleInsertBodyImage = async (url: string, imageTitle: string) => {
     if (!selectedPost) {
@@ -416,6 +488,235 @@ export const App: React.FC = () => {
 
   const brokenPostPaths = useMemo(() => new Set(brokenReports.map(r => r.file_path)), [brokenReports]);
 
+  // 全局 ⌘K 命令面板条目模型定义
+  const commandItems = useMemo<CommandItem[]>(() => {
+    return [
+      // 文章操作
+      {
+        id: 'posts.refresh',
+        group: 'posts',
+        title: '刷新博文列表',
+        keywords: ['shuaxin', 'refresh', 'sx', 'liebiao'],
+        shortcut: 'R',
+        run: () => handleRefreshPosts(false),
+      },
+      {
+        id: 'posts.create',
+        group: 'posts',
+        title: '新建文章草稿',
+        keywords: ['xinjian', 'create', 'new', 'post', 'xj', 'wenzhang'],
+        shortcut: 'N',
+        run: () => modals.setIsCreatePostOpen(true),
+      },
+      {
+        id: 'posts.undo',
+        group: 'posts',
+        title: '撤销上一步封面变更',
+        keywords: ['chexiao', 'undo', 'cx'],
+        shortcut: '⌘Z',
+        enabled: canUndo && !!selectedPost,
+        run: () => {
+          if (selectedPost) handleUndoPost(selectedPost.file_path);
+        },
+      },
+      {
+        id: 'posts.history',
+        group: 'posts',
+        title: '查看当前文章封面变更历史',
+        keywords: ['history', 'lishi', 'ls', 'shiguangji'],
+        enabled: !!selectedPost,
+        run: () => modals.setIsHistoryModalOpen(true),
+      },
+      {
+        id: 'posts.manual_url',
+        group: 'posts',
+        title: '手动填入网络图片链接',
+        keywords: ['url', 'shoutian', 'link', 'st', 'tupian'],
+        enabled: !!selectedPost,
+        run: () => handleOpenManualModal(),
+      },
+      {
+        id: 'posts.clear_cover',
+        group: 'posts',
+        title: '清空当前文章所有封面',
+        keywords: ['clear', 'qingkong', 'qk', 'shanchufengmian'],
+        enabled: !!selectedPost,
+        run: () => handleClearAll(),
+      },
+
+      // Hexo 服务与构建
+      {
+        id: 'hexo.toggle_server',
+        group: 'hexo',
+        title: hexo.hexoStatus?.server_running || hexo.hexoStatus?.running ? '停止 Hexo 本地服务' : '启动 Hexo 本地服务',
+        keywords: ['server', 'fuwu', 'qidong', 'tingzhi', 'start', 'stop'],
+        run: () => hexo.handleToggleServer(),
+      },
+      {
+        id: 'hexo.preview',
+        group: 'hexo',
+        title: '在浏览器中预览 Hexo 博客',
+        keywords: ['preview', 'yulan', 'yl', 'browser', 'liulanqi'],
+        run: () => hexo.handlePreview(),
+      },
+      {
+        id: 'hexo.generate',
+        group: 'hexo',
+        title: '重新打包生成静态页面',
+        keywords: ['generate', 'shengcheng', 'sc', 'build', 'jingtai'],
+        run: () => hexo.handleGenerate(),
+      },
+      {
+        id: 'hexo.clean',
+        group: 'hexo',
+        title: '清理 Hexo 缓存与静态构建物',
+        keywords: ['clean', 'qingli', 'ql', 'huancun'],
+        run: () => hexo.handleClean(),
+      },
+      {
+        id: 'hexo.deploy',
+        group: 'hexo',
+        title: '一键部署发布到远端',
+        keywords: ['deploy', 'bushu', 'fabu', 'bs', 'git'],
+        run: () => handleOpenDeployModal(),
+      },
+      {
+        id: 'hexo.logs',
+        group: 'hexo',
+        title: '查看 Hexo 终端实时运行日志',
+        keywords: ['logs', 'rizhi', 'terminal', 'zhongduan', 'rz'],
+        run: () => modals.setIsLogsOpen(true),
+      },
+
+      // 外观与主题
+      {
+        id: 'theme.dark',
+        group: 'theme',
+        title: '切换为暗色夜间主题',
+        keywords: ['dark', 'anhei', 'ah', 'heiye'],
+        run: () => handleSelectTheme('dark'),
+      },
+      {
+        id: 'theme.light',
+        group: 'theme',
+        title: '切换为亮色清爽主题',
+        keywords: ['light', 'liangse', 'ls', 'qingshuang'],
+        run: () => handleSelectTheme('light'),
+      },
+      {
+        id: 'theme.auto',
+        group: 'theme',
+        title: '切换为跟随系统外观',
+        keywords: ['auto', 'system', 'gensui', 'xitong'],
+        run: () => handleSelectTheme('auto'),
+      },
+      {
+        id: 'theme.toggle',
+        group: 'theme',
+        title: '轮换切换明暗主题',
+        keywords: ['toggle', 'qiehuan', 'qh'],
+        run: () => handleToggleTheme(),
+      },
+      {
+        id: 'theme.settings',
+        group: 'theme',
+        title: '外观与自定义 CSS 偏好设置',
+        keywords: ['css', 'style', 'waiguan', 'wg', 'pifu', 'yangshi'],
+        run: () => modals.openSettings('appearance'),
+      },
+
+      // 设置与偏好
+      {
+        id: 'settings.open',
+        group: 'settings',
+        title: '打开偏好设置中心',
+        keywords: ['settings', 'config', 'sz', 'shezhi'],
+        shortcut: '⌘,',
+        run: () => modals.openSettings('blog'),
+      },
+      {
+        id: 'settings.blog',
+        group: 'settings',
+        title: '博客与路径设置',
+        keywords: ['blog', 'hexo_dir', 'boke', 'lujing'],
+        run: () => modals.openSettings('blog'),
+      },
+      {
+        id: 'settings.gallery',
+        group: 'settings',
+        title: '图库与尺寸过滤设置',
+        keywords: ['gallery', 'tuku', 'size', 'chicun'],
+        run: () => modals.openSettings('gallery'),
+      },
+      {
+        id: 'settings.socialify',
+        group: 'settings',
+        title: '卡片生成器与 Socialify 样式设置',
+        keywords: ['socialify', 'github', 'kapian', 'kp', 'shengcheng'],
+        run: () => modals.openSettings('socialify'),
+      },
+      {
+        id: 'settings.network',
+        group: 'settings',
+        title: '网络代理与部署模式设置',
+        keywords: ['network', 'proxy', 'daili', 'dl', 'wangluo'],
+        run: () => modals.openSettings('network'),
+      },
+      {
+        id: 'settings.doctor',
+        group: 'settings',
+        title: '系统健康体检与自检诊断',
+        keywords: ['doctor', 'zhenduan', 'tijian', 'zd', 'jiankang'],
+        run: () => modals.openSettings('doctor'),
+      },
+      {
+        id: 'settings.about',
+        group: 'settings',
+        title: '关于 hpic 与软件版本升级',
+        keywords: ['about', 'guanyu', 'banben', 'update', 'gy'],
+        run: () => modals.openSettings('about'),
+      },
+
+      // 工具与诊断
+      {
+        id: 'tools.health',
+        group: 'tools',
+        title: '全站封面 404 死链存活性扫描',
+        keywords: ['health', 'silian', 'tijian', 'sl', '404'],
+        run: () => modals.setIsHealthOpen(true),
+      },
+      {
+        id: 'tools.update',
+        group: 'tools',
+        title: '检查软件版本更新',
+        keywords: ['update', 'gengxin', 'upgrade', 'gx', 'version'],
+        run: () => modals.setIsUpdateModalOpen(true),
+      },
+
+      // 导航与页面
+      {
+        id: 'nav.scroll_top',
+        group: 'navigation',
+        title: '回到内容区顶部',
+        keywords: ['top', 'dingbu', 'scroll', 'db', 'huidaodingbu'],
+        run: () => handleScrollToTop(),
+      },
+    ];
+  }, [
+    canUndo,
+    selectedPost,
+    hexo,
+    modals,
+    handleRefreshPosts,
+    handleUndoPost,
+    handleClearAll,
+    handleOpenManualModal,
+    handleOpenDeployModal,
+    handleSelectTheme,
+    handleToggleTheme,
+    handleScrollToTop,
+  ]);
+
   return (
     <div className="app-container">
       <Header
@@ -427,7 +728,8 @@ export const App: React.FC = () => {
         onDeploy={handleOpenDeployModal}
         onOpenHealth={() => modals.setIsHealthOpen(true)}
         onOpenLogs={() => modals.setIsLogsOpen(true)}
-        onOpenSettings={() => modals.setIsSettingsOpen(true)}
+        onOpenSettings={() => modals.openSettings('blog')}
+        onOpenCommandPalette={() => modals.setIsCommandPaletteOpen(true)}
         isGenerating={hexo.isGenerating}
         isDeploying={hexo.isDeploying}
         brokenCount={brokenReports.length}
@@ -584,6 +886,8 @@ export const App: React.FC = () => {
           setConfig(cfg);
           loadPostsList();
         }}
+        onAppearanceChange={handleAppearanceChange}
+        initialCategory={modals.settingsCategory}
       />
 
       <Lightbox
@@ -627,6 +931,18 @@ export const App: React.FC = () => {
           setPosts(prev => prev.map(p => p.file_path === updated.file_path ? updated : p));
           loadPostHistory(updated.file_path);
         }}
+        onHistoryChanged={() => {
+          if (selectedPost) {
+            loadPostHistory(selectedPost.file_path);
+          }
+        }}
+      />
+
+      {/* ⌘K 全局命令面板 */}
+      <CommandPalette
+        isOpen={modals.isCommandPaletteOpen}
+        onClose={() => modals.setIsCommandPaletteOpen(false)}
+        commands={commandItems}
       />
     </div>
   );

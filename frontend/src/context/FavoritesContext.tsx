@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { FavoriteItem, TagStat, getCanonicalImageKey } from '../types';
 import { api } from '../api';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -57,46 +57,70 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     refreshFavorites();
   }, [refreshFavorites]);
 
+  // 使用 ref 保持最新的收藏状态引用，避免在 toggleFavorite 中读取 stale closure
+  const favoritedUrlsRef = useRef(favoritedUrls);
+  const favoritedKeysRef = useRef(favoritedKeys);
+  useEffect(() => {
+    favoritedUrlsRef.current = favoritedUrls;
+    favoritedKeysRef.current = favoritedKeys;
+  }, [favoritedUrls, favoritedKeys]);
+
   const isFavorited = useCallback((url?: string): boolean => {
     if (!url) return false;
     const trimmed = url.trim();
-    return favoritedUrls.has(trimmed) || favoritedKeys.has(getCanonicalImageKey(trimmed));
-  }, [favoritedUrls, favoritedKeys]);
+    // 使用 ref 读取最新值，避免 stale closure 导致误判
+    return favoritedUrlsRef.current.has(trimmed) || favoritedKeysRef.current.has(getCanonicalImageKey(trimmed));
+  }, []);
 
-  // 确认取消收藏的底层执行方法
+  // 取消收藏确认时的真实执行（带乐观更新）
   const executeRemoveFavorite = useCallback(async (rawUrl: string) => {
-    const res = await api.removeFavorite(rawUrl);
-    if (res && res.success) {
-      setFavoritedUrls(prev => {
-        const next = new Set(prev);
-        next.delete(rawUrl);
-        return next;
-      });
-      setFavoritedKeys(prev => {
-        const next = new Set(prev);
-        next.delete(getCanonicalImageKey(rawUrl));
-        return next;
-      });
-      setFavorites(prev => prev.filter(f => f.url.trim() !== rawUrl && getCanonicalImageKey(f.url) !== getCanonicalImageKey(rawUrl)));
+    const key = getCanonicalImageKey(rawUrl);
+    // 保存旧值用于失败回滚
+    const oldUrls = new Set(Array.from(favoritedUrlsRef.current));
+    const oldKeys = new Set(Array.from(favoritedKeysRef.current));
+
+    // 乐观更新：立即从 UI 移除收藏状态
+    setFavoritedUrls(prev => { const n = new Set(prev); n.delete(rawUrl); return n; });
+    setFavoritedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
+    setFavorites(prev => prev.filter(f => f.url.trim() !== rawUrl && getCanonicalImageKey(f.url) !== key));
+    setPendingUnfavItem(null);
+
+    try {
+      const res = await api.removeFavorite(rawUrl);
+      if (!res || !res.success) {
+        setFavoritedUrls(new Set(oldUrls));
+        setFavoritedKeys(new Set(oldKeys));
+        refreshFavorites();
+      } else {
+        refreshFavorites();
+      }
+    } catch {
+      setFavoritedUrls(new Set(oldUrls));
+      setFavoritedKeys(new Set(oldKeys));
       refreshFavorites();
     }
-    setPendingUnfavItem(null);
   }, [refreshFavorites]);
 
-  // 对外暴露的切换收藏方法：如果是取消收藏，执行友好弹窗拦截！
+  // 切换收藏状态：取消走确认弹窗，新增走乐观更新
   const toggleFavorite = useCallback(async (item: ToggleFavoriteParams): Promise<boolean> => {
     const rawUrl = (item.url || '').trim();
     if (!rawUrl) return false;
 
     const key = getCanonicalImageKey(rawUrl);
-    const alreadyFav = favoritedUrls.has(rawUrl) || favoritedKeys.has(key);
+    // 从 ref 读取最新状态，避免 stale closure
+    const alreadyFav = favoritedUrlsRef.current.has(rawUrl) || favoritedKeysRef.current.has(key);
 
     if (alreadyFav) {
-      // 触发确认拦截弹窗，防止误触导致收藏数据丢失
+      // 触发确认拦截弹窗
       setPendingUnfavItem(item);
       return true;
-    } else {
-      // 新增收藏：直接保存
+    }
+
+    // 新增收藏：乐观更新 —— 立即添加到 UI
+    setFavoritedUrls(prev => new Set(prev).add(rawUrl));
+    setFavoritedKeys(prev => new Set(prev).add(key));
+
+    try {
       const payload: Partial<FavoriteItem> = {
         url: rawUrl,
         thumb_url: (item.thumbUrl || rawUrl).trim(),
@@ -106,14 +130,19 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       };
       const res = await api.addFavorite(payload);
       if (res && res.success) {
-        setFavoritedUrls(prev => new Set(prev).add(rawUrl));
-        setFavoritedKeys(prev => new Set(prev).add(key));
         refreshFavorites();
         return true;
       }
+      // 失败回滚
+      setFavoritedUrls(prev => { const n = new Set(prev); n.delete(rawUrl); return n; });
+      setFavoritedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
+    } catch {
+      // 失败回滚
+      setFavoritedUrls(prev => { const n = new Set(prev); n.delete(rawUrl); return n; });
+      setFavoritedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
     }
-    return alreadyFav;
-  }, [favoritedUrls, favoritedKeys, refreshFavorites]);
+    return false;
+  }, [refreshFavorites]);
 
   const updateTags = useCallback(async (id: string, tags: string[]): Promise<boolean> => {
     const res = await api.updateFavoriteTags(id, tags);

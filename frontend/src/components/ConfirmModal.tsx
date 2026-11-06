@@ -1,6 +1,8 @@
 import React from 'react';
 import { AlertCircle, Trash2, ArrowRight } from 'lucide-react';
 import { Modal } from './Modal';
+import { isSvgUrl } from '../utils/imageMeta';
+import { SvgSafeImage } from './common/SvgSafeImage';
 
 export interface DiffPreviewData {
   oldUrl?: string;
@@ -63,12 +65,21 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                   当前已有封面
                 </div>
                 {diffPreview.oldUrl ? (
-                  <img
-                    src={diffPreview.oldUrl}
-                    alt="current"
-                    referrerPolicy="no-referrer"
-                    className="confirm-diff-img"
-                  />
+                  isSvgUrl(diffPreview.oldUrl) ? (
+                    <SvgSafeImage
+                      src={diffPreview.oldUrl}
+                      alt="current"
+                      className="confirm-diff-img"
+                      fitMode="contain"
+                    />
+                  ) : (
+                    <img
+                      src={diffPreview.oldUrl}
+                      alt="current"
+                      referrerPolicy="no-referrer"
+                      className="confirm-diff-img"
+                    />
+                  )
                 ) : (
                   <div className="confirm-diff-empty">
                     无图片
@@ -86,12 +97,21 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                 <div className="confirm-diff-label highlight">
                   准备替换为
                 </div>
-                <img
-                  src={diffPreview.newUrl}
-                  alt="new"
-                  referrerPolicy="no-referrer"
-                  className="confirm-diff-img target"
-                />
+                {isSvgUrl(diffPreview.newUrl) ? (
+                  <SvgSafeImage
+                    src={diffPreview.newUrl}
+                    alt="new"
+                    className="confirm-diff-img target"
+                    fitMode="contain"
+                  />
+                ) : (
+                  <img
+                    src={diffPreview.newUrl}
+                    alt="new"
+                    referrerPolicy="no-referrer"
+                    className="confirm-diff-img target"
+                  />
+                )}
               </div>
             </div>
 
@@ -109,12 +129,21 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
         {thumbUrl && !diffPreview && (
           <div className="confirm-thumb-row">
-            <img
-              src={thumbUrl}
-              alt="preview"
-              referrerPolicy="no-referrer"
-              className="confirm-thumb-img"
-            />
+            {isSvgUrl(thumbUrl) ? (
+              <SvgSafeImage
+                src={thumbUrl}
+                alt="preview"
+                className="confirm-thumb-img"
+                fitMode="contain"
+              />
+            ) : (
+              <img
+                src={thumbUrl}
+                alt="preview"
+                referrerPolicy="no-referrer"
+                className="confirm-thumb-img"
+              />
+            )}
           </div>
         )}
         {message && (

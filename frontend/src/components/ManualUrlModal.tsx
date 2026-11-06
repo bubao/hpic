@@ -4,6 +4,8 @@ import { useFavorites } from '../context/FavoritesContext';
 import { useToast } from '../context/ToastContext';
 import { Modal } from './Modal';
 import { ApplyCoverButtons } from './ApplyCoverButtons';
+import { isSvgUrl } from '../utils/imageMeta';
+import { SvgSafeImage } from './common/SvgSafeImage';
 
 interface ManualUrlModalProps {
   isOpen: boolean;
@@ -154,11 +156,20 @@ export const ManualUrlModal: React.FC<ManualUrlModalProps> = ({
               </div>
             )}
             {imgStatus === 'success' && (
-              <img
-                src={trimmedUrl}
-                alt="Preview"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
+              isSvgUrl(trimmedUrl) ? (
+                <SvgSafeImage
+                  src={trimmedUrl}
+                  alt="Preview"
+                  fitMode="contain"
+                  style={{ width: '100%', height: '100%' }}
+                />
+              ) : (
+                <img
+                  src={trimmedUrl}
+                  alt="Preview"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              )
             )}
           </div>
 

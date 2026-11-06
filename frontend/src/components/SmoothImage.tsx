@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, ImageOff } from 'lucide-react';
-import { getImageAspectRatio, getImageQualityBadge } from '../utils/imageMeta';
+import { getImageAspectRatio, getImageQualityBadge, isSvgUrl } from '../utils/imageMeta';
+import { useSafeSvgUrl } from '../utils/svgFixer';
+import { SvgSafeImage } from './common/SvgSafeImage';
 
 export interface SmoothImageProps {
   src: string;
@@ -13,7 +15,7 @@ export interface SmoothImageProps {
   showMetaBadge?: boolean;
   badgeDimensions?: { width: number; height: number; quality?: string } | null;
   onDimensionsLoaded?: (width: number, height: number) => void;
-  onClick?: (e: React.MouseEvent<HTMLImageElement>) => void;
+  onClick?: (e: React.MouseEvent) => void;
   referrerPolicy?: React.HTMLAttributeReferrerPolicy;
   title?: string;
 }
@@ -43,6 +45,10 @@ export const SmoothImage: React.FC<SmoothImageProps> = ({
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
+
+  const isSvg = isSvgUrl(renderedUrl);
+  const { dimensions: svgDims } = useSafeSvgUrl(isSvg ? renderedUrl : null, 'contain');
+  const finalDims = badgeDimensions || dimensions || svgDims || null;
 
   useEffect(() => {
     if (!src) {
@@ -107,17 +113,35 @@ export const SmoothImage: React.FC<SmoothImageProps> = ({
       {/* 核心步骤 2：新图预载就绪后挂载全新 DOM 节点，触发 CSS 渐入动效 */}
       {status === 'loaded' && renderedUrl && (
         <>
-          <img
-            key={renderedUrl}
-            src={renderedUrl}
-            alt={alt}
-            title={title}
-            className={`image-fade-in ${className}`}
-            onClick={onClick}
-            referrerPolicy={referrerPolicy}
-          />
-          {showMetaBadge && (badgeDimensions || dimensions) && (() => {
-            const displayDim = badgeDimensions || dimensions!;
+          {isSvg ? (
+            <SvgSafeImage
+              key={renderedUrl}
+              src={renderedUrl}
+              alt={alt}
+              title={title}
+              className={`image-fade-in ${className}`}
+              fitMode="contain"
+              clickThrough={!onClick}
+              onClick={onClick}
+              style={{
+                width: '100%',
+                height: '100%',
+                aspectRatio: finalDims ? `${finalDims.width} / ${finalDims.height}` : undefined,
+              }}
+            />
+          ) : (
+            <img
+              key={renderedUrl}
+              src={renderedUrl}
+              alt={alt}
+              title={title}
+              className={`image-fade-in ${className}`}
+              onClick={onClick}
+              referrerPolicy={referrerPolicy}
+            />
+          )}
+          {showMetaBadge && finalDims && (() => {
+            const displayDim = finalDims;
             const explicitQuality = 'quality' in displayDim && typeof displayDim.quality === 'string' ? displayDim.quality : '';
             const quality = explicitQuality || getImageQualityBadge(displayDim.width, displayDim.height);
             const ratio = getImageAspectRatio(displayDim.width, displayDim.height);

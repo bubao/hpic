@@ -116,4 +116,95 @@ describe('Version Contract and Guard (api.ts)', () => {
     expect(status.last_modified).toBe(1730000000000);
     expect(status.count).toBe(5);
   });
+
+  // --- HTTP 错误处理测试 (res.ok 检查) ---
+
+  it('getConfig throws on HTTP error response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+        status: 500,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+    );
+
+    await expect(api.getConfig()).rejects.toThrow('获取配置失败 (HTTP 500)');
+  });
+
+  it('getPosts throws on HTTP error response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Bad Request' }), {
+        status: 400,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+    );
+
+    await expect(api.getPosts()).rejects.toThrow('获取文章列表失败 (HTTP 400)');
+  });
+
+  it('getPost throws on HTTP 404 when post not found', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Not Found' }), {
+        status: 404,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+    );
+
+    await expect(api.getPost('/path/to/missing.md')).rejects.toThrow('获取文章详情失败 (HTTP 404)');
+  });
+
+  it('getPostsStatus throws on HTTP error response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('Service Unavailable', {
+        status: 503,
+        headers: new Headers(),
+      })
+    );
+
+    await expect(api.getPostsStatus()).rejects.toThrow('获取文章状态失败 (HTTP 503)');
+  });
+
+  it('getPostHistory throws on HTTP error response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+    );
+
+    await expect(api.getPostHistory('/path/to/file.md')).rejects.toThrow('获取历史版本失败 (HTTP 403)');
+  });
+
+  it('checkHealth throws on HTTP error response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+        status: 500,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+    );
+
+    await expect(api.checkHealth()).rejects.toThrow('健康检查失败 (HTTP 500)');
+  });
+
+  it('getFavorites throws on HTTP error response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+    );
+
+    await expect(api.getFavorites()).rejects.toThrow('获取收藏列表失败 (HTTP 401)');
+  });
+
+  it('successful 200 response does not throw', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ hexo_dir: '/test', proxy: '' }), {
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+    );
+
+    const config = await api.getConfig();
+    expect(config.hexo_dir).toBe('/test');
+  });
 });

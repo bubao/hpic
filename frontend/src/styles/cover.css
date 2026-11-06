@@ -172,15 +172,102 @@
   }
 }
 
+.cover-ambient-blur {
+  position: absolute;
+  inset: -15%;
+  width: 130%;
+  height: 130%;
+  object-fit: cover;
+  filter: blur(28px) brightness(0.65) saturate(1.2);
+  opacity: 0.8;
+  transform: scale(1.08);
+  pointer-events: none;
+  z-index: 1;
+}
+
 .cover-img-display {
+  position: relative;
+  z-index: 2;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cover-img-display.fit-cover {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.2s;
 }
 
-.cover-img-display:hover {
+.cover-img-display.fit-cover:hover {
   transform: scale(1.02);
+}
+
+.cover-img-display.fit-contain {
+  width: auto;
+  height: auto;
+  max-width: 96%;
+  max-height: 96%;
+  object-fit: contain;
+  display: block;
+  margin: auto;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+
+.cover-img-display.fit-contain:hover {
+  transform: scale(1.02);
+}
+
+object.cover-img-display {
+  pointer-events: none;
+  border: none;
+  display: block;
+}
+
+object.cover-img-display.fit-contain {
+  width: 100%;
+  height: 100%;
+  max-width: 96%;
+  max-height: 96%;
+  margin: auto;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+
+object.cover-img-display.fit-cover {
+  width: 100%;
+  height: 100%;
+}
+
+object.cover-ambient-blur {
+  pointer-events: none;
+  border: none;
+}
+
+.cover-fit-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.cover-fit-mode-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.cover-fit-mode-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
 }
 
 .cover-img-placeholder {

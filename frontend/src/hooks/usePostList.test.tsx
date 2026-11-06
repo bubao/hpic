@@ -299,4 +299,58 @@ describe('usePostList Hook', () => {
     expect(api.getPosts).toHaveBeenCalled();
     vi.useRealTimers();
   });
+
+  // --- 组件卸载保护测试 (isMountedRef) ---
+
+  it('does not update state after unmount (loadPostHistory)', async () => {
+    // 延迟 resolve，模拟慢速网络
+    let resolvePromise: (value: any) => void;
+    (api.getPostHistory as any).mockImplementationOnce(
+      () => new Promise(resolve => { resolvePromise = resolve; })
+    );
+
+    const { result, unmount } = renderHook(() => usePostList({ autoSync: false }), { wrapper });
+
+    // 启动加载
+    act(() => {
+      result.current.loadPostHistory('/path/to/hello.md');
+    });
+
+    // 在请求完成前卸载组件
+    unmount();
+
+    // 现在 resolve 请求 — 这将尝试 setState，但组件已卸载
+    resolvePromise!({ success: true, history: [] });
+
+    // 如果运行到这里没有抛出 "Can't perform React state update on unmounted component"，测试通过
+    // 给微任务队列一个 tick 让异步回调完成
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  });
+
+  it('does not update state after unmount (handleRefreshPosts)', async () => {
+    let resolvePromise: (value: any) => void;
+    (api.getPosts as any).mockImplementationOnce(
+      () => new Promise(resolve => { resolvePromise = resolve; })
+    );
+
+    const { result, unmount } = renderHook(() => usePostList({ autoSync: false }), { wrapper });
+
+    // 启动刷新
+    act(() => {
+      result.current.handleRefreshPosts(true);
+    });
+
+    // 在请求完成前卸载组件
+    unmount();
+
+    // resolve 请求
+    resolvePromise!({ success: true, posts: mockPosts, total: 2 });
+
+    // 如果运行到这里没有报错，说明 isMountedRef 保护生效
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  });
 });

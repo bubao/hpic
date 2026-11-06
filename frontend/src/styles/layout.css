@@ -2,11 +2,12 @@
    页面结构与导航侧边栏 (App Layout, Header, Sidebar, Post List)
    ========================================================================== */
 
-/* 主结构 */
-.app-layout {
+/* 主结构 (App root container) */
+.app-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
 }
 
 /* 顶栏 */
@@ -19,7 +20,8 @@
   justify-content: space-between;
   padding: 0 20px;
   flex-shrink: 0;
-  z-index: 10;
+  z-index: 200;
+  position: relative;
 }
 
 .header-brand {
@@ -67,6 +69,18 @@
   gap: 6px;
   font-size: 12px;
   margin-right: 4px;
+  min-width: 88px;
+  flex-shrink: 0;
+}
+
+.server-indicator .server-text {
+  white-space: nowrap;
+}
+
+.btn-server-toggle {
+  min-width: 86px;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .status-dot {
@@ -248,9 +262,19 @@
 }
 
 .filter-controls-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  align-items: center;
   gap: 6px;
+  width: 100%;
+}
+
+.filter-controls-row .sort-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-controls-row .sidebar-view-toggle {
+  flex-shrink: 0;
 }
 
 .filter-pill-tabs {
@@ -592,13 +616,14 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  animation: themeMenuPop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top right;
+  animation: themeMenuPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes themeMenuPop {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.97);
+    transform: translateY(-8px) scale(0.92);
   }
   to {
     opacity: 1;
@@ -639,3 +664,710 @@
   align-items: center;
   gap: 8px;
 }
+
+/* ==========================================================================
+   主题切换「星光扫屏」过渡动画 (Theme Transition Sweep Overlay)
+   ========================================================================== */
+
+/* 彗尾层：位于遮罩层之下，锥形渐变从线尾向线方向由透明渐变为主题色 */
+.theme-transition-tail {
+  position: fixed;
+  inset: 0;
+  z-index: 999996;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--tail-start, 0deg) at center,
+    transparent 0deg,
+    color-mix(in srgb, var(--accent-color) 10%, transparent) 22deg,
+    color-mix(in srgb, var(--accent-color) 32%, transparent) 45deg,
+    color-mix(in srgb, var(--accent-color) 62%, transparent) 62deg,
+    color-mix(in srgb, var(--accent-color) 88%, transparent) 80deg,
+    transparent 80deg,
+    transparent 180deg,
+    color-mix(in srgb, var(--accent-color) 10%, transparent) 202deg,
+    color-mix(in srgb, var(--accent-color) 32%, transparent) 225deg,
+    color-mix(in srgb, var(--accent-color) 62%, transparent) 242deg,
+    color-mix(in srgb, var(--accent-color) 88%, transparent) 260deg,
+    transparent 260deg,
+    transparent 360deg
+  );
+}
+
+/* 旧主题背景色遮罩层：初始完全覆盖屏幕，随扫屏动画逐渐被锥形渐变 mask 裁掉 */
+.theme-transition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999997;
+  pointer-events: none;
+}
+
+/* 旧主题界面快照：克隆自真实 DOM，保留旧主题的完整界面外观 */
+.theme-transition-clone {
+  pointer-events: none;
+}
+
+/* 扫屏线：从中心向两边延伸，再以中心为轴顺时针旋转 */
+.theme-transition-line {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 200vmax;
+  height: 2px;
+  background: var(--accent-color);
+  box-shadow: 0 0 8px var(--accent-color), 0 0 22px var(--accent-color);
+  transform-origin: center center;
+  transform: translate(-50%, -50%) rotate(0deg);
+  clip-path: inset(0 50% 0 50%);
+  z-index: 999999;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   统一图标设计规范动效系统 (Unified Icon System Tokens & Animations)
+   ========================================================================== */
+@keyframes icon-spin-anim {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes icon-pulse-anim {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(0.92);
+  }
+}
+
+.icon-spin {
+  animation: icon-spin-anim 0.9s linear infinite;
+}
+
+.icon-pulse {
+  animation: icon-pulse-anim 1.8s ease-in-out infinite;
+}
+
+.icon-hover-scale {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.icon-hover-scale:hover {
+  transform: scale(1.15);
+}
+
+/* ==========================================================================
+   左侧栏：缩略图免点击预览与卡片模式 (Sidebar Thumbnails & Hover Popover)
+   ========================================================================== */
+.sidebar-view-toggle {
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.view-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.view-toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.view-toggle-btn.active {
+  background: var(--bg-primary);
+  color: var(--accent-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* 列表项结构调整：支持右侧缩略图与悬浮大图 */
+.post-list-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.post-list-item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.post-thumb-preview-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px;
+  height: 34px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.post-thumb-preview-wrap:hover {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.3);
+}
+
+/* 多图堆叠效果 (Stacked Images) */
+.post-thumb-preview-wrap.is-stacked {
+  background: transparent;
+  border-color: transparent;
+}
+
+.thumb-stacked-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  background: var(--bg-tertiary);
+  transition: all 0.2s ease;
+}
+
+/* 顶层主图 */
+.thumb-stacked-layer.layer-1 {
+  z-index: 2;
+  transform: translate(0, 0);
+}
+
+/* 底层第二张图：右上方轻微错位与倾斜，形成真实卡片堆叠感 */
+.thumb-stacked-layer.layer-2 {
+  z-index: 1;
+  transform: translate(4px, -4px) rotate(4deg);
+  opacity: 0.72;
+  border-color: var(--border-hover);
+}
+
+.post-thumb-preview-wrap:hover .thumb-stacked-layer.layer-2 {
+  transform: translate(6px, -6px) rotate(7deg);
+  opacity: 0.95;
+}
+
+.post-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.post-thumb-img.fit-contain {
+  object-fit: contain;
+  padding: 2px;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 2;
+}
+
+.post-thumb-bg-blur {
+  position: absolute;
+  inset: -10px;
+  width: calc(100% + 20px);
+  height: calc(100% + 20px);
+  object-fit: cover;
+  filter: blur(8px) brightness(0.6);
+  opacity: 0.8;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.post-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  opacity: 0.45;
+}
+
+/* 多图数量微型角标 */
+.thumb-stack-badge {
+  position: absolute;
+  bottom: -3px;
+  right: -4px;
+  z-index: 3;
+  background: var(--accent-color, #6366f1);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 0 4px;
+  height: 14px;
+  line-height: 14px;
+  border-radius: 7px;
+  border: 1.5px solid var(--bg-card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* ==========================================================================
+   Portal 挂载的独立悬浮大图预览浮窗 (脱离一切父级 overflow 遮挡)
+   ========================================================================== */
+.post-thumb-popover-portal {
+  pointer-events: auto;
+  animation: popoverFadeInPortal 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes popoverFadeInPortal {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.popover-portal-container {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+
+/* 单图预览容器：加宽至 290px，高度适配黄金视比 */
+.popover-single-container {
+  position: relative;
+  width: 290px;
+  height: 180px;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+/* 弥散环境光背景：提取原图色彩作高斯模糊背衬，彻底消除因不同比例（如 4:3、方形或竖屏）在两侧留下的生硬底色 */
+.popover-media-blur {
+  position: absolute;
+  inset: -15%;
+  width: 130%;
+  height: 130%;
+  object-fit: cover;
+  filter: blur(20px) brightness(0.5);
+  opacity: 0.8;
+  transform: scale(1.15);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 核心清晰前景图：保持原比例、严格水平垂直居中呈现，消除靠左偏置与边缘割裂 */
+.popover-media-img {
+  position: relative;
+  z-index: 2;
+  max-width: 96%;
+  max-height: 96%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  margin: auto;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  border-radius: 4px;
+}
+
+/* 多图并排网格预览容器 */
+.popover-multi-grid {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  width: 340px;
+}
+
+.popover-multi-item {
+  position: relative;
+  flex: 1;
+  min-width: 95px;
+  height: 130px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.popover-field-tag {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 10px;
+  font-family: monospace;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.popover-portal-footer {
+  padding: 7px 12px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.popover-portal-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 210px;
+}
+
+.popover-portal-sub {
+  font-size: 10.5px;
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   图文卡片模式 (Gallery Mode) - 饱满高度保障
+   ========================================================================== */
+.posts-list-scroll.gallery-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 8px;
+}
+
+.post-gallery-card {
+  flex-shrink: 0;
+  min-height: 180px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.post-gallery-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.post-gallery-card.active,
+.post-gallery-card.selected {
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 0 0 2px var(--accent-color), 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+}
+
+.gallery-card-cover-wrap {
+  position: relative;
+  width: 100%;
+  height: 130px;
+  flex-shrink: 0;
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 高斯模糊氛围底衬：自适应任意构图比例，绝不露出突兀底色 */
+.gallery-card-bg-blur {
+  position: absolute;
+  inset: -12px;
+  width: calc(100% + 24px);
+  height: calc(100% + 24px);
+  object-fit: cover;
+  filter: blur(16px) brightness(0.65);
+  opacity: 0.88;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 前景清晰原图：水平垂直绝对居中，保持原比例优雅展示 */
+.gallery-card-img {
+  position: relative;
+  z-index: 2;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  margin: auto;
+  display: block;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  transition: transform 0.25s ease;
+}
+
+.post-gallery-card:hover .gallery-card-img {
+  transform: scale(1.05);
+}
+
+.gallery-multi-image-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gallery-card-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.gallery-card-placeholder .placeholder-text {
+  font-size: 11px;
+}
+
+.gallery-card-badges-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gallery-card-content {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+/* ==========================================================================
+   方案 A：折叠吸顶常驻迷你封面条 (极致克制清爽，不挡换肤下拉)
+   ========================================================================== */
+.post-cover-section.collapsed.sticky-top-cover-bar {
+  position: sticky;
+  top: 0;
+  z-index: 15; /* 确保低于 Header 的 200，绝不遮盖换肤下拉菜单 */
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 6px 14px;
+  margin-bottom: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+}
+
+.mini-cover-bar-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 32px;
+}
+
+/* 左区：展开指示器与文章名 */
+.mini-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 42%;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+}
+
+.mini-bar-left:hover {
+  background: var(--bg-hover);
+}
+
+.mini-expand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.mini-post-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 中区：精致封面槽位预览 */
+.mini-slots-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+
+.mini-cover-slot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 2px 6px 2px 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mini-cover-slot:hover {
+  border-color: var(--accent-color);
+  background: var(--bg-hover);
+}
+
+.mini-cover-slot.broken {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.mini-slot-img {
+  width: 32px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.mini-slot-empty {
+  width: 32px;
+  height: 20px;
+  border-radius: 2px;
+  border: 1px dashed var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+}
+
+.mini-slot-field-label {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-secondary);
+}
+
+/* 右区：轻量胶囊按钮 */
+.mini-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mini-action-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mini-action-pill:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.mini-history-badge {
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--accent-color);
+  color: #fff;
+  padding: 0 4px;
+  border-radius: 6px;
+  height: 12px;
+  line-height: 12px;
+}
+
+.mini-expand-text-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--accent-bg, rgba(99, 102, 241, 0.12));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: var(--accent-color);
+  font-size: 11.5px;
+  font-weight: 500;
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mini-expand-text-btn:hover {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: var(--accent-color);
+}
+
+.collapse-toggle-btn {
+  color: var(--text-secondary) !important;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.collapse-toggle-btn:hover {
+  color: var(--accent-color) !important;
+}
+
+

@@ -4,6 +4,34 @@
  */
 
 /**
+ * 判断图片链接是否为 SVG 格式
+ * 覆盖常见 .svg 扩展名、data:image/svg+xml 以及 skillicons、carbon、ray.so 等 SVG 代码卡片生成器
+ */
+export function isSvgUrl(url?: string | null): boolean {
+  if (!url) return false;
+  const clean = url.trim().toLowerCase();
+  if (!clean) return false;
+
+  // Data URI：仅 SVG 类型按矢量处理
+  if (clean.startsWith('data:')) {
+    return clean.startsWith('data:image/svg+xml');
+  }
+
+  try {
+    const parsed = new URL(clean, 'http://localhost');
+    const host = parsed.hostname;
+    // 仅按主机名识别代码卡片生成器，避免误伤 URL 参数里恰含关键字的位图
+    const isSvgHost =
+      /(^|\.)skillicons\.dev$/.test(host) ||
+      /(^|\.)carbon\.now\.sh$/.test(host) ||
+      /(^|\.)ray\.so$/.test(host);
+    return isSvgHost || clean.includes('.svg');
+  } catch {
+    return clean.includes('.svg');
+  }
+}
+
+/**
  * 从任意 URL、Data URI 或图床链接中提取直观的文件名
  */
 export function extractImageFilename(url: string, fallbackTitle = ''): string {

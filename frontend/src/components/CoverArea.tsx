@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrokenReport, PostInfo } from '../types';
-import { ExternalLink, Copy, Trash2, AlertTriangle, Image as ImageIcon, Star, RefreshCw, Loader2, RotateCcw, History } from 'lucide-react';
 import { useFavorites } from '../context/FavoritesContext';
-import { getImageAspectRatio } from '../utils/imageMeta';
+import { getImageAspectRatio, isSvgUrl } from '../utils/imageMeta';
+import { useSafeSvgUrl } from '../utils/svgFixer';
 import { ImageFilenameTag } from './ImageFilenameTag';
+import { Icon } from './common/Icon';
+import { SvgSafeImage } from './common/SvgSafeImage';
 
 interface CoverAreaProps {
   post: PostInfo;
@@ -30,6 +32,7 @@ interface CoverImageDisplayProps {
   field: string;
   postFilePath: string;
   isFieldBroken: boolean;
+  fitMode?: 'smart' | 'contain' | 'cover';
   onOpenLightbox: (url: string, title: string, fallbackUrl?: string) => void;
   onMarkBroken?: (url: string, field: string) => void;
 }
@@ -39,6 +42,7 @@ const CoverImageDisplay: React.FC<CoverImageDisplayProps> = ({
   field,
   postFilePath,
   isFieldBroken,
+  fitMode = 'smart',
   onOpenLightbox,
   onMarkBroken,
 }) => {
@@ -46,7 +50,6 @@ const CoverImageDisplay: React.FC<CoverImageDisplayProps> = ({
 
   // 唯一状态键：只要博文路径、封面字段、图片地址或手动重试发生变化，立即清空旧状态
   const targetKey = `${postFilePath}::${field}::${url}::${retryKey}`;
-  const [prevTargetKey, setPrevTargetKey] = useState(targetKey);
 
   // loadStatus: 'loading' | 'loaded' | 'error' | 'empty'
   const [loadStatus, setLoadStatus] = useState<'loading' | 'loaded' | 'error' | 'empty'>(() => {
@@ -55,60 +58,75 @@ const CoverImageDisplay: React.FC<CoverImageDisplayProps> = ({
     return 'loading';
   });
 
-  // 实际已预载成功并允许渲染出来的图片地址 (未完成预载前始终为 null，彻底防止旧图残影)
   const [activeLoadedUrl, setActiveLoadedUrl] = useState<string | null>(null);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
 
-  // 核心：在渲染阶段同步检测 targetKey 变化！
-  // 一旦用户从一个博客点击到另一个博客，在提交给浏览器绘制的第 0 帧就立即将旧图清空为 null，杜绝异步 useEffect 造成的旧图残影！
-  if (prevTargetKey !== targetKey) {
-    setPrevTargetKey(targetKey);
-    setActiveLoadedUrl(null); // 立即同步清空旧图！
-    setDimensions(null);
-    if (!url) {
-      setLoadStatus('empty');
-    } else if (isFieldBroken) {
-      setLoadStatus('error');
-    } else {
-      setLoadStatus('loading');
-    }
-  }
+  const isSvg = isSvgUrl(url);
+  const effectiveFit =
+    fitMode === 'contain'
+      ? 'contain'
+      : fitMode === 'cover'
+      ? 'cover'
+      : isSvg || (dimensions && (dimensions.width / dimensions.height < 1.35 || dimensions.width / dimensions.height > 2.2))
+      ? 'contain'
+      : 'cover';
 
-  // 核心：后台通过内存 Image 对象预加载，保证只有新图真正就绪后才更新渲染
+  const { dimensions: svgDims } = useSafeSvgUrl(
+    isSvg ? (activeLoadedUrl || url) : null,
+    effectiveFit
+  );
+
+  const finalDims = dimensions || svgDims || null;
+
+  // 记录上一个有效目标键，避免非预期状态错位
+  const prevTargetKeyRef = useRef(targetKey);
+
   useEffect(() => {
-    if (!url) {
-      setLoadStatus('empty');
+    if (prevTargetKeyRef.current !== targetKey) {
+      prevTargetKeyRef.current = targetKey;
+      if (!url) {
+        setLoadStatus('empty');
+        setActiveLoadedUrl(null);
+        setDimensions(null);
+        return;
+      }
+      if (isFieldBroken) {
+        setLoadStatus('error');
+        setActiveLoadedUrl(null);
+        setDimensions(null);
+        return;
+      }
+      setLoadStatus('loading');
       setActiveLoadedUrl(null);
       setDimensions(null);
-      return;
     }
+  }, [targetKey, url, isFieldBroken]);
 
-    if (isFieldBroken) {
-      setLoadStatus('error');
-      setActiveLoadedUrl(null);
-      setDimensions(null);
-      return;
-    }
+  // 启动图片异步加载探测
+  useEffect(() => {
+    if (!url || isFieldBroken) return;
 
     let isCurrent = true;
-    const img = new Image();
+    const img = new window.Image();
     img.referrerPolicy = 'no-referrer';
     img.src = url;
 
+    if (img.complete && img.naturalWidth > 0) {
+      setActiveLoadedUrl(url);
+      setDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+      setLoadStatus('loaded');
+      return;
+    }
+
     img.onload = () => {
       if (!isCurrent) return;
-      const w = img.naturalWidth || img.width || 0;
-      const h = img.naturalHeight || img.height || 0;
-      if (w > 0 && h > 0) {
-        setDimensions({ width: w, height: h });
-      }
       setActiveLoadedUrl(url);
+      setDimensions({ width: img.naturalWidth, height: img.naturalHeight });
       setLoadStatus('loaded');
     };
 
     img.onerror = () => {
       if (!isCurrent) return;
-      // 直连失败（404 或防盗链），纯净报错并标记 error，绝不使用本地代理充数
       setActiveLoadedUrl(null);
       setDimensions(null);
       setLoadStatus('error');
@@ -122,11 +140,10 @@ const CoverImageDisplay: React.FC<CoverImageDisplayProps> = ({
     };
   }, [url, targetKey, isFieldBroken]);
 
-  // 1. 无图片地址情况：展示标准占位卡片
   if (loadStatus === 'empty' || !url) {
     return (
       <div className="cover-img-placeholder">
-        <ImageIcon size={28} className="cover-placeholder-icon" />
+        <Icon name="image" size="xl" variant="muted" className="cover-placeholder-icon" />
         <span className="cover-placeholder-text">未设置图片，可从下方选择或拖拽至此</span>
       </div>
     );
@@ -134,25 +151,23 @@ const CoverImageDisplay: React.FC<CoverImageDisplayProps> = ({
 
   return (
     <>
-      {/* 2. 毛玻璃微光过渡动画层 */}
       {loadStatus === 'loading' && (
         <div className="cover-frosted-loader">
           <div className="cover-frosted-shine" />
-          <Loader2 size={22} className="spin-icon" color="var(--primary-color)" />
+          <Icon name="loading" size="lg" animation="spin" variant="primary" className="spin-icon" />
           <span className="cover-loader-text">
             正在载入封面图片...
           </span>
         </div>
       )}
 
-      {/* 3. 图片加载失败容错卡片 */}
       {loadStatus === 'error' && (
         <div
           className="cover-error-placeholder"
           onClick={() => setRetryKey(k => k + 1)}
           title="点击重新探测加载"
         >
-          <AlertTriangle size={24} color="#ef4444" />
+          <Icon name="warning" size="lg" variant="danger" />
           <div className="cover-error-title">
             图片暂时无法载入 (防盗链或网络超时)
           </div>
@@ -165,47 +180,80 @@ const CoverImageDisplay: React.FC<CoverImageDisplayProps> = ({
               className="btn btn-sm btn-ghost"
               onClick={e => { e.stopPropagation(); setRetryKey(k => k + 1); }}
             >
-              <RefreshCw size={11} /> 重新加载
+              <Icon name="refresh" size="xs" />
+              <span>重新加载</span>
             </button>
-            {url.startsWith('http') && (
-              <a
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="btn btn-sm btn-ghost"
-                onClick={e => e.stopPropagation()}
-              >
-                <ExternalLink size={11} /> 浏览器直开
-              </a>
-            )}
           </div>
         </div>
       )}
 
-      {/* 4. 只有预载成功后才挂载新图 (绝无旧图残影，自带平滑淡入动画与物理尺寸标牌) */}
-      {loadStatus === 'loaded' && activeLoadedUrl && (
-        <>
-          <img
-            key={activeLoadedUrl}
-            src={activeLoadedUrl}
-            alt={field}
-            referrerPolicy="no-referrer"
-            className="cover-img-display cover-fade-in"
-            onClick={() => onOpenLightbox(activeLoadedUrl, `文章封面: ${field}`)}
-            title="点击全屏大图预览"
-          />
-          {dimensions && (
-            <div className="image-dimension-badge">
-              <span>{dimensions.width}×{dimensions.height}</span>
-              {getImageAspectRatio(dimensions.width, dimensions.height) && (
-                <span className="ratio-sub-badge">
-                  {getImageAspectRatio(dimensions.width, dimensions.height)}
-                </span>
-              )}
-            </div>
-          )}
-        </>
-      )}
+      {loadStatus === 'loaded' && activeLoadedUrl && (() => {
+        return (
+          <>
+            {effectiveFit === 'contain' && (
+              isSvg ? (
+                <SvgSafeImage
+                  src={activeLoadedUrl}
+                  alt=""
+                  aria-hidden="true"
+                  className="cover-ambient-blur"
+                  fitMode="cover"
+                  clickThrough
+                />
+              ) : (
+                <img
+                  src={activeLoadedUrl}
+                  alt=""
+                  aria-hidden="true"
+                  referrerPolicy="no-referrer"
+                  className="cover-ambient-blur"
+                />
+              )
+            )}
+            {isSvg ? (
+              <SvgSafeImage
+                key={activeLoadedUrl}
+                src={activeLoadedUrl}
+                alt={field}
+                className={`cover-img-display ${effectiveFit === 'contain' ? 'fit-contain' : 'fit-cover'} cover-fade-in`}
+                fitMode={effectiveFit}
+                clickThrough={false}
+                onClick={() => onOpenLightbox(activeLoadedUrl, `文章封面: ${field}`)}
+                title={`点击全屏大图预览 (${effectiveFit === 'contain' ? '完整呈现模式' : '铺满裁切模式'})`}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  maxWidth: effectiveFit === 'contain' ? '96%' : '100%',
+                  maxHeight: effectiveFit === 'contain' ? '96%' : '100%',
+                  aspectRatio:
+                    effectiveFit === 'contain' && finalDims
+                      ? `${finalDims.width} / ${finalDims.height}`
+                      : undefined,
+                }}
+              />
+            ) : (
+              <img
+                src={activeLoadedUrl}
+                alt={field}
+                referrerPolicy="no-referrer"
+                className={`cover-img-display ${effectiveFit === 'contain' ? 'fit-contain' : 'fit-cover'} cover-fade-in`}
+                onClick={() => onOpenLightbox(activeLoadedUrl, `文章封面: ${field}`)}
+                title={`点击全屏大图预览 (${effectiveFit === 'contain' ? '完整呈现模式' : '铺满裁切模式'})`}
+              />
+            )}
+            {finalDims && (
+              <div className="image-dimension-badge">
+                <span>{finalDims.width}×{finalDims.height}</span>
+                {getImageAspectRatio(finalDims.width, finalDims.height) && (
+                  <span className="ratio-sub-badge">
+                    {getImageAspectRatio(finalDims.width, finalDims.height)}
+                  </span>
+                )}
+              </div>
+            )}
+          </>
+        );
+      })()}
     </>
   );
 };
@@ -229,14 +277,46 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
   historyCount = 0,
 }) => {
   const { isFavorited, toggleFavorite } = useFavorites();
-  // 查找当前文章是否真正包含 404 封面 (严格比对当前字段的真实 URL 与体检报告的 URL，若用户已替换新照片则自动解除警告)
+
+  // 折叠吸顶状态支持 (方案 A: Sticky & Collapsible Cover Bar)
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('hpic_cover_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const [fitModes, setFitModes] = useState<Record<string, 'contain' | 'cover'>>({});
+
+  const toggleFitMode = (field: string, defaultMode: 'contain' | 'cover') => {
+    setFitModes(prev => {
+      const current = prev[field] || defaultMode;
+      return {
+        ...prev,
+        [field]: current === 'contain' ? 'cover' : 'contain',
+      };
+    });
+  };
+
+  const toggleCollapsed = () => {
+    setIsCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('hpic_cover_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // 查找当前文章是否真正包含 404 封面
   const currentBroken = brokenReports.filter(r => {
     if (r.file_path !== post.file_path) return false;
     const currentUrl = (post.images && post.images[r.field]) || '';
     return currentUrl.trim() !== '' && currentUrl.trim() === r.url.trim();
   });
 
-  // 计算当前博文中被确认失效的封面字段数量（综合健康报告与即时探测的 brokenUrls）
+  // 计算当前博文中被确认失效的封面字段数量
   const brokenFieldList = coverFields.filter(f => {
     const fUrl = (post.images && post.images[f]) || '';
     return currentBroken.some(b => b.field === f) || (!!fUrl && !!brokenUrls?.has(fUrl));
@@ -248,22 +328,106 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
 
   const handleDrop = (e: React.DragEvent, fields: string[]) => {
     e.preventDefault();
-    let url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
-    if (!url) {
-      const htmlText = e.dataTransfer.getData('text/html');
-      const m = htmlText && htmlText.match(/src=["'](https?:\/\/[^"']+)["']/i);
-      if (m) url = m[1];
-    }
-    if (url && (url.startsWith('http') || url.startsWith('data:image'))) {
-      onDropImage(url.trim(), fields);
+    const url = e.dataTransfer.getData('text/plain');
+    if (url) {
+      onDropImage(url, fields);
     }
   };
 
+  // 极简吸顶迷你状态栏 (精炼克制，绝不堆砌罗列操作)
+  if (isCollapsed) {
+    return (
+      <section className="post-cover-section collapsed sticky-top-cover-bar">
+        <div className="mini-cover-bar-content">
+          {/* 左区：轻量展开指示器 + 标题与草稿标记 */}
+          <div className="mini-bar-left" onClick={toggleCollapsed} title="点击展开完整封面工作台">
+            <span className="mini-expand-icon">
+              <Icon name="chevronDown" size="xs" variant="primary" />
+            </span>
+            <span className="mini-post-title" title={post.title}>
+              {post.is_draft && <span className="post-type-tag draft">草稿</span>}
+              {post.title}
+            </span>
+          </div>
+
+          {/* 中区：精致封面槽位预览 (支持直接查看与拖拽覆盖) */}
+          <div className="mini-slots-container">
+            {coverFields.map(field => {
+              const url = (post.images && post.images[field]) || '';
+              const isBroken = brokenFieldList.includes(field);
+
+              return (
+                <div
+                  key={field}
+                  className={`mini-cover-slot ${url ? 'has-image' : 'empty'} ${isBroken ? 'broken' : ''}`}
+                  onDragOver={handleDragOver}
+                  onDrop={e => handleDrop(e, [field])}
+                  onClick={() => url && onOpenLightbox(url, `${post.title} - ${field}`)}
+                  title={url ? `[${field}] 点击看大图，可拖拽新图替换` : `[${field}] 暂未配置，可拖拽图片至此`}
+                >
+                  {url ? (
+                    <SvgSafeImage src={url} alt={field} className="mini-slot-img" fitMode="cover" />
+                  ) : (
+                    <div className="mini-slot-empty">
+                      <Icon name="image" size="xs" variant="muted" />
+                    </div>
+                  )}
+                  <span className="mini-slot-field-label">{field}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 右区：极简克制的操作胶囊 (按需浮现，绝不冗余罗列) */}
+          <div className="mini-bar-actions">
+            {canUndo && (
+              <button
+                type="button"
+                className="mini-action-pill undo-pill"
+                onClick={onUndo}
+                title={`撤销上一操作: ${undoDesc || '恢复变更前封面'}`}
+              >
+                <Icon name="undo" size="xs" />
+                <span>撤销</span>
+              </button>
+            )}
+
+            {historyCount > 0 && (
+              <button
+                type="button"
+                className="mini-action-pill history-pill"
+                onClick={onOpenHistory}
+                title="查看时光机历史记录"
+              >
+                <Icon name="history" size="xs" />
+                <span className="mini-history-badge">{historyCount}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="mini-expand-text-btn"
+              onClick={toggleCollapsed}
+              title="展开完整封面工作区"
+            >
+              <span>展开</span>
+              <Icon name="chevronDown" size="xs" />
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // 展开状态下的完整面板
   return (
     <section className="post-cover-section">
       <div className="section-head-bar">
         <div>
-          <h2 className="current-post-title">{post.title}</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h2 className="current-post-title">{post.title}</h2>
+            {post.is_draft && <span className="post-type-tag draft">本地草稿</span>}
+          </div>
           <div className="current-post-path">{post.file_name}</div>
         </div>
 
@@ -276,7 +440,7 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
             disabled={!canUndo}
             title={canUndo ? `撤销上一操作: ${undoDesc || '恢复变更前封面'}` : '当前文章暂无可撤销操作'}
           >
-            <RotateCcw size={13} style={{ marginRight: 4 }} />
+            <Icon name="undo" size="xs" />
             <span>撤销</span>
           </button>
 
@@ -287,22 +451,33 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
             onClick={onOpenHistory}
             title="查看此博文的所有封面演变历史与时光机快照"
           >
-            <History size={13} style={{ marginRight: 4 }} />
-            <span>历史记录</span>
+            <Icon name="history" size="xs" />
+            <span>历史</span>
             {historyCount > 0 && <span className="tab-count-badge">{historyCount}</span>}
           </button>
 
           {/* 全部清空 */}
           <button className="btn btn-sm btn-ghost" onClick={onClearAll} title="清空该文章的全部封面字段">
-            <Trash2 size={13} style={{ marginRight: 4 }} />
-            全部清空
+            <Icon name="trash" size="xs" />
+            <span>清空</span>
+          </button>
+
+          {/* 收起面板为吸顶栏 */}
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost collapse-toggle-btn"
+            onClick={toggleCollapsed}
+            title="收起封面面板，最大化下方图库可视面积"
+          >
+            <Icon name="chevronUp" size="xs" />
+            <span>收起面板</span>
           </button>
         </div>
       </div>
 
       {brokenFieldList.length > 0 && (
         <div className="warning-banner-box">
-          <AlertTriangle size={16} color="#ef4444" />
+          <Icon name="warning" size="md" variant="danger" />
           <span>检测到该文章有 {brokenFieldList.length} 个封面链接已失效 (404)，建议从下方重新挑选并替换。</span>
         </div>
       )}
@@ -315,6 +490,10 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
           const isFieldBroken = currentBroken.some(b => b.field === field) || (hasImage && !!brokenUrls?.has(url));
           const isFav = isFavorited(url);
 
+          const isSvg = isSvgUrl(url);
+          const defaultFit = isSvg ? 'contain' : 'cover';
+          const currentFit = fitModes[field] || defaultFit;
+
           return (
             <div
               key={field}
@@ -325,10 +504,25 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
               <div className="cover-card-header">
                 <span className="field-tag-name">{field}</span>
                 <div className="cover-card-header-right">
+                  {hasImage && !isFieldBroken && (
+                    <button
+                      type="button"
+                      className={`cover-fit-mode-btn ${currentFit === 'contain' ? 'active' : ''}`}
+                      onClick={() => toggleFitMode(field, defaultFit)}
+                      title={
+                        currentFit === 'contain'
+                          ? '当前: 完整原貌模式 (带环境光，代码不裁切，点击切换为填满裁切)'
+                          : '当前: 填满裁切模式 (点击切换为完整呈现)'
+                      }
+                    >
+                      <Icon name={currentFit === 'contain' ? 'minimize' : 'maximize'} size="xs" />
+                      <span>{currentFit === 'contain' ? '完整' : '铺满'}</span>
+                    </button>
+                  )}
                   {hasImage && isFav && (
                     <span className="cover-fav-pill">
-                      <Star size={11} fill="#f59e0b" color="#f59e0b" />
-                      已收藏
+                      <Icon name="star" size="xs" style={{ fill: '#f59e0b', color: '#f59e0b' }} />
+                      <span>已收藏</span>
                     </span>
                   )}
                   {isFieldBroken && <span className="broken-badge">404 失效</span>}
@@ -342,6 +536,7 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
                   field={field}
                   postFilePath={post.file_path}
                   isFieldBroken={isFieldBroken}
+                  fitMode={currentFit}
                   onOpenLightbox={onOpenLightbox}
                   onMarkBroken={onMarkBroken}
                 />
@@ -365,7 +560,7 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
                     disabled={!hasImage}
                     title={isFav ? '已在灵感收藏夹 (点击取消)' : '收藏此封面到灵感库'}
                   >
-                    <Star size={13} fill={isFav ? '#f59e0b' : 'none'} color={isFav ? '#f59e0b' : '#94a3b8'} />
+                    <Icon name="star" size="xs" style={{ fill: isFav ? '#f59e0b' : 'none', color: isFav ? '#f59e0b' : 'var(--text-muted)' }} />
                   </button>
                   <button
                     className="btn btn-sm btn-ghost"
@@ -373,7 +568,7 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
                     disabled={!hasImage}
                     title="在浏览器中查看原图"
                   >
-                    <ExternalLink size={12} />
+                    <Icon name="external" size="xs" />
                   </button>
                   <button
                     className="btn btn-sm btn-ghost"
@@ -381,7 +576,7 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
                     disabled={!hasImage}
                     title="复制图片链接"
                   >
-                    <Copy size={12} />
+                    <Icon name="copy" size="xs" />
                   </button>
                   <button
                     className="btn btn-sm btn-danger-ghost"
@@ -389,7 +584,7 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
                     disabled={!hasImage}
                     title="清除此封面字段"
                   >
-                    <Trash2 size={12} />
+                    <Icon name="trash" size="xs" />
                   </button>
                 </div>
               </div>

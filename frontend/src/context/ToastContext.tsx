@@ -59,14 +59,15 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <ToastContext.Provider value={contextValue}>
       {children}
       <div
+        className="toast-viewport-container"
         style={{
           position: 'fixed',
-          top: 20,
+          bottom: 24,
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 9999,
           display: 'flex',
-          flexDirection: 'column',
+          flexDirection: 'column-reverse',
           alignItems: 'center',
           gap: 10,
           pointerEvents: 'none',

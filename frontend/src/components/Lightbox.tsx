@@ -3,9 +3,11 @@ import { ExternalLink, Copy, X, Star, AlertTriangle, RefreshCw, Loader2, CheckCi
 import { api } from '../api';
 import { useFavorites } from '../context/FavoritesContext';
 import { useToast } from '../context/ToastContext';
-import { getImageAspectRatio } from '../utils/imageMeta';
+import { getImageAspectRatio, isSvgUrl } from '../utils/imageMeta';
+import { useSafeSvgUrl } from '../utils/svgFixer';
 import { ImageFilenameTag } from './ImageFilenameTag';
 import { ApplyCoverButtons } from './ApplyCoverButtons';
+import { SvgSafeImage } from './common/SvgSafeImage';
 
 interface LightboxProps {
   isOpen: boolean;
@@ -36,6 +38,23 @@ export const Lightbox: React.FC<LightboxProps> = ({
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [healthStatus, setHealthStatus] = useState<'checking' | 'direct_ok' | 'hotlink_blocked' | 'broken' | null>(null);
 
+  const isSvg = isSvgUrl(activeUrl);
+  const { safeUrl: safeSvgUrl, dimensions: svgDims } = useSafeSvgUrl(isSvg ? activeUrl : null, 'contain');
+  const finalDims = dimensions || svgDims || null;
+
+  // Esc 键关闭 Lightbox
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   useEffect(() => {
     if (url) {
       setActiveUrl(url);
@@ -62,6 +81,19 @@ export const Lightbox: React.FC<LightboxProps> = ({
         });
       } else {
         setHealthStatus('direct_ok');
+      }
+
+      if (isSvgUrl(url)) {
+        const testImg = new Image();
+        testImg.src = url;
+        testImg.onload = () => {
+          const w = testImg.naturalWidth || testImg.width || 0;
+          const h = testImg.naturalHeight || testImg.height || 0;
+          if (w > 0 && h > 0) {
+            setDimensions({ width: w, height: h });
+          }
+          setIsLoading(false);
+        };
       }
     }
   }, [url, isOpen]);
@@ -105,10 +137,10 @@ export const Lightbox: React.FC<LightboxProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
             <span className="lightbox-title-text" title={title}>{title}</span>
             <ImageFilenameTag url={activeUrl} fallbackTitle={title} maxWidth={260} />
-            {dimensions && (
+            {finalDims && (
               <span className="lightbox-dim-badge">
-                {dimensions.width}×{dimensions.height}
-                {getImageAspectRatio(dimensions.width, dimensions.height) ? ` · ${getImageAspectRatio(dimensions.width, dimensions.height)}` : ''}
+                {finalDims.width}×{finalDims.height}
+                {getImageAspectRatio(finalDims.width, finalDims.height) ? ` · ${getImageAspectRatio(finalDims.width, finalDims.height)}` : ''}
               </span>
             )}
             {isFav && (
@@ -141,7 +173,15 @@ export const Lightbox: React.FC<LightboxProps> = ({
           <button className="btn-close-icon" onClick={onClose}><X size={18} /></button>
         </div>
 
-        <div className="lightbox-img-center" style={{ position: 'relative', minHeight: 320 }}>
+        <div
+          className="lightbox-img-center"
+          style={{
+            position: 'relative',
+            width: '92vw',
+            height: 'calc(88vh - 140px)',
+            minHeight: 320,
+          }}
+        >
           {isLoading && !isError && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(4px)' }}>
               <Loader2 size={28} className="spin-icon" color="var(--primary-color)" />
@@ -168,6 +208,27 @@ export const Lightbox: React.FC<LightboxProps> = ({
                 重试加载
               </button>
             </div>
+          ) : isSvg ? (
+            <SvgSafeImage
+              key={safeSvgUrl || activeUrl}
+              src={activeUrl}
+              alt={title}
+              className="lightbox-preview-img image-fade-in"
+              fitMode="contain"
+              clickThrough
+              onLoad={() => {
+                setIsLoading(false);
+              }}
+              onError={handleImageError}
+              style={{
+                display: isLoading || isError ? 'none' : 'block',
+                maxWidth: '92vw',
+                maxHeight: 'calc(88vh - 140px)',
+                width: '100%',
+                height: '100%',
+                aspectRatio: finalDims ? `${finalDims.width} / ${finalDims.height}` : undefined,
+              }}
+            />
           ) : (
             <img
               key={activeUrl}

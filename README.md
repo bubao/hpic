@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/icon.png" width="120" height="120" alt="hpic 图标" />
-</p>
-
 <h1 align="center">hpic</h1>
 
 <p align="center">
