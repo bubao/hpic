@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -238,8 +237,8 @@ sleep 1
 	cmd.Stderr = nil
 	cmd.Stdin = nil
 
-	// 脱离父进程（Unix 用 Setpgid 创建新进程组）
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// 脱离父进程，避免被父进程组信号连带终止
+	setRestartProcessGroupSys(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to launch restart helper: %w", err)
