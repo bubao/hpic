@@ -21,6 +21,9 @@ type FavoriteRecord struct {
 	Source    string    `json:"source"`
 	Tags      []string  `json:"tags"`
 	CreatedAt time.Time `json:"created_at"`
+	// NormKey 为图片物理去重键（由 favorites.NormalizeImageKey 计算）。
+	// 旧数据该列为 NULL，不受唯一索引影响；新写入必须非空且唯一。
+	NormKey string `json:"norm_key,omitempty"`
 }
 
 type OperationRecord struct {
@@ -148,6 +151,18 @@ func (d *Database) migrate() error {
 	if _, err := d.db.Exec(`CREATE INDEX IF NOT EXISTS idx_op_batch ON operation_logs(batch_id);`); err != nil {
 		return err
 	}
+
+	// 兼容旧表结构：favorites 增加物理去重键列（norm_key）。
+	// SQLite UNIQUE INDEX 允许多个 NULL，因此旧数据（全部 NULL）不受影响；
+	// 新写入必须使用非空且唯一的 norm_key 才能插入。
+	var favNormCount int
+	err = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('favorites') WHERE name = 'norm_key';`).Scan(&favNormCount)
+	if err != nil || favNormCount == 0 {
+		_, _ = d.db.Exec(`ALTER TABLE favorites ADD COLUMN norm_key TEXT;`)
+	}
+	if _, err := d.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_fav_norm ON favorites(norm_key);`); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -184,8 +199,8 @@ func (d *Database) SaveFavorites(items []FavoriteRecord) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO favorites (id, url, thumb_url, title, source, tags_json, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?);`)
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO favorites (id, url, thumb_url, title, source, tags_json, created_at, norm_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?);`)
 	if err != nil {
 		return err
 	}
@@ -196,7 +211,12 @@ func (d *Database) SaveFavorites(items []FavoriteRecord) error {
 		if it.CreatedAt.IsZero() {
 			it.CreatedAt = time.Now()
 		}
-		_, err := stmt.Exec(it.ID, it.URL, it.ThumbURL, it.Title, it.Source, string(tagsBytes), it.CreatedAt)
+		// 未显式提供 norm_key 的旧调用方写入 NULL，避免空串互相冲突。
+		var normKey any
+		if it.NormKey != "" {
+			normKey = it.NormKey
+		}
+		_, err := stmt.Exec(it.ID, it.URL, it.ThumbURL, it.Title, it.Source, string(tagsBytes), it.CreatedAt, normKey)
 		if err != nil {
 			return err
 		}
@@ -205,12 +225,12 @@ func (d *Database) SaveFavorites(items []FavoriteRecord) error {
 	return tx.Commit()
 }
 
-// GetAllFavorites 获取全部收藏
+// GetAllFavorites 获取全部收藏（按创建时间倒序）
 func (d *Database) GetAllFavorites() ([]FavoriteRecord, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	rows, err := d.db.Query(`SELECT id, url, thumb_url, title, source, tags_json, created_at FROM favorites ORDER BY created_at DESC;`)
+	rows, err := d.db.Query(`SELECT id, url, thumb_url, title, source, tags_json, created_at, norm_key FROM favorites ORDER BY created_at DESC;`)
 	if err != nil {
 		return nil, err
 	}
@@ -220,15 +240,160 @@ func (d *Database) GetAllFavorites() ([]FavoriteRecord, error) {
 	for rows.Next() {
 		var it FavoriteRecord
 		var tagsJSON sql.NullString
-		if err := rows.Scan(&it.ID, &it.URL, &it.ThumbURL, &it.Title, &it.Source, &tagsJSON, &it.CreatedAt); err != nil {
+		var normKey sql.NullString
+		if err := rows.Scan(&it.ID, &it.URL, &it.ThumbURL, &it.Title, &it.Source, &tagsJSON, &it.CreatedAt, &normKey); err != nil {
 			return nil, err
 		}
 		if tagsJSON.Valid && tagsJSON.String != "" {
 			_ = json.Unmarshal([]byte(tagsJSON.String), &it.Tags)
 		}
+		if normKey.Valid {
+			it.NormKey = normKey.String
+		}
 		results = append(results, it)
 	}
 	return results, nil
+}
+
+// GetFavoriteByNormKey 按物理去重键查询收藏；未命中返回 (nil, nil)。
+func (d *Database) GetFavoriteByNormKey(normKey string) (*FavoriteRecord, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var it FavoriteRecord
+	var tagsJSON, norm sql.NullString
+	err := d.db.QueryRow(`SELECT id, url, thumb_url, title, source, tags_json, created_at, norm_key
+		FROM favorites WHERE norm_key = ? LIMIT 1;`, normKey).Scan(
+		&it.ID, &it.URL, &it.ThumbURL, &it.Title, &it.Source, &tagsJSON, &it.CreatedAt, &norm,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if tagsJSON.Valid && tagsJSON.String != "" {
+		_ = json.Unmarshal([]byte(tagsJSON.String), &it.Tags)
+	}
+	if norm.Valid {
+		it.NormKey = norm.String
+	}
+	return &it, nil
+}
+
+// GetFavoriteByIDOrURL 按主键 ID 或精确 URL 查询收藏；未命中返回 (nil, nil)。
+func (d *Database) GetFavoriteByIDOrURL(idOrURL string) (*FavoriteRecord, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var it FavoriteRecord
+	var tagsJSON, norm sql.NullString
+	err := d.db.QueryRow(`SELECT id, url, thumb_url, title, source, tags_json, created_at, norm_key
+		FROM favorites WHERE id = ? OR url = ? LIMIT 1;`, idOrURL, idOrURL).Scan(
+		&it.ID, &it.URL, &it.ThumbURL, &it.Title, &it.Source, &tagsJSON, &it.CreatedAt, &norm,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if tagsJSON.Valid && tagsJSON.String != "" {
+		_ = json.Unmarshal([]byte(tagsJSON.String), &it.Tags)
+	}
+	if norm.Valid {
+		it.NormKey = norm.String
+	}
+	return &it, nil
+}
+
+// InsertFavorite 新增收藏记录（norm_key 必须非空且唯一，否则返回约束错误）。
+func (d *Database) InsertFavorite(it FavoriteRecord, normKey string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tagsBytes, _ := json.Marshal(it.Tags)
+	if it.CreatedAt.IsZero() {
+		it.CreatedAt = time.Now()
+	}
+	var norm any
+	if normKey != "" {
+		norm = normKey
+	}
+	_, err := d.db.Exec(`INSERT INTO favorites (id, url, thumb_url, title, source, tags_json, created_at, norm_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+		it.ID, it.URL, it.ThumbURL, it.Title, it.Source, string(tagsBytes), it.CreatedAt, norm)
+	return err
+}
+
+// UpdateFavorite 按主键 ID 覆盖收藏记录的可变字段。
+func (d *Database) UpdateFavorite(it FavoriteRecord, normKey string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tagsBytes, _ := json.Marshal(it.Tags)
+	var norm any
+	if normKey != "" {
+		norm = normKey
+	}
+	_, err := d.db.Exec(`UPDATE favorites SET url = ?, thumb_url = ?, title = ?, source = ?, tags_json = ?, created_at = ?, norm_key = ?
+		WHERE id = ?;`,
+		it.URL, it.ThumbURL, it.Title, it.Source, string(tagsBytes), it.CreatedAt, norm, it.ID)
+	return err
+}
+
+// UpdateFavoriteTags 更新标签（按 ID / URL / 物理去重键匹配），返回是否命中记录。
+func (d *Database) UpdateFavoriteTags(idOrURL, normKey, tagsJSON string) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	res, err := d.db.Exec(`UPDATE favorites SET tags_json = ? WHERE id = ? OR url = ? OR norm_key = ?;`,
+		tagsJSON, idOrURL, idOrURL, normKey)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// DeleteFavorite 删除收藏（按 ID / URL / 物理去重键匹配），返回是否命中记录。
+func (d *Database) DeleteFavorite(idOrURL, normKey string) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	res, err := d.db.Exec(`DELETE FROM favorites WHERE id = ? OR url = ? OR norm_key = ?;`,
+		idOrURL, idOrURL, normKey)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// CountFavorites 返回收藏总数。
+func (d *Database) CountFavorites() (int, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var n int
+	err := d.db.QueryRow(`SELECT COUNT(*) FROM favorites;`).Scan(&n)
+	return n, err
+}
+
+// FavoriteExists 判断指定 URL 或物理去重键是否已收藏。
+func (d *Database) FavoriteExists(url, normKey string) (bool, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var one int
+	err := d.db.QueryRow(`SELECT 1 FROM favorites WHERE url = ? OR norm_key = ? LIMIT 1;`, url, normKey).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // RecordOperation 记录一次操作日志（用于后续安全撤销）
@@ -339,8 +504,6 @@ func (d *Database) MarkUndone(id int64) error {
 	return err
 }
 
-// batchIDCounter 单调递增批次计数器（与 batchIDSequence 配合生成全局唯一批次 ID）
-var batchIDCounter int64
 var batchIDSequence = struct {
 	sync.Mutex
 	counter int64
@@ -434,21 +597,13 @@ func (d *Database) ClearPostOperations(filePath string) error {
 	return err
 }
 
-// SetLastBatchID 在 GetLastUndoable 返回时记录最近一次操作关联的批次 ID
-var lastUndoableBatchID int64
-
-// GetBatchOperations 获取与指定操作处于同一时间批次的其他操作（保留向后兼容）
-// 优先使用 batch_id 字段；若 batch_id 為 NULL 则 degenerate 为 ±5 秒时间窗口（兼容旧数据）
+// GetBatchOperations 获取与指定操作处于同一时间批次的其他操作（兼容旧数据）
+// 仅处理 batch_id 缺失（NULL）的历史数据，按 ±5 秒时间窗口降级查找；
+// 新数据请使用 GetOperationsByBatch(batchID) 精确获取同批操作。
 func (d *Database) GetBatchOperations(filePath string, createdAt time.Time, opType string) ([]OperationRecord, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	// 先用 batch_id 查找（新数据）
-	if records, err := d.getBatchByBatchID(lastUndoableBatchID); err == nil && len(records) > 0 {
-		return records, nil
-	}
-
-	// 兜底：时间窗口查找（兼容没有 batch_id 的旧数据）
 	start := createdAt.Add(-5 * time.Second)
 	end := createdAt.Add(5 * time.Second)
 
@@ -457,37 +612,6 @@ func (d *Database) GetBatchOperations(filePath string, createdAt time.Time, opTy
 		WHERE file_path = ? AND operation_type = ? AND is_undone = 0 AND created_at BETWEEN ? AND ?
 		ORDER BY id ASC;`
 	rows, err := d.db.Query(query, filePath, opType, start, end)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var records []OperationRecord
-	for rows.Next() {
-		var op OperationRecord
-		var isUndoneInt int
-		var bid sql.NullInt64
-		if err := rows.Scan(
-			&op.ID, &bid, &op.FilePath, &op.PostTitle, &op.OperationType, &op.Field,
-			&op.OldValue, &op.NewValue, &op.CreatedAt, &isUndoneInt,
-		); err == nil {
-			if bid.Valid {
-				op.BatchID = bid.Int64
-			}
-			op.IsUndone = isUndoneInt == 1
-			records = append(records, op)
-		}
-	}
-	return records, nil
-}
-
-func (d *Database) getBatchByBatchID(batchID int64) ([]OperationRecord, error) {
-	if batchID == 0 {
-		return nil, fmt.Errorf("no batch id")
-	}
-	query := `SELECT id, batch_id, file_path, post_title, operation_type, field, old_value, new_value, created_at, is_undone
-		FROM operation_logs WHERE batch_id = ? AND is_undone = 0 ORDER BY id ASC;`
-	rows, err := d.db.Query(query, batchID)
 	if err != nil {
 		return nil, err
 	}

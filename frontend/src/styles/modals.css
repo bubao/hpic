@@ -346,6 +346,17 @@
   margin: 0 auto;
 }
 
+/* 懒加载 Tab 占位（React.lazy + Suspense fallback） */
+.settings-tab-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  color: var(--text-muted);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
 .settings-section-header,
 .settings-page-header {
   margin-bottom: 24px;
@@ -1398,10 +1409,71 @@
   letter-spacing: 0.2px;
 }
 
+.preset-group {
+  margin-bottom: 14px;
+}
+
+.preset-group:last-of-type {
+  margin-bottom: 0;
+}
+
+.preset-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.preset-group-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.2px;
+}
+
+.preset-group-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.preset-group-action + .preset-group-action {
+  margin-left: 0;
+}
+
+.preset-group-action:hover:not(:disabled) {
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+  background: var(--accent-bg);
+}
+
+.preset-group-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .preset-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
+}
+
+.preset-custom-empty {
+  border-style: dashed;
+}
+
+.preset-custom-empty:hover {
+  transform: translateY(-2px);
 }
 
 .preset-card {

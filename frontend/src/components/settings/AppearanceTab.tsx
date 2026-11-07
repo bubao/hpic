@@ -1,6 +1,10 @@
-import React, { useState, useMemo } from 'react';
-import { Palette, Code, ChevronRight, Check, Sparkles, Info } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Palette, Code, ChevronRight, Check, Sparkles, Info, RefreshCw, FolderOpen } from 'lucide-react';
+import { Config, ThemePreset } from '../../types';
+import { api } from '../../api';
+import { AppTheme } from '../../utils/useTheme';
 import { CssCodeEditor } from './CssCodeEditor';
+import { useConfigField } from './useConfigField';
 
 export const PRESET_CYBERPUNK = `/* 赛博朋克深紫霓虹风格 */
 [data-theme="dark"], :root {
@@ -29,7 +33,7 @@ export const PRESET_MINIMAL_LIGHT = `/* 极简纸墨高雅浅色风格 */
 }`;
 
 /* ------------------------------------------------------------------ */
-/* 外观预设                                                             */
+/* 外观预设（渲染层统一模型）                                            */
 /* ------------------------------------------------------------------ */
 
 interface AppearancePreset {
@@ -100,6 +104,68 @@ const APPEARANCE_PRESETS: AppearancePreset[] = [
 const normalizeCss = (css: string): string => css.replace(/\s+/g, ' ').trim();
 
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* 预设渲染层适配（内置 + 用户自定义）                                    */
+/* ------------------------------------------------------------------ */
+
+interface PresetView {
+  id: string;
+  name: string;
+  desc: string;
+  theme: 'dark' | 'light' | 'auto';
+  css: string;
+  previewClass: string;
+  blockBase: string;
+  blockStrong: string;
+}
+
+/** 接口不可用时的降级内置预设（保证首屏与服务离线时仍可用） */
+const FALLBACK_PRESETS: ThemePreset[] = APPEARANCE_PRESETS.map(p => ({
+  id: p.id,
+  name: p.label,
+  desc: p.desc,
+  theme: p.theme,
+  css: p.css,
+  is_builtin: true,
+}));
+
+/** 从预设 CSS 中提取 --accent-color，用于未知预设的预览色块 */
+const extractAccent = (css: string): string => {
+  const match = /--accent-color\s*:\s*([^;}\s]+)/.exec(css);
+  return match ? match[1].trim() : '';
+};
+
+/** 将后端 /api/theme/presets 返回的预设补齐预览信息 */
+const toPresetView = (preset: ThemePreset): PresetView => {
+  const staticMeta = APPEARANCE_PRESETS.find(p => p.id === preset.id);
+  if (staticMeta) {
+    return {
+      id: preset.id,
+      name: preset.name || staticMeta.label,
+      desc: preset.desc || staticMeta.desc,
+      theme: preset.theme,
+      css: preset.css,
+      previewClass: staticMeta.previewClass,
+      blockBase: staticMeta.blockBase,
+      blockStrong: staticMeta.blockStrong,
+    };
+  }
+
+  const accent = extractAccent(preset.css);
+  const isLight = preset.theme === 'light';
+  return {
+    id: preset.id,
+    name: preset.name,
+    desc: preset.desc || '',
+    theme: preset.theme,
+    css: preset.css,
+    previewClass: isLight ? 'preset-preview-light' : preset.theme === 'auto' ? 'preset-preview-auto' : 'preset-preview-dark',
+    blockBase: accent || (isLight ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.4)'),
+    blockStrong: accent || (isLight ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.8)'),
+  };
+};
+
+/* ------------------------------------------------------------------ */
 /* 自定义 CSS 辅助                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -166,42 +232,82 @@ function insertDeclaration(css: string, prop: string, value: string): string {
 /* ------------------------------------------------------------------ */
 
 interface AppearanceTabProps {
-  theme: 'dark' | 'light' | 'auto';
-  setTheme: (val: 'dark' | 'light' | 'auto') => void;
-  customCSS: string;
-  setCustomCSS: (val: string) => void;
+  config: Config;
+  onConfigChange: (patch: Partial<Config>) => void;
   /** 外观变更回调：立即应用并持久化（由父级提供） */
-  onAppearanceChange?: (theme: 'dark' | 'light' | 'auto', customCSS: string) => void;
+  onAppearanceChange?: (theme: AppTheme, customCSS: string) => void;
 }
 
+/**
+ * 外观与样式设置（A9 状态下沉）：
+ * 主题 / 自定义 CSS 草稿保存在 Tab 内部，变更时同步上抛草稿并即时应用。
+ */
 export const AppearanceTab: React.FC<AppearanceTabProps> = ({
-  theme,
-  setTheme,
-  customCSS,
-  setCustomCSS,
+  config,
+  onConfigChange,
   onAppearanceChange,
 }) => {
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [theme, setTheme] = useConfigField('theme', config, onConfigChange);
+  const [customCSS, setCustomCSS] = useConfigField('custom_css', config, onConfigChange);
+
+  /** 后端预设清单（内置 + 用户自定义）；null 表示尚未拉取成功，使用内置降级数据 */
+  const [remotePresets, setRemotePresets] = useState<ThemePreset[] | null>(null);
+  const [isRefreshingPresets, setIsRefreshingPresets] = useState(false);
+
+  const loadPresets = useCallback(async () => {
+    setIsRefreshingPresets(true);
+    try {
+      const res = await api.getThemePresets();
+      setRemotePresets(res.presets);
+    } catch {
+      // 服务未启动或网络异常：保留内置静态预设，不影响外观面板使用
+    } finally {
+      setIsRefreshingPresets(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPresets();
+  }, [loadPresets]);
 
   const hasCustomCSS = customCSS.trim().length > 0;
+
+  const builtinViews = useMemo<PresetView[]>(() => {
+    const source = remotePresets ? remotePresets.filter(p => p.is_builtin) : FALLBACK_PRESETS;
+    return source.map(toPresetView);
+  }, [remotePresets]);
+
+  const customViews = useMemo<PresetView[]>(() => {
+    if (!remotePresets) return [];
+    return remotePresets.filter(p => !p.is_builtin).map(toPresetView);
+  }, [remotePresets]);
 
   /** 当前生效的预设：主题与 CSS 双重匹配；若注入了无法识别的自定义 CSS 则归为「自定义」 */
   const activePresetId = useMemo(() => {
     const normalized = normalizeCss(customCSS);
-    const match = APPEARANCE_PRESETS.find(
+    const match = [...builtinViews, ...customViews].find(
       p => p.theme === theme && normalizeCss(p.css) === normalized
     );
     if (match) return match.id;
     if (hasCustomCSS) return 'custom';
     return null;
-  }, [theme, customCSS, hasCustomCSS]);
+  }, [theme, customCSS, hasCustomCSS, builtinViews, customViews]);
 
   const quickVars = useMemo(() => buildQuickVars(theme === 'light'), [theme]);
 
-  const applyPreset = (preset: AppearancePreset) => {
+  const applyPreset = (preset: PresetView) => {
     setTheme(preset.theme);
     setCustomCSS(preset.css);
     onAppearanceChange?.(preset.theme, preset.css);
+  };
+
+  const handleOpenThemeFolder = async () => {
+    try {
+      await api.openThemeFolder();
+    } catch {
+      // 打开目录失败时静默忽略（不影响预设面板使用）
+    }
   };
 
   const clearCustomCSS = () => {
@@ -234,6 +340,30 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
     </>
   );
 
+  /** 渲染单个预设卡片（内置与用户自定义共用） */
+  const renderPresetCard = (preset: PresetView) => {
+    const active = activePresetId === preset.id;
+    return (
+      <div
+        key={preset.id}
+        className={`preset-card ${active ? 'active' : ''}`}
+        onClick={() => applyPreset(preset)}
+        title={`${preset.name}：${preset.desc}`}
+      >
+        {active && (
+          <span className="preset-check">
+            <Check size={11} strokeWidth={3} />
+          </span>
+        )}
+        <div className={`preset-preview ${preset.previewClass}`}>
+          {renderPreviewBlocks(preset.blockBase, preset.blockStrong)}
+        </div>
+        <div className="preset-card-name">{preset.name}</div>
+        <div className="preset-card-desc">{preset.desc}</div>
+      </div>
+    );
+  };
+
   return (
     <div className="settings-card">
       <div className="settings-card-title" style={{ marginBottom: 14 }}>
@@ -245,54 +375,93 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
         </span>
       </div>
 
-      {/* 外观预设网格 */}
-      <div className="preset-grid">
-        {APPEARANCE_PRESETS.map(preset => {
-          const active = activePresetId === preset.id;
-          return (
-            <div
-              key={preset.id}
-              className={`preset-card ${active ? 'active' : ''}`}
-              onClick={() => applyPreset(preset)}
-              title={`${preset.label}：${preset.desc}`}
-            >
-              {active && (
-                <span className="preset-check">
-                  <Check size={11} strokeWidth={3} />
-                </span>
-              )}
-              <div className={`preset-preview ${preset.previewClass}`}>
-                {renderPreviewBlocks(preset.blockBase, preset.blockStrong)}
-              </div>
-              <div className="preset-card-name">{preset.label}</div>
-              <div className="preset-card-desc">{preset.desc}</div>
-            </div>
-          );
-        })}
+      {/* 外观预设分组：内置主题 + 用户自定义（~/.config/hpic/themes/*.json） */}
+      <div className="preset-group">
+        <div className="preset-group-header">
+          <span className="preset-group-label">内置主题</span>
+          <button
+            type="button"
+            className="preset-group-action"
+            onClick={() => void loadPresets()}
+            disabled={isRefreshingPresets}
+            title="重新扫描主题预设目录"
+          >
+            <RefreshCw size={12} className={isRefreshingPresets ? 'spin' : undefined} />
+            <span>{isRefreshingPresets ? '刷新中' : '刷新'}</span>
+          </button>
+        </div>
+        <div className="preset-grid">
+          {builtinViews.map(renderPresetCard)}
 
-        {/* 自定义卡片：展示当前自定义状态，点击进入高级微调 */}
-        <div
-          className={`preset-card preset-custom ${activePresetId === 'custom' ? 'active' : ''}`}
-          onClick={() => setIsAdvancedOpen(v => !v)}
-          title="已注入自定义样式？点击继续微调"
-        >
-          {activePresetId === 'custom' && (
-            <span className="preset-check">
-              <Check size={11} strokeWidth={3} />
-            </span>
-          )}
-          <div className="preset-preview preset-preview-custom">
-            {renderPreviewBlocks('var(--accent-color)', 'var(--accent-color)', true)}
-          </div>
-          <div className="preset-card-name">自定义</div>
-          <div className="preset-card-desc">
-            {hasCustomCSS ? '当前自定义样式 · 点击微调' : '进入自定义 CSS 微调'}
+          {/* 自定义卡片：展示当前自定义状态，点击进入高级微调 */}
+          <div
+            className={`preset-card preset-custom ${activePresetId === 'custom' ? 'active' : ''}`}
+            onClick={() => setIsAdvancedOpen(v => !v)}
+            title="已注入自定义样式？点击继续微调"
+          >
+            {activePresetId === 'custom' && (
+              <span className="preset-check">
+                <Check size={11} strokeWidth={3} />
+              </span>
+            )}
+            <div className="preset-preview preset-preview-custom">
+              {renderPreviewBlocks('var(--accent-color)', 'var(--accent-color)', true)}
+            </div>
+            <div className="preset-card-name">自定义</div>
+            <div className="preset-card-desc">
+              {hasCustomCSS ? '当前自定义样式 · 点击微调' : '进入自定义 CSS 微调'}
+            </div>
           </div>
         </div>
       </div>
 
+      {remotePresets !== null && (
+        <div className="preset-group">
+          <div className="preset-group-header">
+            <span className="preset-group-label">用户自定义主题</span>
+            <button
+              type="button"
+              className="preset-group-action"
+              onClick={() => void handleOpenThemeFolder()}
+              title="打开主题预设目录（放入 <预设ID>.json 即可生效）"
+            >
+              <FolderOpen size={12} />
+              <span>打开目录</span>
+            </button>
+            <button
+              type="button"
+              className="preset-group-action"
+              onClick={() => void loadPresets()}
+              disabled={isRefreshingPresets}
+              title="重新扫描主题预设目录"
+            >
+              <RefreshCw size={12} className={isRefreshingPresets ? 'spin' : undefined} />
+              <span>{isRefreshingPresets ? '刷新中' : '刷新'}</span>
+            </button>
+          </div>
+          <div className="preset-grid">
+            {customViews.map(renderPresetCard)}
+            {customViews.length === 0 && (
+              <button
+                type="button"
+                className="preset-card preset-custom-empty"
+                onClick={() => void handleOpenThemeFolder()}
+                title="打开主题预设目录，放入 <预设ID>.json 即可生效"
+              >
+                <div className="preset-preview preset-preview-custom">
+                  {renderPreviewBlocks('var(--accent-color)', 'var(--accent-color)', true)}
+                </div>
+                <div className="preset-card-name">暂无自定义预设</div>
+                <div className="preset-card-desc">点击打开主题目录，放入 JSON 即可</div>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <p className="appearance-tip">
-        点击卡片一键换肤；想微调颜色、圆角等细节，可在下方「自定义 CSS」中追加规则。
+        点击卡片一键换肤；想微调颜色、圆角等细节，可在下方「自定义 CSS」中追加规则；用户自定义主题取自
+        <code>~/.config/hpic/themes</code> 目录。
       </p>
 
       {/* 自定义 CSS 折叠面板 */}

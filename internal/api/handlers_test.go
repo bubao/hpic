@@ -155,6 +155,25 @@ func TestPostsHandlersLifecycle(t *testing.T) {
 		t.Fatalf("handleUpdatePost clear failed: code=%d", wClear.Code)
 	}
 
+	// 字面量 "CLEAR" 作为真实字段值写入，不得再被当作清除哨兵
+	literalBody, _ := json.Marshal(map[string]interface{}{
+		"file_path": postFile,
+		"updates":   map[string]string{"cover": "CLEAR"},
+	})
+	reqLiteral := newLocalRequest("POST", "/api/post/update", bytes.NewReader(literalBody))
+	wLiteral := httptest.NewRecorder()
+	s.Mux.ServeHTTP(wLiteral, reqLiteral)
+	if wLiteral.Code != http.StatusOK {
+		t.Fatalf("handleUpdatePost literal CLEAR failed: code=%d, body=%s", wLiteral.Code, wLiteral.Body.String())
+	}
+	literalBytes, err := os.ReadFile(postFile)
+	if err != nil {
+		t.Fatalf("read post after literal update: %v", err)
+	}
+	if !bytes.Contains(literalBytes, []byte("cover: CLEAR")) {
+		t.Fatalf("literal value CLEAR should be written, got:\n%s", literalBytes)
+	}
+
 	// 5. handleInsertImage (插入正文配图)
 	insertBody, _ := json.Marshal(map[string]interface{}{
 		"file_path": postFile,

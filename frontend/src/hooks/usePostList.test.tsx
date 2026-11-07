@@ -302,6 +302,40 @@ describe('usePostList Hook', () => {
 
   // --- 组件卸载保护测试 (isMountedRef) ---
 
+  it('discards stale response when concurrent refreshes overlap (request sequence)', async () => {
+    let resolveFirst!: (value: any) => void;
+    let resolveSecond!: (value: any) => void;
+    (api.getPosts as any)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve; }));
+
+    const { result } = renderHook(() => usePostList({ autoSync: false }), { wrapper });
+
+    // 并发触发两次刷新：第一次请求的响应会更晚返回（旧响应后到）
+    act(() => {
+      result.current.handleRefreshPosts(true);
+      result.current.handleRefreshPosts(true);
+    });
+
+    const newerPosts = [{ ...mockPosts[0], title: '更新的列表' }];
+    const stalePosts = [{ ...mockPosts[1] }];
+
+    // 最新请求先返回
+    await act(async () => {
+      resolveSecond({ success: true, posts: newerPosts, total: 1, last_modified: 2000 });
+      await Promise.resolve();
+    });
+    expect(result.current.posts).toEqual(newerPosts);
+
+    // 旧请求后到：不得覆盖新数据
+    await act(async () => {
+      resolveFirst({ success: true, posts: stalePosts, total: 2, last_modified: 1000 });
+      await Promise.resolve();
+    });
+    expect(result.current.posts).toEqual(newerPosts);
+    expect(result.current.isRefreshingPosts).toBe(false);
+  });
+
   it('does not update state after unmount (loadPostHistory)', async () => {
     // 延迟 resolve，模拟慢速网络
     let resolvePromise: (value: any) => void;

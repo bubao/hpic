@@ -13,8 +13,13 @@ else
 fi
 VERSION="${VERSION#v}"
 SETTING_FILE="./scripts/dmgbuild-settings.py"
-APP_PATH="./hpic.app"
-OUTPUT="./dist/hpic-v${VERSION}-macOS.dmg"
+# 允许外部通过 APP_PATH 指定待打包的 App Bundle（按架构拆分时使用）
+APP_PATH="${APP_PATH:-./hpic.app}"
+# 可选第二个参数：架构后缀（arm64 / amd64），用于按架构拆分产出独立 DMG
+ARCH="${2:-}"
+ARCH_SUFFIX=""
+if [ -n "$ARCH" ]; then ARCH_SUFFIX="-${ARCH}"; fi
+OUTPUT="./dist/hpic-v${VERSION}-macOS${ARCH_SUFFIX}.dmg"
 
 if ! command -v dmgbuild >/dev/null 2>&1 && ! python3 -m dmgbuild --version >/dev/null 2>&1; then
   echo "🧰 Install dmgbuild..."
@@ -50,6 +55,7 @@ ${DMGBUILD_BIN} \
   -s "${SETTING_FILE}" \
   -D app="${APP_PATH}" \
   -D ver="${VERSION}" \
+  --detach-retries 5 \
   "hpic" \
   "${OUTPUT}"
 

@@ -58,18 +58,14 @@ func RedactURL(rawURL string) string {
 }
 
 // RedactText 对日志文本、错误信息中的敏感信息进行脱敏。
+// 依次应用内置规则与外部注册规则（见 RegisterRule）。
 func RedactText(text string) string {
 	if text == "" {
 		return ""
 	}
-	// 1. 替换 URL 认证信息
-	text = credentialURLRegex.ReplaceAllString(text, `://$1:***@`)
-	// 2. 替换 Bearer 令牌
-	text = bearerRegex.ReplaceAllString(text, `${1}***`)
-	// 3. 替换 GitHub Token
-	text = gitHubTokenRegex.ReplaceAllString(text, `***`)
-	// 4. 替换 generic key=value / key: value
-	text = genericTokenRegex.ReplaceAllString(text, `$1: "***"`)
+	for _, rule := range Rules() {
+		text = rule.Apply(text)
+	}
 	return text
 }
 

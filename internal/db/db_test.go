@@ -7,6 +7,71 @@ import (
 	"time"
 )
 
+func TestFavoriteNormKeyDedup(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "hpic_db_fav_test_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	database, err := Init(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer database.Close()
+
+	rec := FavoriteRecord{
+		ID:        "norm_1",
+		URL:       "https://images.unsplash.com/photo-9?w=1200",
+		ThumbURL:  "https://images.unsplash.com/photo-9?w=200",
+		Title:     "Lake",
+		Source:    "unsplash",
+		Tags:      []string{"nature"},
+		CreatedAt: time.Now(),
+	}
+	if err := database.InsertFavorite(rec, "unsplash::photo-9"); err != nil {
+		t.Fatalf("InsertFavorite failed: %v", err)
+	}
+
+	// 相同 norm_key 再次插入必须被唯一索引拒绝。
+	dup := rec
+	dup.ID = "norm_2"
+	if err := database.InsertFavorite(dup, "unsplash::photo-9"); err == nil {
+		t.Fatalf("expected unique index to reject duplicate norm_key")
+	}
+
+	got, err := database.GetFavoriteByNormKey("unsplash::photo-9")
+	if err != nil || got == nil {
+		t.Fatalf("GetFavoriteByNormKey failed: %v, %+v", err, got)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "nature" {
+		t.Fatalf("unexpected tags: %+v", got.Tags)
+	}
+
+	exists, err := database.FavoriteExists("https://images.unsplash.com/photo-9?w=400", "unsplash::photo-9")
+	if err != nil || !exists {
+		t.Fatalf("FavoriteExists failed: %v, %v", exists, err)
+	}
+
+	ok, err := database.UpdateFavoriteTags("norm_1", "unsplash::photo-9", `["landscape"]`)
+	if err != nil || !ok {
+		t.Fatalf("UpdateFavoriteTags failed: %v, %v", ok, err)
+	}
+	got, _ = database.GetFavoriteByNormKey("unsplash::photo-9")
+	if len(got.Tags) != 1 || got.Tags[0] != "landscape" {
+		t.Fatalf("tags not updated: %+v", got.Tags)
+	}
+
+	removed, err := database.DeleteFavorite("https://images.unsplash.com/photo-9?w=9999", "unsplash::photo-9")
+	if err != nil || !removed {
+		t.Fatalf("DeleteFavorite failed: %v, %v", removed, err)
+	}
+	count, _ := database.CountFavorites()
+	if count != 0 {
+		t.Fatalf("expected 0 rows after delete, got %d", count)
+	}
+}
+
 func TestDatabaseOperations(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "hpic_db_test_*")
 	if err != nil {

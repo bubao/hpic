@@ -63,3 +63,4 @@ frontend/public/favicon.svg
 .hpic_favorites.json
 *.local
 assets/dmg-ds-store
+.dmgstage/*

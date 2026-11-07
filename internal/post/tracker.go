@@ -54,11 +54,22 @@ func GetScanTargets(baseDir string) []ScanTarget {
 		if isDirectory(cleanBase) {
 			scanTargets = append(scanTargets, ScanTarget{
 				Dir:     cleanBase,
-				IsDraft: strings.Contains(cleanBase, "_drafts"),
+				IsDraft: isDraftScanDir(cleanBase),
 			})
 		}
 	}
 	return scanTargets
+}
+
+// isDraftScanDir 仅在路径段精确等于 "_drafts" 时判定为草稿目录，
+// 避免 "_drafts_backup" 等包含该子串的路径被误判。
+func isDraftScanDir(p string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(filepath.Clean(p)), "/") {
+		if seg == "_drafts" {
+			return true
+		}
+	}
+	return false
 }
 
 // GetPostsStatus 探测指定目录下的博文文件数量及最新的变动时间戳 (毫秒)

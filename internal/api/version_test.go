@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,40 @@ func TestHandleVersionCheck(t *testing.T) {
 	}
 }
 
+func TestMatchPlatformAsset_PrefersArchDmg(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("requires darwin")
+	}
+	assets := []GitHubAsset{
+		{Name: "hpic-v0.2.0-macOS-amd64.dmg", BrowserDownloadURL: "https://example.com/mac-amd64.dmg"},
+		{Name: "hpic-v0.2.0-macOS-arm64.dmg", BrowserDownloadURL: "https://example.com/mac-arm64.dmg"},
+		{Name: "hpic-v0.2.0-darwin-arm64.tar.gz", BrowserDownloadURL: "https://example.com/mac-arm64.tar.gz"},
+		{Name: "hpic-v0.2.0-darwin-amd64.tar.gz", BrowserDownloadURL: "https://example.com/mac-amd64.tar.gz"},
+	}
+
+	_, fn := matchPlatformAsset(assets)
+	lower := strings.ToLower(fn)
+	if !strings.Contains(lower, "macos-"+runtime.GOARCH) || !strings.HasSuffix(lower, ".dmg") {
+		t.Fatalf("matchPlatformAsset should prefer the current arch DMG, got %q", fn)
+	}
+}
+
+func TestMatchPlatformBinaryArchive_PrefersArchWindowsZip(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("requires windows")
+	}
+	assets := []GitHubAsset{
+		{Name: "hpic-v0.2.0-setup-amd64.exe", BrowserDownloadURL: "https://example.com/setup.exe"},
+		{Name: "hpic-v0.2.0-windows-amd64.zip", BrowserDownloadURL: "https://example.com/win-amd64.zip"},
+		{Name: "hpic-v0.2.0-windows-arm64.zip", BrowserDownloadURL: "https://example.com/win-arm64.zip"},
+	}
+
+	dl, fn := matchPlatformBinaryArchive(assets)
+	if !strings.Contains(strings.ToLower(fn), "windows-"+runtime.GOARCH) || !strings.HasSuffix(strings.ToLower(fn), ".zip") {
+		t.Fatalf("matchPlatformBinaryArchive should prefer the current arch zip, got %q (%s)", fn, dl)
+	}
+}
+
 func TestMatchPlatformBinaryArchive_NeverDMG(t *testing.T) {
 	assets := []GitHubAsset{
 		{Name: "hpic-v0.0.9-macOS.dmg", BrowserDownloadURL: "https://example.com/dmg"},
@@ -92,4 +127,3 @@ func TestMatchPlatformBinaryArchive_NeverDMG(t *testing.T) {
 		t.Fatalf("matchPlatformBinaryArchive matched .dmg! It must be a tar.gz/zip archive for in-place updates: got %s", fn)
 	}
 }
-

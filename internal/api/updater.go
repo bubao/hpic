@@ -231,7 +231,7 @@ func DownloadAndInstallUpdate(downloadURL string, newVersion string, proxy strin
 		if len(updatedPaths) > 0 {
 			msg += fmt.Sprintf("  ✓ 已更新副本位置：%s\n    退出当前应用后此更新即可生效。\n", strings.Join(updatedPaths, ", "))
 		}
-		msg += "  • 方式一：直接退出 hpic 后重新启动，安装向导将自动应用更新。\n"
+		msg += "  • 方式一：回到应用内触发重启（升级界面会自动重启），重启脚本将把新版写回磁盘。\n"
 		msg += "  • 方式二：访问 GitHub Release 页面手动下载最新 Setup.exe 安装覆盖。\n"
 	} else {
 		msg = fmt.Sprintf("已成功下载并安装最新版本 %s！", newVersion)

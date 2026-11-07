@@ -41,7 +41,7 @@ type VersionCheckResponse struct {
 	ReleaseURL          string `json:"release_url"`
 	DownloadURL         string `json:"download_url"`
 	AssetFileName       string `json:"asset_file_name"`
-	BinaryDownloadURL   string `json:"binary_download_url,omitempty"`   // 专供程序就地热升级的压缩包/二进制资产
+	BinaryDownloadURL   string `json:"binary_download_url,omitempty"` // 专供程序就地热升级的压缩包/二进制资产
 	BinaryAssetFileName string `json:"binary_asset_file_name,omitempty"`
 	Platform            string `json:"platform"`
 }
@@ -49,8 +49,9 @@ type VersionCheckResponse struct {
 // CompareVersions 比较两个语义化版本号 (例如 "0.0.1" 与 "0.0.2")
 // 返回值：
 // -1: v1 < v2
-//  0: v1 == v2
-//  1: v1 > v2
+//
+//	0: v1 == v2
+//	1: v1 > v2
 func CompareVersions(v1, v2 string) int {
 	clean1 := strings.TrimSpace(strings.TrimPrefix(v1, "v"))
 	clean2 := strings.TrimSpace(strings.TrimPrefix(v2, "v"))
@@ -94,13 +95,22 @@ func matchPlatformAsset(assets []GitHubAsset) (downloadURL string, fileName stri
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 
-	// 1. macOS 优先挑选 .dmg 安装包
+	// 1. macOS 优先挑选当前架构的 .dmg 安装包（如 macOS-arm64.dmg / macOS-amd64.dmg）
 	if goos == "darwin" {
+		macOSArchSub := "macos-" + goarch
+		for _, a := range assets {
+			name := strings.ToLower(a.Name)
+			if strings.HasSuffix(name, ".dmg") && strings.Contains(name, macOSArchSub) {
+				return a.BrowserDownloadURL, a.Name
+			}
+		}
+		// 兜底一：任意 DMG（兼容旧版仅提供单一通用镜像的发布）
 		for _, a := range assets {
 			if strings.HasSuffix(strings.ToLower(a.Name), ".dmg") {
 				return a.BrowserDownloadURL, a.Name
 			}
 		}
+		// 兜底二：darwin-<GOARCH> 归档
 		targetSub := "darwin-" + goarch
 		for _, a := range assets {
 			if strings.Contains(strings.ToLower(a.Name), targetSub) {
@@ -171,8 +181,16 @@ func matchPlatformBinaryArchive(assets []GitHubAsset) (downloadURL string, fileN
 		}
 	}
 
-	// 2. Windows 必须匹配 windows-${GOARCH}.zip
+	// 2. Windows 必须匹配 windows-${GOARCH}.zip（避免拿到其他架构或其他用途的 zip）
 	if goos == "windows" {
+		targetSub := "windows-" + goarch
+		for _, a := range assets {
+			name := strings.ToLower(a.Name)
+			if strings.Contains(name, targetSub) && strings.HasSuffix(name, ".zip") {
+				return a.BrowserDownloadURL, a.Name
+			}
+		}
+		// 兜底：任意 windows zip
 		for _, a := range assets {
 			name := strings.ToLower(a.Name)
 			if strings.Contains(name, "windows") && strings.HasSuffix(name, ".zip") {

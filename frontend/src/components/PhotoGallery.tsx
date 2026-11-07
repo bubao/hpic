@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { FavoriteItem, Photo, PostInfo, getCanonicalImageKey } from '../types';
+import { FavoriteItem, GalleryProvider, Photo, PostInfo, getCanonicalImageKey } from '../types';
 import { api } from '../api';
 import { Search, Star, Tag, ChevronDown, ChevronUp, Sparkles, Camera, Monitor, Wand2, Link2, Loader2, Lightbulb, X, Check } from 'lucide-react';
 import { Generators } from './Generators';
@@ -8,6 +8,17 @@ import { useFavorites } from '../context/FavoritesContext';
 import { useToast } from '../context/ToastContext';
 import { PhotoCard } from './PhotoCard';
 import { extractTargetDimensions } from '../utils/imageMeta';
+
+/** 未注册端点前端的默认搜索来源（接口失败时回落，保证 Tab 始终可用）。 */
+const DEFAULT_SEARCH_PROVIDERS: GalleryProvider[] = [
+  { id: 'unsplash', display_name: 'Unsplash 摄影', kind: 'search' },
+  { id: 'wallhaven', display_name: 'Wallhaven 壁纸', kind: 'search' },
+];
+
+/** 旧版 /api/unsplash/search 端点已实现的来源 ID（保留兼容路径）。 */
+const LEGACY_SEARCH_SOURCES: readonly string[] = ['unsplash', 'wallhaven'];
+const isLegacySearchSource = (s: string) => LEGACY_SEARCH_SOURCES.includes(s);
+const isImageSearchSource = (s: string) => s !== 'generators' && s !== 'favorites';
 
 interface PhotoGalleryProps {
   post: PostInfo;
@@ -51,7 +62,9 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
   } = useFavorites();
   const toast = useToast();
 
-  const [source, setSource] = useState<'unsplash' | 'wallhaven' | 'generators' | 'favorites'>('unsplash');
+  // 来源 Tab 由 CoverProvider 注册表动态渲染（接口失败时保持默认列表）
+  const [source, setSource] = useState<string>('unsplash');
+  const [galleryProviders, setGalleryProviders] = useState<GalleryProvider[]>(DEFAULT_SEARCH_PROVIDERS);
   const [orientation, setOrientation] = useState(defaultOrientation || 'landscape');
   const [imageSize, setImageSize] = useState(defaultSize || 'large');
 
@@ -164,16 +177,30 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
     }
 
     try {
-      const res = await api.searchPhotos({
-        query: kw.trim(),
-        page: p,
-        source: targetSource,
-        orientation: targetOrientation,
-        size: targetSize,
-        signal: abortRef.current.signal,
-      });
-
-      const newPhotos = res.results || [];
+      let newPhotos: Photo[];
+      if (isLegacySearchSource(targetSource)) {
+        // 旧端点兼容：Unsplash / Wallhaven 保持原有检索与降级语义
+        const res = await api.searchPhotos({
+          query: kw.trim(),
+          page: p,
+          source: targetSource,
+          orientation: targetOrientation,
+          size: targetSize,
+          signal: abortRef.current.signal,
+        });
+        newPhotos = res.results || [];
+      } else {
+        // 注册表分发：新增来源无需改动此处即可检索
+        const res = await api.searchGalleryProvider({
+          provider: targetSource,
+          query: kw.trim(),
+          page: p,
+          orientation: targetOrientation,
+          size: targetSize,
+          signal: abortRef.current.signal,
+        });
+        newPhotos = res.results || [];
+      }
       if (isAppend) {
         setPhotos(prev => {
           const seen = new Set(prev.map(x => x.urls?.regular || x.urls?.raw));
@@ -196,6 +223,19 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
     }
   };
 
+  // 拉取 CoverProvider 注册表，动态渲染来源 Tab（失败时保持默认列表）
+  useEffect(() => {
+    let cancelled = false;
+    api.fetchGalleryProviders()
+      .then(list => {
+        if (cancelled) return;
+        const searchProviders = list.filter(p => p.kind === 'search');
+        if (searchProviders.length > 0) setGalleryProviders(searchProviders);
+      })
+      .catch(() => { /* 网络异常时沿用默认来源，不打断用户 */ });
+    return () => { cancelled = true; };
+  }, []);
+
   // 切换博文时：重置图库状态，清空上一篇未完请求，但绝不强行将博文名写进搜索框
   useEffect(() => {
     if (abortRef.current) {
@@ -213,24 +253,22 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
     doSearch(post.title, 1, false, source, orientation, imageSize);
   };
 
-  // 切换图库数据源 Tab (Unsplash / Wallhaven) 时自动清空旧图，若有搜索词则重新检索
-  const handleSwitchSource = (newSource: 'unsplash' | 'wallhaven' | 'generators' | 'favorites') => {
+  // 切换图库数据源 Tab (注册表来源 / 极客生成器 / 收藏夹) 时自动清空旧图，若有搜索词则重新检索
+  const handleSwitchSource = (newSource: string) => {
     if (source === newSource) return;
     setSource(newSource);
     setPhotos([]);
     setPage(1);
     setHasMore(true);
-    if (newSource === 'unsplash' || newSource === 'wallhaven') {
-      if (searchKeyword.trim()) {
-        doSearch(searchKeyword, 1, false, newSource, orientation, imageSize);
-      }
+    if (isImageSearchSource(newSource) && searchKeyword.trim()) {
+      doSearch(searchKeyword, 1, false, newSource, orientation, imageSize);
     }
   };
 
   // 切换构图比例时自动刷新
   const handleSwitchOrientation = (newOrient: string) => {
     setOrientation(newOrient);
-    if (source === 'unsplash' || source === 'wallhaven') {
+    if (isImageSearchSource(source)) {
       if (searchKeyword.trim()) {
         setPhotos([]);
         doSearch(searchKeyword, 1, false, source, newOrient, imageSize);
@@ -241,7 +279,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
   // 切换尺寸范围时自动刷新
   const handleSwitchSize = (newSize: string) => {
     setImageSize(newSize);
-    if (source === 'unsplash' || source === 'wallhaven') {
+    if (isImageSearchSource(source)) {
       if (searchKeyword.trim()) {
         setPhotos([]);
         doSearch(searchKeyword, 1, false, source, orientation, newSize);
@@ -311,22 +349,20 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <h3 className="section-title"><Sparkles size={16} /> 灵感配图与创作</h3>
           <div className="filter-pill-tabs">
-            <button
-              type="button"
-              className={`filter-pill ${source === 'unsplash' ? 'active' : ''}`}
-              onClick={() => handleSwitchSource('unsplash')}
-            >
-              <Camera size={12} style={{ marginRight: 4 }} />
-              Unsplash 摄影
-            </button>
-            <button
-              type="button"
-              className={`filter-pill ${source === 'wallhaven' ? 'active' : ''}`}
-              onClick={() => handleSwitchSource('wallhaven')}
-            >
-              <Monitor size={12} style={{ marginRight: 4 }} />
-              Wallhaven 壁纸
-            </button>
+            {/* 搜索类来源 Tab 由 /api/gallery/providers 动态渲染 */}
+            {galleryProviders.map(p => (
+              <button
+                key={p.id}
+                type="button"
+                className={`filter-pill ${source === p.id ? 'active' : ''}`}
+                onClick={() => handleSwitchSource(p.id)}
+                title={`来源: ${p.display_name}`}
+              >
+                {p.id === 'unsplash' && <Camera size={12} style={{ marginRight: 4 }} />}
+                {p.id === 'wallhaven' && <Monitor size={12} style={{ marginRight: 4 }} />}
+                {p.display_name}
+              </button>
+            ))}
             <button
               type="button"
               className={`filter-pill ${source === 'generators' ? 'active' : ''}`}

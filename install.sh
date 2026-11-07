@@ -131,7 +131,7 @@ if [ "$NEED_FRONTEND_BUILD" -eq 1 ]; then
     fi
     NODE_VER=$(node -v)
     echo "   [OK] Node.js 环境就绪: $NODE_VER"
-    echo "   [INFO] 正在增量打包前端应用 (React 18 + Vite)..."
+    echo "   [INFO] 正在增量打包前端应用 (React 19 + Vite)..."
     if [ ! -d "${SCRIPT_DIR}/frontend/node_modules" ]; then
         echo "   [INFO] 安装前端依赖 (npm install)..."
         (cd "${SCRIPT_DIR}/frontend" && npm install)

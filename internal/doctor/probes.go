@@ -24,24 +24,63 @@ import (
 // execTimeout 是探针内调用外部命令（node/hexo）时的默认超时。
 const execTimeout = 8 * time.Second
 
-// probeDefs 返回全部只读探针定义。ID 必须保持稳定，前端与诊断包按 ID 对齐。
-func probeDefs() []probeDef {
-	return []probeDef{
-		{ID: "app.version", Name: "运行时版本", Category: CategoryApp, Run: probeAppVersion},
-		{ID: "environment.node", Name: "Node.js 运行时", Category: CategoryEnvironment, Run: probeNode},
-		{ID: "environment.npx", Name: "npx 包执行器", Category: CategoryEnvironment, Run: probeNpx},
-		{ID: "environment.hexo", Name: "Hexo CLI", Category: CategoryEnvironment, Run: probeHexo},
-		{ID: "config.file", Name: "配置文件完整性", Category: CategoryConfig, Run: probeConfigFile},
-		{ID: "config.hexo_dir", Name: "Hexo 根目录", Category: CategoryConfig, Run: probeHexoDir},
-		{ID: "config.posts_dir", Name: "文章目录", Category: CategoryConfig, Run: probePostsDir},
-		{ID: "config.proxy", Name: "代理配置", Category: CategoryConfig, Run: probeProxy},
-		{ID: "config.backup", Name: "配置备份", Category: CategoryConfig, Run: probeConfigBackup},
-		{ID: "storage.config_dir", Name: "配置存储目录", Category: CategoryStorage, Run: probeConfigDir},
-		{ID: "storage.database", Name: "SQLite 数据库", Category: CategoryStorage, Run: probeDatabase},
-		{ID: "network.github", Name: "GitHub 连通性", Category: CategoryNetwork, Run: probeNetworkGitHub},
-		{ID: "network.npm", Name: "npm registry 连通性", Category: CategoryNetwork, Run: probeNetworkNPM},
-		{ID: "network.unsplash", Name: "Unsplash 图床连通性", Category: CategoryNetwork, Run: probeNetworkUnsplash},
+// probeDef 是内置探针的轻量适配实现；字段保持包内可见以便测试构造。
+type probeDef struct {
+	id       string
+	name     string
+	category string
+	run      func(ctx context.Context, deps Deps, opts Options, env hexo.EnvironmentInfo) Probe
+}
+
+func (d probeDef) ID() string       { return d.id }
+func (d probeDef) Name() string     { return d.name }
+func (d probeDef) Category() string { return d.category }
+
+func (d probeDef) Run(ctx context.Context, deps Deps, opts Options, env hexo.EnvironmentInfo) Probe {
+	return d.run(ctx, deps, opts, env)
+}
+
+// builtinProbes 返回全部内置只读探针定义。ID 必须保持稳定，前端与诊断包按 ID 对齐。
+func builtinProbes() []ProbeRegistration {
+	return []ProbeRegistration{
+		probeDef{id: "app.version", name: "运行时版本", category: CategoryApp, run: probeAppVersion},
+		probeDef{id: "environment.node", name: "Node.js 运行时", category: CategoryEnvironment, run: probeNode},
+		probeDef{id: "environment.npx", name: "npx 包执行器", category: CategoryEnvironment, run: probeNpx},
+		probeDef{id: "environment.hexo", name: "Hexo CLI", category: CategoryEnvironment, run: probeHexo},
+		probeDef{id: "config.file", name: "配置文件完整性", category: CategoryConfig, run: probeConfigFile},
+		probeDef{id: "config.hexo_dir", name: "Hexo 根目录", category: CategoryConfig, run: probeHexoDir},
+		probeDef{id: "config.posts_dir", name: "文章目录", category: CategoryConfig, run: probePostsDir},
+		probeDef{id: "config.proxy", name: "代理配置", category: CategoryConfig, run: probeProxy},
+		probeDef{id: "config.backup", name: "配置备份", category: CategoryConfig, run: probeConfigBackup},
+		probeDef{id: "storage.config_dir", name: "配置存储目录", category: CategoryStorage, run: probeConfigDir},
+		probeDef{id: "storage.database", name: "SQLite 数据库", category: CategoryStorage, run: probeDatabase},
+		probeDef{id: "network.github", name: "GitHub 连通性", category: CategoryNetwork, run: probeNetworkGitHub},
+		probeDef{id: "network.npm", name: "npm registry 连通性", category: CategoryNetwork, run: probeNetworkNPM},
+		probeDef{id: "network.unsplash", name: "Unsplash 图床连通性", category: CategoryNetwork, run: probeNetworkUnsplash},
 	}
+}
+
+// builtinProbeIDs 在包初始化时固化内置探针 ID 集合，供注册冲突校验。
+var builtinProbeIDs = func() map[string]struct{} {
+	m := make(map[string]struct{})
+	for _, p := range builtinProbes() {
+		m[p.ID()] = struct{}{}
+	}
+	return m
+}()
+
+// isBuiltinProbeID 判断给定 ID 是否已被内置探针占用。
+func isBuiltinProbeID(id string) bool {
+	_, ok := builtinProbeIDs[id]
+	return ok
+}
+
+// probeDefs 返回内置与外部注册探针的合并列表（外部追加在内置之后，按 ID 稳定排序）。
+func probeDefs() []ProbeRegistration {
+	defs := make([]ProbeRegistration, 0, len(builtinProbes())+len(RegisteredProbes()))
+	defs = append(defs, builtinProbes()...)
+	defs = append(defs, RegisteredProbes()...)
+	return defs
 }
 
 // probeAppVersion 输出当前进程版本与运行时元信息（始终为只读信息型探针）。

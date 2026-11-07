@@ -1,19 +1,10 @@
 import React, { useState } from 'react';
 import { PostInfo } from '../types';
-import { Sparkles, Layers, GitBranch, Code2 } from 'lucide-react';
-import { PosterGenerator } from './generators/PosterGenerator';
-import { SocialifyGenerator } from './generators/SocialifyGenerator';
-import { SkillIconsGenerator } from './generators/SkillIconsGenerator';
+import { Sparkles } from 'lucide-react';
+import { GENERATOR_REGISTRY, DEFAULT_GENERATOR_KEY, GeneratorProps } from './generators/registry';
 
-interface GeneratorsProps {
-  post: PostInfo;
-  coverFields: string[];
-  defaultOwner: string;
-  defaultPattern?: string;
-  defaultTheme?: string;
+interface GeneratorsProps extends GeneratorProps {
   embedded?: boolean;
-  onApplyImage: (url: string, fields: string[]) => void;
-  onOpenLightbox: (url: string, title: string) => void;
 }
 
 export const Generators: React.FC<GeneratorsProps> = ({
@@ -26,7 +17,8 @@ export const Generators: React.FC<GeneratorsProps> = ({
   onApplyImage,
   onOpenLightbox,
 }) => {
-  const [activeTab, setActiveTab] = useState<'poster' | 'socialify' | 'skillicons'>('socialify');
+  const [activeTab, setActiveTab] = useState(DEFAULT_GENERATOR_KEY);
+  const ActiveGenerator = GENERATOR_REGISTRY.find(g => g.key === activeTab)?.Component;
 
   return (
     <div className={embedded ? 'generators-embedded' : 'generators-card-section'}>
@@ -43,61 +35,28 @@ export const Generators: React.FC<GeneratorsProps> = ({
         </div>
 
         <div className="filter-pill-tabs">
-          <button
-            type="button"
-            className={`filter-pill ${activeTab === 'socialify' ? 'active' : ''}`}
-            onClick={() => setActiveTab('socialify')}
-            title="渲染 GitHub 仓库精美 Star 卡片"
-          >
-            <GitBranch size={13} style={{ marginRight: 4 }} />
-            <span>Socialify 开源卡片</span>
-          </button>
-          <button
-            type="button"
-            className={`filter-pill ${activeTab === 'skillicons' ? 'active' : ''}`}
-            onClick={() => setActiveTab('skillicons')}
-            title="组合渲染技术栈徽章"
-          >
-            <Code2 size={13} style={{ marginRight: 4 }} />
-            <span>SkillIcons 技术栈</span>
-          </button>
-          <button
-            type="button"
-            className={`filter-pill ${activeTab === 'poster' ? 'active' : ''}`}
-            onClick={() => setActiveTab('poster')}
-            title="自动从博文标题、标签和分类渲染 SVG 海报"
-          >
-            <Layers size={13} style={{ marginRight: 4 }} />
-            <span>极客海报 (Poster)</span>
-          </button>
+          {GENERATOR_REGISTRY.map(g => (
+            <button
+              key={g.key}
+              type="button"
+              className={`filter-pill ${activeTab === g.key ? 'active' : ''}`}
+              onClick={() => setActiveTab(g.key)}
+              title={g.title}
+            >
+              <g.icon size={13} style={{ marginRight: 4 }} />
+              <span>{g.label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
-      {activeTab === 'poster' && (
-        <PosterGenerator
-          post={post}
-          coverFields={coverFields}
-          defaultOwner={defaultOwner}
-          onApplyImage={onApplyImage}
-          onOpenLightbox={onOpenLightbox}
-        />
-      )}
-
-      {activeTab === 'socialify' && (
-        <SocialifyGenerator
+      {ActiveGenerator && (
+        <ActiveGenerator
           post={post}
           coverFields={coverFields}
           defaultOwner={defaultOwner}
           defaultPattern={defaultPattern}
           defaultTheme={defaultTheme}
-          onApplyImage={onApplyImage}
-          onOpenLightbox={onOpenLightbox}
-        />
-      )}
-
-      {activeTab === 'skillicons' && (
-        <SkillIconsGenerator
-          coverFields={coverFields}
           onApplyImage={onApplyImage}
           onOpenLightbox={onOpenLightbox}
         />

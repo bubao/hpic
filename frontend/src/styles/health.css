@@ -2,7 +2,7 @@
    健康体检与粉色发光心电波动效 (Pink ECG Activity Pulse, Probing, Reports)
    ========================================================================== */
 
-/* 粉色发光律动心电图 (Pink ECG Pulse) - 纯心电波起伏律动，绝不旋转 */
+/* 1. 粉色发光律动心电图 (Pink ECG Pulse) - 纯心电波起伏律动，绝不旋转 */
 .pink-ecg-pulse {
   color: #fb7185 !important;
   animation: ecgPulseBounce 1.25s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
@@ -51,7 +51,7 @@
 }
 
 .broken-pill {
-  background: #ef4444;
+  background: var(--danger-color, #ef4444);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -60,239 +60,889 @@
   margin-left: 2px;
 }
 
-/* 体检存活性探测进度卡片 (严格固定高度与单行截断，防止弹窗忽大忽小) */
-.probing-active-card {
-  background: rgba(244, 63, 94, 0.04);
-  border: 1px solid rgba(244, 63, 94, 0.25);
-  border-radius: var(--radius-md);
-  padding: 12px 18px;
-  margin: 14px 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 10px;
-  height: 96px;
-  min-height: 96px;
-  max-height: 96px;
-  box-sizing: border-box;
-  overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), inset 0 0 24px rgba(244, 63, 94, 0.03);
+/* lucide 图标主题色工具类（HealthModal 元素引用，跟随深浅色主题变量） */
+.text-accent {
+  color: var(--accent-color, #6366f1) !important;
 }
 
-.probing-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
+.text-success {
+  color: var(--success-color, #10b981) !important;
 }
 
-.probing-badge {
+.text-warning {
+  color: var(--warning-color, #f59e0b) !important;
+}
+
+.text-danger {
+  color: var(--danger-color, #ef4444) !important;
+}
+
+/* ==========================================================================
+   2. 健康体检弹窗头部与状态横幅 (Health Modal Header & Hero Banners)
+   ========================================================================== */
+
+.health-modal-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #fda4af;
-  font-size: 13px;
-  font-weight: 500;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.probing-tag {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+.health-modal-badge {
   font-size: 11px;
-  color: var(--text-muted);
-  background: var(--bg-secondary);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent-color, #6366f1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  letter-spacing: 0.3px;
+}
+
+.health-hero-container {
+  margin-bottom: 16px;
+}
+
+.health-hero-card {
+  border-radius: var(--radius-md, 12px);
+  padding: 16px 20px;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s ease;
   border: 1px solid var(--border-color);
-  padding: 2px 6px;
-  border-radius: 4px;
+  background: var(--bg-card, rgba(255, 255, 255, 0.02));
+}
+
+/* 待机状态卡片 (Idle) */
+.health-hero-idle {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.04) 50%, transparent 100%),
+              var(--bg-secondary);
+  border-color: rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), inset 0 0 20px rgba(99, 102, 241, 0.04);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.health-hero-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.health-hero-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
-/* 真实体检进度条与实时探测信息 */
+.idle-icon-box {
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: var(--accent-color, #6366f1);
+}
+
+.perfect-icon-box {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--success-color, #10b981);
+}
+
+.warning-icon-box {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--warning-color, #f59e0b);
+}
+
+.health-hero-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.health-hero-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  letter-spacing: -0.2px;
+}
+
+.health-hero-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.health-features-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.feature-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.feature-tag-rate {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.feature-tag-alert {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.25);
+  font-weight: 600;
+}
+
+.health-hero-action {
+  margin-left: 16px;
+  flex-shrink: 0;
+}
+
+.health-btn-glow {
+  padding: 8px 18px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 14px rgba(99, 102, 241, 0.35);
+  transition: all 0.2s ease;
+}
+
+.health-btn-glow:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(99, 102, 241, 0.5);
+}
+
+.health-btn-restart {
+  padding: 6px 14px !important;
+  font-size: 12.5px !important;
+}
+
+/* 运行中状态卡片 (Running) */
+.health-hero-running {
+  flex-direction: column;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.08) 0%, rgba(99, 102, 241, 0.05) 100%),
+              var(--bg-secondary);
+  border-color: rgba(244, 63, 94, 0.35);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2), inset 0 0 24px rgba(244, 63, 94, 0.05);
+}
+
+.running-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.running-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pulsing-radar-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f43f5e;
+  box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7);
+  animation: radarPulse 1.4s infinite;
+}
+
+@keyframes radarPulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 8px rgba(244, 63, 94, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
+  }
+}
+
+.running-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.running-timer {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.btn-danger-ghost {
+  color: #f43f5e !important;
+  border: 1px solid rgba(244, 63, 94, 0.25) !important;
+}
+
+.btn-danger-ghost:hover {
+  background: rgba(244, 63, 94, 0.12) !important;
+  border-color: rgba(244, 63, 94, 0.45) !important;
+}
+
+.health-progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-info-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.progress-numbers strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.progress-percent-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fb7185;
+}
+
 .health-progress-bar-wrap {
   width: 100%;
-  height: 7px;
-  background: var(--border-color);
-  border-radius: 4px;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
   overflow: hidden;
   position: relative;
-  flex-shrink: 0;
+  border: 1px solid var(--border-color);
 }
 
 .health-progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #6366f1, #ec4899, #10b981);
-  border-radius: 4px;
-  transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  background: linear-gradient(90deg, #6366f1 0%, #ec4899 50%, #10b981 100%);
+  border-radius: 6px;
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
 }
 
-.probing-meta-row {
+.progress-shimmer {
+  background-size: 200% 100%;
+  animation: shimmerMove 2s linear infinite;
+}
+
+@keyframes shimmerMove {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.probing-realtime-box {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
+  gap: 8px;
   font-size: 11.5px;
-  color: var(--text-secondary);
-}
-
-.probing-current-url {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  padding: 6px 12px;
+  border-radius: 6px;
   overflow: hidden;
-  white-space: nowrap;
 }
 
-.probing-url-prefix {
-  font-weight: 600;
-  color: #c7d2fe;
+.probing-pulse-label {
+  font-weight: 700;
+  font-size: 10.5px;
+  color: #fb7185;
+  letter-spacing: 0.5px;
   flex-shrink: 0;
 }
 
-.probing-url-text {
-  flex: 1;
-  min-width: 0;
+.probing-realtime-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  flex: 1;
 }
 
-.probing-hint {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.probing-meta-row {
-  display: flex;
+/* 完美存活状态卡片 (Perfect) */
+.health-hero-perfect {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%),
+              var(--bg-secondary);
+  border-color: rgba(16, 185, 129, 0.3);
   align-items: center;
   justify-content: space-between;
-  font-size: 11.5px;
-  color: var(--text-secondary);
 }
 
-.probing-hint {
-  color: var(--text-muted);
+/* 异常警告状态卡片 (Warning) */
+.health-hero-warning {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(245, 158, 11, 0.05) 100%),
+              var(--bg-secondary);
+  border-color: rgba(239, 68, 68, 0.3);
+  align-items: center;
+  justify-content: space-between;
 }
 
-/* 404 体检指标统计面板 */
+/* ==========================================================================
+   3. 核心指标统计仪表板 (Stats Grid)
+   ========================================================================== */
+
 .health-stats-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
+  margin-bottom: 18px;
 }
 
 .stat-card {
-  background: var(--bg-tertiary);
+  background: var(--bg-card, rgba(255, 255, 255, 0.02));
+  background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 12px;
+  border-radius: var(--radius-md, 12px);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
+  position: relative;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-card:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+}
+
+.stat-card-header {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.stat-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-icon-posts {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+}
+
+.stat-icon-covers {
+  background: rgba(14, 165, 233, 0.1);
+  color: #0ea5e9;
+}
+
+.stat-icon-healthy {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+.stat-icon-broken {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
 }
 
 .stat-num {
   font-size: 24px;
   font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-primary);
+  font-feature-settings: 'tnum';
+  margin-bottom: 4px;
 }
 
-.stat-label {
+.stat-sublabel {
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 2px;
+}
+
+.stat-sublabel-success {
+  color: #10b981 !important;
+  font-weight: 500;
+}
+
+.stat-sublabel-danger {
+  color: #ef4444 !important;
+  font-weight: 600;
 }
 
 .stat-healthy .stat-num {
   color: #10b981;
 }
 
+.stat-broken {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.05) 0%, transparent 100%), var(--bg-secondary);
+}
+
 .stat-broken .stat-num {
   color: #ef4444;
 }
 
+.stat-zero-broken .stat-num {
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   4. 报告管理区域 (Reports Toolbar & List)
+   ========================================================================== */
+
+.health-reports-container {
+  min-height: 180px;
+}
+
+.broken-reports-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reports-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.reports-search-box {
+  display: flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 4px 10px;
+  min-width: 220px;
+  position: relative;
+  transition: border-color 0.15s ease;
+}
+
+.reports-search-box:focus-within {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.search-icon {
+  color: var(--text-muted);
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.reports-search-input {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  width: 100%;
+}
+
+.reports-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-clear-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.search-clear-btn:hover {
+  color: var(--text-primary);
+}
+
+.filter-chips-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.filter-chip {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.filter-chip:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.filter-chip.active {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  font-weight: 600;
+}
+
+.filter-chip-404.active {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.filter-chip-403.active {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-copy-all,
+.btn-export-md {
+  font-size: 11.5px !important;
+  padding: 4px 10px !important;
+}
+
+/* 列表容器 */
 .broken-reports-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 320px;
+  max-height: 340px;
   overflow-y: auto;
   padding-right: 4px;
 }
 
-.all-healthy-box {
-  padding: 30px;
-  text-align: center;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  border-radius: var(--radius-md);
-  color: #a7f3d0;
-  font-size: 13.5px;
+.broken-reports-list::-webkit-scrollbar {
+  width: 6px;
 }
 
-.broken-report-item {
-  background: var(--bg-tertiary);
-  border: 1px solid rgba(239, 68, 68, 0.35);
+.broken-reports-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.12));
+  border-radius: 3px;
+}
+
+.reports-empty-filtered {
+  padding: 36px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-color);
   border-radius: var(--radius-md);
-  padding: 12px 14px;
+}
+
+/* 单条失效卡片 */
+.broken-report-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-left-width: 4px;
+  border-radius: var(--radius-md, 10px);
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
-  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+.broken-report-item:hover {
+  border-color: var(--border-hover);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.border-404 {
+  border-left-color: #ef4444;
+}
+
+.border-403 {
+  border-left-color: #f59e0b;
+}
+
+.border-other {
+  border-left-color: #8b5cf6;
 }
 
 .broken-item-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.broken-title-section {
+  display: flex;
+  align-items: center;
   gap: 8px;
   min-width: 0;
+  flex: 1;
 }
 
 .broken-post-title {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
-  flex: 1;
+  color: var(--text-primary);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.broken-post-title:hover {
+  color: var(--accent-color);
+  text-decoration: underline;
+}
+
+.broken-field-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.broken-badges-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .broken-code-badge {
-  background: #ef4444;
-  color: #fff;
   font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 4px;
   font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #fff;
 }
 
-.broken-url-line {
-  font-size: 11.5px;
+.code-404 {
+  background: #ef4444;
+}
+
+.code-403 {
+  background: #f59e0b;
+}
+
+.code-other {
+  background: #8b5cf6;
+}
+
+.broken-error-hint {
+  font-size: 11px;
   color: var(--text-muted);
-  font-family: monospace;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* URL 容器与内嵌快捷按钮 */
+.broken-url-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.broken-url-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.broken-url-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btn-icon-action {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 3px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-icon-action:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .broken-action-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 4px;
+  gap: 10px;
 }
 
 .broken-file-name {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.btn-jump-fix {
+  font-size: 12px !important;
+  padding: 4px 10px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   5. 全站健康完成状态展示 (All Healthy Box)
+   ========================================================================== */
+
+.all-healthy-box {
+  padding: 36px 24px;
+  text-align: center;
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.08) 0%, rgba(16, 185, 129, 0.02) 100%),
+              var(--bg-secondary);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--radius-md, 12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), inset 0 0 24px rgba(16, 185, 129, 0.03);
+}
+
+.healthy-illustration {
+  margin-bottom: 12px;
+}
+
+.healthy-glow-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.25);
+  animation: healthyPulse 3s infinite ease-in-out;
+}
+
+@keyframes healthyPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.2);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 28px rgba(16, 185, 129, 0.4);
+  }
+}
+
+.healthy-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.healthy-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 520px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.healthy-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.healthy-sub-pill {
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+/* 兼容性保留类名 */
+.probing-active-card {
+  display: none;
 }

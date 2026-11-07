@@ -2,6 +2,69 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { api, normalizeVersion, isVersionMismatch, onVersionMismatch, resetVersionMismatchState, checkResponseVersion } from './api';
 import { DEFAULT_APP_VERSION } from './types';
 
+describe('API 统一出口 (按域拆分后契约保持)', () => {
+  it('保留拆分前的完整 api.xxx 接口面（防漏搬）', () => {
+    const expected = [
+      'onVersionMismatch',
+      'normalizeVersion',
+      'isVersionMismatch',
+      'notifyVersionMismatch',
+      'resetVersionMismatchState',
+      'checkResponseVersion',
+      'getConfig',
+      'saveConfig',
+      'checkLegacyConfig',
+      'migrateLegacyConfig',
+      'selectDirectory',
+      'testProxy',
+      'getPosts',
+      'getPostsStatus',
+      'getPost',
+      'createPost',
+      'updatePost',
+      'insertPostImage',
+      'undoPostOperation',
+      'getPostHistory',
+      'deletePostHistory',
+      'clearPostHistory',
+      'checkHealth',
+      'checkHealthStream',
+      'searchPhotos',
+      'getDoctorReport',
+      'exportDoctorReport',
+      'getFavorites',
+      'addFavorite',
+      'removeFavorite',
+      'updateFavoriteTags',
+      'getHexoStatus',
+      'startHexoServer',
+      'stopHexoServer',
+      'runHexoGenerate',
+      'runHexoClean',
+      'getGitStatus',
+      'runHexoDeploy',
+      'openSystemURL',
+      'checkVersion',
+      'upgradeVersion',
+      'installVersion',
+      'restartVersion',
+      'getChangelog',
+      'fetchImageText',
+      'checkImageHealth',
+      'fetchGalleryProviders',
+      'searchGalleryProvider',
+      'getI18nLocales',
+      'getI18nBundle',
+      'saveI18nCustom',
+      'resetI18nCustom',
+      'openI18nFolder',
+      'getThemePresets',
+      'openThemeFolder',
+    ];
+    expect(Object.keys(api).sort()).toEqual(expected.sort());
+  });
+});
+
 describe('Version Contract and Guard (api.ts)', () => {
   beforeEach(() => {
     resetVersionMismatchState();
@@ -196,6 +259,53 @@ describe('Version Contract and Guard (api.ts)', () => {
     await expect(api.getFavorites()).rejects.toThrow('获取收藏列表失败 (HTTP 401)');
   });
 
+  it('getThemePresets returns builtin and custom presets', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          presets: [
+            { id: 'dark', name: '暗色极客', theme: 'dark', css: '', is_builtin: true },
+            { id: 'my-theme', name: '我的主题', theme: 'light', css: ':root{}', is_builtin: false },
+          ],
+          themes_dir: '/tmp/themes',
+        }),
+        { status: 200, headers: new Headers({ 'Content-Type': 'application/json' }) }
+      )
+    );
+
+    const res = await api.getThemePresets();
+    expect(res.themes_dir).toBe('/tmp/themes');
+    expect(res.presets).toHaveLength(2);
+    expect(res.presets[1].id).toBe('my-theme');
+  });
+
+  it('getThemePresets throws on HTTP error response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+        status: 500,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+    );
+
+    await expect(api.getThemePresets()).rejects.toThrow('HTTP 500');
+  });
+
+  it('openThemeFolder posts to the open-folder endpoint', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      })
+    );
+
+    const res = await api.openThemeFolder();
+    expect(res.success).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/theme/open-folder',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
   it('successful 200 response does not throw', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(JSON.stringify({ hexo_dir: '/test', proxy: '' }), {
@@ -206,5 +316,26 @@ describe('Version Contract and Guard (api.ts)', () => {
 
     const config = await api.getConfig();
     expect(config.hexo_dir).toBe('/test');
+  });
+
+  it('apiFetch rejects within 10s default timeout when service is unreachable', async () => {
+    vi.useFakeTimers();
+    try {
+      // 模拟后端假死：fetch 永不 resolve，仅在 abort 时 reject
+      vi.spyOn(globalThis, 'fetch').mockImplementation(((_input: any, init?: any) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(init.signal.reason ?? new Error('请求超时'))
+          );
+        });
+      }) as any);
+
+      const promise = api.getConfig();
+      const assertion = expect(promise).rejects.toThrow('请求超时');
+      await vi.advanceTimersByTimeAsync(10_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

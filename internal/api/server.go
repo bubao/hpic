@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -14,9 +15,11 @@ import (
 
 	"hpic/internal/config"
 	"hpic/internal/db"
+	"hpic/internal/favorites"
 	"hpic/internal/hexo"
 	"hpic/internal/mcp"
 	"hpic/internal/post"
+	"hpic/internal/service"
 	"hpic/internal/version"
 )
 
@@ -30,6 +33,7 @@ type Server struct {
 	version       string
 	changelog     string
 	postsTracker  *post.PostsTracker
+	postsSvc      *service.PostsService
 	Mux           *http.ServeMux
 	registeredAPI []string // 已注册的 /api/ 路由清单（契约镜像校验用）
 }
@@ -53,6 +57,12 @@ func NewServer(cfg *config.Config, webFS fs.FS) *Server {
 		changelog:    "",
 		postsTracker: post.NewPostsTracker(baseDir),
 		Mux:          http.NewServeMux(),
+	}
+	// REST handler 与 MCP Tool 共用同一套 posts 领域逻辑（service 层）。
+	s.postsSvc = service.NewPostsService(database, s.postsTracker)
+	// 收藏夹以 SQLite 为唯一真相源；首次接入时自动导入历史 JSON。
+	if database != nil {
+		favorites.GetStore().SetDatabase(database)
 	}
 	s.routes()
 	return s
@@ -89,6 +99,24 @@ func (s *Server) RegisteredAPIPaths() []string {
 	out := make([]string, len(s.registeredAPI))
 	copy(out, s.registeredAPI)
 	return out
+}
+
+// Route 描述一条 HTTP 路由。
+type Route struct {
+	// Method 为契约自述的「主要方法」，仅用于文档与代码审视；
+	// 实际的 HTTP 方法校验仍由各 handler 自行完成（部分端点如 /api/config
+	// 同时支持 GET 与 POST），因此注册层不额外施加方法限制。
+	Method  string
+	Pattern string
+	Handler http.HandlerFunc
+}
+
+// RegisterRoutes 以声明式路由表批量注册端点。
+// 新增 /api/ 路由只需在 routes 表中追加一条，无需改动注册流程。
+func (s *Server) RegisterRoutes(routes ...Route) {
+	for _, rt := range routes {
+		s.handleFunc(rt.Pattern, rt.Handler)
+	}
 }
 
 // ServeHTTP 实现 http.Handler 接口，附加上层通用响应中间件
@@ -227,72 +255,83 @@ func (s *Server) validatePathInBlogDir(filePath string) error {
 }
 
 func (s *Server) routes() {
-	s.handleFunc("/api/config", s.handleConfig)
-	s.handleFunc("/api/config/check-legacy", s.handleConfigCheckLegacy)
-	s.handleFunc("/api/config/migrate-legacy", s.handleConfigMigrateLegacy)
-	s.handleFunc("/api/config/proxy-test", s.handleProxyTest)
-	s.handleFunc("/api/system/select-directory", s.handleSelectDirectory)
+	s.RegisterRoutes([]Route{
+		// 配置与本地扩展
+		{Method: "GET", Pattern: "/api/config", Handler: s.handleConfig()},
+		{Method: "GET", Pattern: "/api/config/check-legacy", Handler: s.handleConfigCheckLegacy()},
+		{Method: "POST", Pattern: "/api/config/migrate-legacy", Handler: s.handleConfigMigrateLegacy()},
+		{Method: "POST", Pattern: "/api/config/proxy-test", Handler: s.handleProxyTest()},
+		{Method: "POST", Pattern: "/api/system/select-directory", Handler: s.handleSelectDirectory()},
+		{Method: "POST", Pattern: "/api/system/open", Handler: s.handleSystemOpen()},
 
-	// 只读自检诊断与诊断包导出
-	s.handleFunc("/api/doctor", s.handleDoctor)
-	s.handleFunc("/api/doctor/export", s.handleDoctorExport)
+		// 只读自检诊断与诊断包导出
+		{Method: "GET", Pattern: "/api/doctor", Handler: s.handleDoctor()},
+		{Method: "GET", Pattern: "/api/doctor/export", Handler: s.handleDoctorExport()},
 
-	s.handleFunc("/api/posts", s.handleListPosts)
-	s.handleFunc("/api/posts/status", s.handlePostsStatus)
-	s.handleFunc("/api/post", s.handleGetPost)
-	s.handleFunc("/api/post/create", s.handleCreatePost)
-	s.handleFunc("/api/post/update", s.handleUpdatePost)
-	s.handleFunc("/api/post/insert-image", s.handleInsertImage)
-	s.handleFunc("/api/post/undo", s.handleUndoPost)
-	s.handleFunc("/api/post/history", s.handlePostHistory)
-	s.handleFunc("/api/post/history/delete", s.handleDeletePostHistory)
-	s.handleFunc("/api/post/history/clear", s.handleClearPostHistory)
-	s.handleFunc("/api/unsplash/search", s.handleUnsplashSearch)
-	s.handleFunc("/api/socialify/preview", s.handleSocialifyPreview)
-	s.handleFunc("/api/skillicons/preview", s.handleSkillIconsPreview)
-	s.handleFunc("/api/system/open", s.handleSystemOpen)
+		// 文章读写、历史与封面健康检查
+		{Method: "GET", Pattern: "/api/posts", Handler: s.handleListPosts()},
+		{Method: "GET", Pattern: "/api/posts/status", Handler: s.handlePostsStatus()},
+		{Method: "GET", Pattern: "/api/post", Handler: s.handleGetPost()},
+		{Method: "POST", Pattern: "/api/post/create", Handler: s.handleCreatePost()},
+		{Method: "POST", Pattern: "/api/post/update", Handler: s.handleUpdatePost()},
+		{Method: "POST", Pattern: "/api/post/insert-image", Handler: s.handleInsertImage()},
+		{Method: "POST", Pattern: "/api/post/undo", Handler: s.handleUndoPost()},
+		{Method: "GET", Pattern: "/api/post/history", Handler: s.handlePostHistory()},
+		{Method: "POST", Pattern: "/api/post/history/delete", Handler: s.handleDeletePostHistory()},
+		{Method: "POST", Pattern: "/api/post/history/clear", Handler: s.handleClearPostHistory()},
+		{Method: "GET", Pattern: "/api/posts/health-check", Handler: s.handleHealthCheck()},
+		{Method: "GET", Pattern: "/api/posts/health-check/stream", Handler: s.handleHealthCheckStream()},
 
-	// 收藏夹接口
-	s.handleFunc("/api/favorites", s.handleListFavorites)
-	s.handleFunc("/api/favorites/add", s.handleAddFavorite)
-	s.handleFunc("/api/favorites/remove", s.handleRemoveFavorite)
-	s.handleFunc("/api/favorites/tags", s.handleFavoriteTags)
-	s.handleFunc("/api/favorites/check", s.handleFavoriteCheck)
+		// 封面图片来源注册表（CoverProvider 统一分发）
+		{Method: "GET", Pattern: "/api/gallery/providers", Handler: s.handleGalleryProviders()},
+		{Method: "GET", Pattern: "/api/gallery/provider/{id}/search", Handler: s.handleGalleryProviderSearch()},
+		// 保留一版的旧预览端点（兼容旧前端）
+		{Method: "GET", Pattern: "/api/unsplash/search", Handler: s.handleUnsplashSearch()},
+		{Method: "GET", Pattern: "/api/socialify/preview", Handler: s.handleSocialifyPreview()},
+		{Method: "GET", Pattern: "/api/skillicons/preview", Handler: s.handleSkillIconsPreview()},
 
-	// Hexo 操作与服务路由
-	s.handleFunc("/api/hexo/status", s.handleHexoStatus)
-	s.handleFunc("/api/hexo/server/start", s.handleHexoServerStart)
-	s.handleFunc("/api/hexo/server/stop", s.handleHexoServerStop)
-	s.handleFunc("/api/hexo/generate", s.handleHexoGenerate)
-	s.handleFunc("/api/hexo/generate/stop", s.handleHexoGenerateStop)
-	s.handleFunc("/api/hexo/clean", s.handleHexoClean)
-	s.handleFunc("/api/hexo/git/status", s.handleHexoGitStatus)
-	s.handleFunc("/api/hexo/deploy", s.handleHexoDeploy)
+		// 收藏夹接口
+		{Method: "GET", Pattern: "/api/favorites", Handler: s.handleListFavorites()},
+		{Method: "POST", Pattern: "/api/favorites/add", Handler: s.handleAddFavorite()},
+		{Method: "POST", Pattern: "/api/favorites/remove", Handler: s.handleRemoveFavorite()},
+		{Method: "POST", Pattern: "/api/favorites/tags", Handler: s.handleFavoriteTags()},
+		{Method: "GET", Pattern: "/api/favorites/check", Handler: s.handleFavoriteCheck()},
 
-	// 封面健康检查与 404 检测
-	s.handleFunc("/api/posts/health-check", s.handleHealthCheck)
-	s.handleFunc("/api/posts/health-check/stream", s.handleHealthCheckStream)
+		// Hexo 操作与服务路由
+		{Method: "GET", Pattern: "/api/hexo/status", Handler: s.handleHexoStatus()},
+		{Method: "POST", Pattern: "/api/hexo/server/start", Handler: s.handleHexoServerStart()},
+		{Method: "POST", Pattern: "/api/hexo/server/stop", Handler: s.handleHexoServerStop()},
+		{Method: "POST", Pattern: "/api/hexo/generate", Handler: s.handleHexoGenerate()},
+		{Method: "POST", Pattern: "/api/hexo/generate/stop", Handler: s.handleHexoGenerateStop()},
+		{Method: "POST", Pattern: "/api/hexo/clean", Handler: s.handleHexoClean()},
+		{Method: "GET", Pattern: "/api/hexo/git/status", Handler: s.handleHexoGitStatus()},
+		{Method: "POST", Pattern: "/api/hexo/deploy", Handler: s.handleHexoDeploy()},
 
-	// 版本检测、下载与自动升级安装
-	s.handleFunc("/api/version/check", s.handleVersionCheck)
-	s.handleFunc("/api/version/upgrade", s.handleVersionUpgrade)
-	s.handleFunc("/api/version/install", s.handleVersionInstall)
-	s.handleFunc("/api/version/restart", s.handleVersionRestart)
-	s.handleFunc("/api/version/changelog", s.handleVersionChangelog)
+		// 版本检测、下载与自动升级安装
+		{Method: "GET", Pattern: "/api/version/check", Handler: s.handleVersionCheck()},
+		{Method: "POST", Pattern: "/api/version/upgrade", Handler: s.handleVersionUpgrade()},
+		{Method: "POST", Pattern: "/api/version/install", Handler: s.handleVersionInstall()},
+		{Method: "POST", Pattern: "/api/version/restart", Handler: s.handleVersionRestart()},
+		{Method: "GET", Pattern: "/api/version/changelog", Handler: s.handleVersionChangelog()},
 
-	// 图片安全代理转发接口 (解决海外图床、防盗链及网络波动导致的加载异常)
-	s.handleFunc("/api/image/proxy", s.handleImageProxy)
-	s.handleFunc("/api/image/check", s.handleImageCheck)
+		// 图片安全代理转发接口 (解决海外图床、防盗链及网络波动导致的加载异常)
+		{Method: "GET", Pattern: "/api/image/proxy", Handler: s.handleImageProxy()},
+		{Method: "GET", Pattern: "/api/image/check", Handler: s.handleImageCheck()},
 
-	// 国际化与本地扩展语言包接口
-	s.handleFunc("/api/i18n/locales", s.handleGetI18nLocales)
-	s.handleFunc("/api/i18n/bundle", s.handleGetI18nBundle)
-	s.handleFunc("/api/i18n/save", s.handleSaveI18nCustom)
-	s.handleFunc("/api/i18n/reset", s.handleResetI18nCustom)
-	s.handleFunc("/api/i18n/open-folder", s.handleOpenI18nFolder)
+		// 外观预设目录（内置 + 用户自定义 ~/.config/hpic/themes/*.json）
+		{Method: "GET", Pattern: "/api/theme/presets", Handler: s.handleThemePresets()},
+		{Method: "POST", Pattern: "/api/theme/open-folder", Handler: s.handleThemeOpenFolder()},
 
-	// MCP (Model Context Protocol) JSON-RPC 2.0 端点
-	s.handleFunc("/api/mcp", s.handleMCP)
+		// 国际化与本地扩展语言包接口
+		{Method: "GET", Pattern: "/api/i18n/locales", Handler: s.handleGetI18nLocales()},
+		{Method: "GET", Pattern: "/api/i18n/bundle", Handler: s.handleGetI18nBundle()},
+		{Method: "POST", Pattern: "/api/i18n/save", Handler: s.handleSaveI18nCustom()},
+		{Method: "POST", Pattern: "/api/i18n/reset", Handler: s.handleResetI18nCustom()},
+		{Method: "POST", Pattern: "/api/i18n/open-folder", Handler: s.handleOpenI18nFolder()},
+
+		// MCP (Model Context Protocol) JSON-RPC 2.0 端点
+		{Method: "POST", Pattern: "/api/mcp", Handler: s.handleMCP()},
+	}...)
 
 	if s.webFS != nil {
 		fileServer := http.FileServer(http.FS(s.webFS))
@@ -320,13 +359,19 @@ func (s *Server) routes() {
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	// 先完整编码到内存，避免 WriteHeader 之后再补写错误 JSON，
+	// 导致客户端收到两段拼接 JSON 而解析失败。
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(data); err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":false,"error":"internal serialization error"}`))
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		// 序列化失败时已写入 Header，无法再修改状态码；
-		// 日志记录错误，客户端可能收到不完整的 JSON。
-		fmt.Fprintf(w, "{\"success\":false,\"error\":\"internal serialization error\"}")
-	}
+	_, _ = w.Write(buf.Bytes())
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
@@ -337,15 +382,16 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 // handleMCP 处理来自本地客户端的 MCP JSON-RPC 2.0 请求
-func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
-	if !isLocalRequest(r) {
-		writeError(w, http.StatusForbidden, "Cross-origin request denied")
-		return
+func (s *Server) handleMCP() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isLocalRequest(r) {
+			writeError(w, http.StatusForbidden, "Cross-origin request denied")
+			return
+		}
+		s.cfgMu.RLock()
+		cfg := s.cfg
+		s.cfgMu.RUnlock()
+		host := mcp.NewHost(cfg, s.hexoRunner, s.database, s.postsTracker, s.version)
+		host.ServeHTTP(w, r)
 	}
-	s.cfgMu.RLock()
-	cfg := s.cfg
-	s.cfgMu.RUnlock()
-	host := mcp.NewHost(cfg, s.hexoRunner, s.database, s.postsTracker, s.version)
-	host.ServeHTTP(w, r)
 }
-

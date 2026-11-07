@@ -1,39 +1,60 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FolderGit2, FolderOpen, Loader2, FileText } from 'lucide-react';
+import { Config } from '../../types';
+import { api } from '../../api';
+import { useToast } from '../../context/ToastContext';
+import { useConfigField } from './useConfigField';
 
 interface BlogTabProps {
-  hexoDir: string;
-  setHexoDir: (val: string) => void;
-  coverFields: string;
-  setCoverFields: (val: string) => void;
-  dateField: string;
-  setDateField: (val: string) => void;
-  updatedField: string;
-  setUpdatedField: (val: string) => void;
-  autoSearch: boolean;
-  setAutoSearch: (val: boolean) => void;
-  isBrowsingDir: boolean;
-  handleBrowseDir: () => void;
-  computedPostsDir: string;
-  computedDraftsDir: string;
+  config: Config;
+  onConfigChange: (patch: Partial<Config>) => void;
 }
 
-export const BlogTab: React.FC<BlogTabProps> = ({
-  hexoDir,
-  setHexoDir,
-  coverFields,
-  setCoverFields,
-  dateField,
-  setDateField,
-  updatedField,
-  setUpdatedField,
-  autoSearch,
-  setAutoSearch,
-  isBrowsingDir,
-  handleBrowseDir,
-  computedPostsDir,
-  computedDraftsDir,
-}) => {
+/**
+ * 博客与路径设置（A9 状态下沉）：
+ * 表单草稿（hexoDir / coverFields / dateField / updatedField / autoSearch）
+ * 保存在 Tab 内部，编辑时通过 onConfigChange 增量上抛至 SettingsModal 草稿。
+ */
+export const BlogTab: React.FC<BlogTabProps> = ({ config, onConfigChange }) => {
+  const toast = useToast();
+  const [hexoDir, setHexoDir] = useConfigField('hexo_dir', config, onConfigChange);
+  const [coverFields, setCoverFields] = useConfigField('cover_fields', config, onConfigChange, {
+    toUI: list => (list || []).join(', '),
+    toConfig: raw => ({ cover_fields: parseCoverFields(raw) }),
+  });
+  const [dateField, setDateField] = useConfigField('date_field', config, onConfigChange);
+  const [updatedField, setUpdatedField] = useConfigField('updated_field', config, onConfigChange);
+  const [autoSearch, setAutoSearch] = useConfigField('auto_search', config, onConfigChange);
+  const [isBrowsingDir, setIsBrowsingDir] = useState(false);
+
+  const computedPostsDir = hexoDir ? `${hexoDir}/source/_posts` : '未指定';
+  const computedDraftsDir = hexoDir ? `${hexoDir}/source/_drafts` : '未指定';
+
+  /** 封面字段输入串 → 归一化数组（与保存时的解析规则保持一致） */
+  const parseCoverFields = (raw: string): string[] =>
+    raw.split(/[,，\s]+/).map(f => f.trim()).filter(Boolean);
+  
+
+  const handleBrowseDir = async () => {
+    setIsBrowsingDir(true);
+    try {
+      const res = await api.selectDirectory('请选择本地 Hexo 博客根目录', hexoDir || undefined);
+      if (res.success && res.path) {
+        setHexoDir(res.path);
+        onConfigChange({ hexo_dir: res.path });
+        if (res.is_hexo_root) {
+          toast.success('已识别有效 Hexo 根目录 (_config.yml 存在)');
+        } else {
+          toast.info('已选择目录，未检测到 _config.yml');
+        }
+      }
+    } catch {
+      toast.error('调用原生目录选择器失败');
+    } finally {
+      setIsBrowsingDir(false);
+    }
+  };
+
   return (
     <>
       <div className="settings-card">

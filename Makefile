@@ -11,12 +11,16 @@ LDFLAGS := -w -s -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X m
 UNAME_S := $(shell uname -s 2>/dev/null || echo "Unknown")
 
 check-env:
-	@command -v go >/dev/null 2>&1 || (echo "[ERROR] 未检测到 Go 编译器，要求 Go >= 1.22"; exit 1)
-	@command -v node >/dev/null 2>&1 || (echo "[ERROR] 未检测到 Node.js，要求 Node.js >= 18.0 (https://nodejs.org)"; exit 1)
+	@command -v go >/dev/null 2>&1 || (echo "[ERROR] 未检测到 Go 编译器，要求 Go >= 1.27 (与 go.mod 同步)"; exit 1)
+	@GO_MINOR=$$(go version | sed 's/go version go//' | cut -d. -f2); \
+	if [ "$$GO_MINOR" -lt 27 ]; then \
+		echo "[ERROR] 当前 Go 版本 ($$(go version)) 过低，要求 >= 1.27 (与 go.mod 同步)"; exit 1; \
+	fi
+	@command -v node >/dev/null 2>&1 || (echo "[ERROR] 未检测到 Node.js，要求 Node.js >= 20.0 (https://nodejs.org)"; exit 1)
 	@command -v npm >/dev/null 2>&1 || (echo "[ERROR] 未检测到 npm 包管理器"; exit 1)
 	@NODE_MAJOR=$$(node -v | sed 's/v//' | cut -d. -f1); \
-	if [ "$$NODE_MAJOR" -lt 18 ]; then \
-		echo "[ERROR] 当前 Node.js 版本 ($$(node -v)) 过低，要求 >= 18.0"; exit 1; \
+	if [ "$$NODE_MAJOR" -lt 20 ]; then \
+		echo "[ERROR] 当前 Node.js 版本 ($$(node -v)) 过低，要求 >= 20.0"; exit 1; \
 	fi
 
 ifeq ($(UNAME_S),Darwin)
@@ -81,36 +85,27 @@ app: build
 		echo "[INFO] 正在由 assets/icon.svg 自动生成 native_macos/AppIcon.icns..."; \
 		node scripts/build-icons.mjs > /dev/null 2>&1 || true; \
 	fi
-	@mkdir -p $(APP_NAME)/Contents/MacOS
-	@mkdir -p $(APP_NAME)/Contents/Resources
-	@rm -f $(APP_NAME)/Contents/MacOS/hpic-desktop
 	@if which lipo > /dev/null 2>&1 && [ "$$(uname -s)" = "Darwin" ]; then \
 		tmp_arm=$$(mktemp "/tmp/hpic_arm.XXXXXX"); \
 		tmp_amd=$$(mktemp "/tmp/hpic_amd.XXXXXX"); \
+		tmp_univ=$$(mktemp "/tmp/hpic_univ.XXXXXX"); \
 		if GOOS=darwin GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o $$tmp_arm . 2>/dev/null && \
-		   GOOS=darwin GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $$tmp_amd . 2>/dev/null; then \
-			lipo -create -output $(APP_NAME)/Contents/MacOS/hpic-desktop $$tmp_arm $$tmp_amd 2>/dev/null || true; \
+		   GOOS=darwin GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $$tmp_amd . 2>/dev/null && \
+		   lipo -create -output $$tmp_univ $$tmp_arm $$tmp_amd; then \
+			bash scripts/build-macos-app.sh $$tmp_univ $(APP_NAME) $(VERSION); \
+		else \
+			bash scripts/build-macos-app.sh $(BINARY_NAME) $(APP_NAME) $(VERSION); \
 		fi; \
-		rm -f $$tmp_arm $$tmp_amd; \
+		rm -f $$tmp_arm $$tmp_amd $$tmp_univ; \
+	else \
+		bash scripts/build-macos-app.sh $(BINARY_NAME) $(APP_NAME) $(VERSION); \
 	fi
-	@if [ ! -f $(APP_NAME)/Contents/MacOS/hpic-desktop ]; then \
-		cp $(BINARY_NAME) $(APP_NAME)/Contents/MacOS/hpic-desktop; \
-	fi
-	@if [ -f native_macos/hpic-mac-ui ]; then \
-		rm -f $(APP_NAME)/Contents/MacOS/hpic-mac-ui; \
-		cp native_macos/hpic-mac-ui $(APP_NAME)/Contents/MacOS/hpic-mac-ui; \
-	fi
-	@if [ -f native_macos/AppIcon.icns ]; then \
-		cp native_macos/AppIcon.icns $(APP_NAME)/Contents/Resources/AppIcon.icns; \
-	fi
-	@printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n    <key>CFBundleExecutable</key>\n    <string>hpic-desktop</string>\n    <key>CFBundleIdentifier</key>\n    <string>com.hpic.desktop</string>\n    <key>CFBundleName</key>\n    <string>hpic</string>\n    <key>CFBundleDisplayName</key>\n    <string>hpic</string>\n    <key>CFBundleIconFile</key>\n    <string>AppIcon</string>\n    <key>CFBundlePackageType</key>\n    <string>APPL</string>\n    <key>CFBundleShortVersionString</key>\n    <string>%s</string>\n    <key>LSMinimumSystemVersion</key>\n    <string>10.15</string>\n    <key>NSHighResolutionCapable</key>\n    <true/>\n</dict>\n</plist>\n' "$(VERSION)" > $(APP_NAME)/Contents/Info.plist
-	@if [ "$$(uname -s)" = "Darwin" ]; then \
-		codesign --force --deep --options runtime --sign - $(APP_NAME) 2>/dev/null || true; \
-	fi
-	@echo "   [OK] $(APP_NAME) 原生独立应用打包完成"
+	@echo "   [OK] $(APP_NAME) 原生独立应用打包完成 (Universal 双架构)"
 
-dmg: app
-	@./scripts/package-dmg.sh $(VERSION)
+# 制作按架构拆分的双份 DMG：dist/hpic-v${VERSION}-macOS-{arm64,amd64}.dmg
+# 说明: 单架构包约 6MB，较此前 lipo 通用二进制包 (~12MB) 下载体积减半
+dmg: build
+	@LDFLAGS="$(LDFLAGS)" bash scripts/package-macos-arch-dmgs.sh $(VERSION)
 
 dist:
 	@./scripts/build-all.sh
@@ -132,7 +127,7 @@ test: build-frontend
 clean:
 	rm -f $(BINARY_NAME) hpic
 	rm -f native_macos/hpic-mac-ui
-	rm -rf dist
+	rm -rf dist .dmgstage
 	rm -rf $(APP_NAME)
 	rm -rf web/assets web/index.html web/favicon.svg
 	@mkdir -p web && touch web/placeholder.txt

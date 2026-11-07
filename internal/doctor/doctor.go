@@ -116,13 +116,6 @@ func DefaultOptions() Options {
 // probeTimeout 是单探针默认的执行上限（非网络类探针）。
 const probeTimeout = 15 * time.Second
 
-type probeDef struct {
-	ID       string
-	Name     string
-	Category string
-	Run      func(ctx context.Context, deps Deps, opts Options, env hexo.EnvironmentInfo) Probe
-}
-
 // Run 执行全部探针并生成诊断报告。
 func Run(ctx context.Context, deps Deps, opts Options) Report {
 	if opts.NetworkTimeout <= 0 {
@@ -140,13 +133,13 @@ func Run(ctx context.Context, deps Deps, opts Options) Report {
 
 	defs := probeDefs()
 	if !opts.IncludeNetwork {
-		defs = slices.DeleteFunc(defs, func(d probeDef) bool {
-			return d.Category == CategoryNetwork
+		defs = slices.DeleteFunc(defs, func(d ProbeRegistration) bool {
+			return d.Category() == CategoryNetwork
 		})
 	}
 
-	probeTimeoutFor := func(def probeDef) time.Duration {
-		if def.Category == CategoryNetwork {
+	probeTimeoutFor := func(def ProbeRegistration) time.Duration {
+		if def.Category() == CategoryNetwork {
 			return opts.NetworkTimeout
 		}
 		return probeTimeout
@@ -156,9 +149,9 @@ func Run(ctx context.Context, deps Deps, opts Options) Report {
 	for _, def := range defs {
 		start := time.Now()
 		p := runProbeIsolated(ctx, def, deps, opts, envInfo, probeTimeoutFor(def))
-		p.ID = def.ID
-		p.Name = def.Name
-		p.Category = def.Category
+		p.ID = def.ID()
+		p.Name = def.Name()
+		p.Category = def.Category()
 		p.Duration = formatDuration(time.Since(start))
 		p.Message = redact.RedactText(p.Message)
 		if p.Details != nil {
@@ -183,7 +176,7 @@ func Run(ctx context.Context, deps Deps, opts Options) Report {
 // 单项失败不会影响其余探针，且从不会修改任何配置或数据。
 func runProbeIsolated(
 	ctx context.Context,
-	def probeDef,
+	def ProbeRegistration,
 	deps Deps,
 	opts Options,
 	env hexo.EnvironmentInfo,

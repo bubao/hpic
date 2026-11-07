@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"hpic/internal/atomicfile"
 )
 
 var customConfigPath string
@@ -21,28 +23,28 @@ type Config struct {
 	App              string   `json:"app,omitempty"`              // 固定标识 "hpic"
 	ConfigFilePath   string   `json:"config_file_path,omitempty"` // 当前使用的配置文件绝对路径 (供前端与日志展示)
 	HexoDir          string   `json:"hexo_dir"`                   // Hexo 博客根目录 (包含 _config.yml)
-	PostsDir         string   `json:"posts_dir,omitempty"`         // 兼容字段 (对应 source/_posts)
+	PostsDir         string   `json:"posts_dir,omitempty"`        // 兼容字段 (对应 source/_posts)
 	Proxy            string   `json:"proxy"`
 	ImageWidth       int      `json:"image_width"`
 	ImageQuality     int      `json:"image_quality"`
-	AutoSearch       bool     `json:"auto_search"`        // 是否在选中文章时自动搜索，默认 false
-	CoverFields      []string `json:"cover_fields"`       // 动态封面字段列表，如 ["index_img", "banner_img"]
-	DateField        string   `json:"date_field,omitempty"`        // 创建/发布时间元数据字段名，默认 "date" (支持 fallback: created, publishDate 等)
-	UpdatedField     string   `json:"updated_field,omitempty"`     // 更新/修改时间元数据字段名，默认 "updated" (支持 fallback: lastmod, modified 等)
-	GitHubOwner      string   `json:"github_owner"`       // GitHub 用户名，例如 "username"
-	SocialifyPattern string   `json:"socialify_pattern"`  // 样式 pattern，如 "Signal"
-	SocialifyTheme   string   `json:"socialify_theme"`    // 主题 theme，如 "Auto"
+	AutoSearch       bool     `json:"auto_search"`             // 是否在选中文章时自动搜索，默认 false
+	CoverFields      []string `json:"cover_fields"`            // 动态封面字段列表，如 ["index_img", "banner_img"]
+	DateField        string   `json:"date_field,omitempty"`    // 创建/发布时间元数据字段名，默认 "date" (支持 fallback: created, publishDate 等)
+	UpdatedField     string   `json:"updated_field,omitempty"` // 更新/修改时间元数据字段名，默认 "updated" (支持 fallback: lastmod, modified 等)
+	GitHubOwner      string   `json:"github_owner"`            // GitHub 用户名，例如 "username"
+	SocialifyPattern string   `json:"socialify_pattern"`       // 样式 pattern，如 "Signal"
+	SocialifyTheme   string   `json:"socialify_theme"`         // 主题 theme，如 "Auto"
 
 	// 横屏与尺寸范围配置
-	Orientation      string   `json:"orientation"`        // "landscape" (默认横屏), "ultrawide" (16:9超宽), "all" (全部)
-	ImageSize        string   `json:"image_size"`         // "large" (高清 >=1200px), "wallpaper" (2K/4K超清 >=1920px), "all" (不限)
-	MinWidth         int      `json:"min_width"`          // 最小宽度过滤限制，默认 1200
-	MinHeight        int      `json:"min_height"`         // 最小高度过滤限制，默认 600
-	InfiniteScroll   bool     `json:"infinite_scroll"`    // 瀑布流是否开启触底自动加载，默认 false (手动点击更可控)
-	DeployMode       string   `json:"deploy_mode"`        // 部署模式: "git" (GitHub Actions, 默认) 或 "hexo" (hexo deploy)
-	GitCommitTemplate string  `json:"git_commit_template,omitempty"` // 自定义 Git 提交信息模板，如 "chore(cover): update cover for {title}"
-	Theme            string   `json:"theme,omitempty"`            // 界面主题: "dark", "light", "auto" (默认 "dark")
-	CustomCSS        string   `json:"custom_css,omitempty"`       // 用户自定义 CSS 代码
+	Orientation       string `json:"orientation"`                   // "landscape" (默认横屏), "ultrawide" (16:9超宽), "all" (全部)
+	ImageSize         string `json:"image_size"`                    // "large" (高清 >=1200px), "wallpaper" (2K/4K超清 >=1920px), "all" (不限)
+	MinWidth          int    `json:"min_width"`                     // 最小宽度过滤限制，默认 1200
+	MinHeight         int    `json:"min_height"`                    // 最小高度过滤限制，默认 600
+	InfiniteScroll    bool   `json:"infinite_scroll"`               // 瀑布流是否开启触底自动加载，默认 false (手动点击更可控)
+	DeployMode        string `json:"deploy_mode"`                   // 部署模式: "git" (GitHub Actions, 默认) 或 "hexo" (hexo deploy)
+	GitCommitTemplate string `json:"git_commit_template,omitempty"` // 自定义 Git 提交信息模板，如 "chore(cover): update cover for {title}"
+	Theme             string `json:"theme,omitempty"`               // 界面主题: "dark", "light", "auto" (默认 "dark")
+	CustomCSS         string `json:"custom_css,omitempty"`          // 用户自定义 CSS 代码
 }
 
 // AppConfigDir 返回 hpic 推荐的标准存储根目录 (~/.config/hpic)
@@ -378,48 +380,9 @@ func Load() *Config {
 	return cfg
 }
 
-// atomicWrite 将数据原子性写入目标文件，避免断电或并发写造成的配置截断损坏
+// atomicWrite 将数据原子性写入目标文件（临时文件 + fsync + rename），避免断电或并发写造成的配置截断损坏
 func atomicWrite(filePath string, data []byte) error {
-	dir := filepath.Dir(filePath)
-	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return err
-		}
-	} else {
-		dir = "."
-	}
-
-	tmpFile, err := os.CreateTemp(dir, filepath.Base(filePath)+".tmp-*")
-	if err != nil {
-		return os.WriteFile(filePath, data, 0644)
-	}
-	tmpName := tmpFile.Name()
-	defer func() {
-		if tmpName != "" {
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-
-	if err := os.Rename(tmpName, filePath); err != nil {
-		_ = os.Remove(filePath)
-		if err := os.Rename(tmpName, filePath); err != nil {
-			return os.WriteFile(filePath, data, 0644)
-		}
-	}
-	tmpName = ""
-	return nil
+	return atomicfile.Write(filePath, data)
 }
 
 func (c *Config) Save() error {

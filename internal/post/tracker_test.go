@@ -53,6 +53,28 @@ func TestGetScanTargets(t *testing.T) {
 	}
 }
 
+func TestGetScanTargetsDraftSegmentMatching(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 包含 "_drafts" 子串但不等于路径段时不得判定为草稿
+	fakeDraft := filepath.Join(tmpDir, "_drafts_backup")
+	if err := os.MkdirAll(fakeDraft, 0755); err != nil {
+		t.Fatalf("mkdir fake drafts: %v", err)
+	}
+	if targets := GetScanTargets(fakeDraft); len(targets) != 1 || targets[0].IsDraft {
+		t.Fatalf("expected non-draft target for %s, got %+v", fakeDraft, targets)
+	}
+
+	// 精确路径段 "_drafts" 才判定为草稿
+	exactDraft := filepath.Join(tmpDir, "source", "_drafts")
+	if err := os.MkdirAll(exactDraft, 0755); err != nil {
+		t.Fatalf("mkdir exact drafts: %v", err)
+	}
+	if targets := GetScanTargets(exactDraft); len(targets) != 1 || !targets[0].IsDraft {
+		t.Fatalf("expected draft target for %s, got %+v", exactDraft, targets)
+	}
+}
+
 func TestGetPostsStatusAndTracker(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "posts_tracker_test_*")
 	if err != nil {

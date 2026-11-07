@@ -3,8 +3,43 @@ import { describe, it, expect } from 'vitest';
 import contractData from '../../docs/api-contract.json';
 // @ts-ignore
 import typesContent from './types.ts?raw';
+// api.ts 已按域拆分为 api/ 目录，契约镜像需聚合全部模块源码
 // @ts-ignore
-import apiContent from './api.ts?raw';
+import apiIndexContent from './api/index.ts?raw';
+// @ts-ignore
+import apiHttpContent from './api/http.ts?raw';
+// @ts-ignore
+import apiConfigContent from './api/config.ts?raw';
+// @ts-ignore
+import apiPostsContent from './api/posts.ts?raw';
+// @ts-ignore
+import apiGalleryContent from './api/gallery.ts?raw';
+// @ts-ignore
+import apiFavoritesContent from './api/favorites.ts?raw';
+// @ts-ignore
+import apiHexoContent from './api/hexo.ts?raw';
+// @ts-ignore
+import apiSystemContent from './api/system.ts?raw';
+// @ts-ignore
+import apiVersionContent from './api/version.ts?raw';
+// @ts-ignore
+import apiI18nContent from './api/i18n.ts?raw';
+// @ts-ignore
+import apiThemeContent from './api/theme.ts?raw';
+
+const apiContent = [
+  apiIndexContent,
+  apiHttpContent,
+  apiConfigContent,
+  apiPostsContent,
+  apiGalleryContent,
+  apiFavoritesContent,
+  apiHexoContent,
+  apiSystemContent,
+  apiVersionContent,
+  apiI18nContent,
+  apiThemeContent,
+].join('\n');
 
 interface ContractField {
   name: string;
@@ -116,14 +151,14 @@ describe('API Contract Mirror (Contract-First)', () => {
     }
   });
 
-  it('all frontend endpoints in contract are referenced in frontend/src/api.ts', () => {
+  it('all frontend endpoints in contract are referenced in frontend/src/api/', () => {
     const frontendEndpoints = contract.endpoints.filter((ep) => ep.frontend);
     expect(frontendEndpoints.length).toBeGreaterThan(0);
 
     for (const ep of frontendEndpoints) {
       expect(
         apiContent.includes(ep.path),
-        `Endpoint ${ep.method} ${ep.path} marked as frontend: true should be called in frontend/src/api.ts`
+        `Endpoint ${ep.method} ${ep.path} marked as frontend: true should be called in frontend/src/api/`
       ).toBe(true);
     }
   });

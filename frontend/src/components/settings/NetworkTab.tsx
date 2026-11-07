@@ -1,31 +1,57 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Globe, GitBranch, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Config } from '../../types';
+import { api } from '../../api';
+import { useToast } from '../../context/ToastContext';
+import { useConfigField } from './useConfigField';
 
 interface NetworkTabProps {
-  proxy: string;
-  setProxy: (val: string) => void;
-  deployMode: 'git' | 'hexo';
-  setDeployMode: (val: 'git' | 'hexo') => void;
-  gitCommitTemplate: string;
-  setGitCommitTemplate: (val: string) => void;
-  isTestingProxy: boolean;
-  proxyTestResult: { success: boolean; message: string; latency?: number } | null;
-  setProxyTestResult: (val: any) => void;
-  handleTestProxy: () => void;
+  config: Config;
+  onConfigChange: (patch: Partial<Config>) => void;
 }
 
-export const NetworkTab: React.FC<NetworkTabProps> = ({
-  proxy,
-  setProxy,
-  deployMode,
-  setDeployMode,
-  gitCommitTemplate,
-  setGitCommitTemplate,
-  isTestingProxy,
-  proxyTestResult,
-  setProxyTestResult,
-  handleTestProxy,
-}) => {
+/**
+ * 网络与部署设置（A9 状态下沉）：
+ * 代理 / 部署方式草稿与代理测试状态均保存在 Tab 内部。
+ */
+export const NetworkTab: React.FC<NetworkTabProps> = ({ config, onConfigChange }) => {
+  const toast = useToast();
+  const [proxy, setProxy] = useConfigField('proxy', config, onConfigChange);
+  const [deployMode, setDeployMode] = useConfigField('deploy_mode', config, onConfigChange);
+  const [gitCommitTemplate, setGitCommitTemplate] = useConfigField('git_commit_template', config, onConfigChange);
+  const [isTestingProxy, setIsTestingProxy] = useState(false);
+  const [proxyTestResult, setProxyTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
+
+  const handleTestProxy = async () => {
+    if (!proxy.trim()) {
+      toast.info('请输入待检测的代理地址');
+      return;
+    }
+    setIsTestingProxy(true);
+    setProxyTestResult(null);
+    try {
+      const res = await api.testProxy(proxy.trim());
+      setProxyTestResult({
+        success: res.success,
+        message: res.message || (res.success ? '代理连接成功' : res.error || '连接超时'),
+        latency: res.latency_ms,
+      });
+      if (res.success) {
+        toast.success(`代理连通可用！延迟: ${res.latency_ms || 0}ms`);
+      } else {
+        toast.error(`代理检测失败: ${res.error || res.message}`);
+      }
+    } catch (e: any) {
+      setProxyTestResult({
+        success: false,
+        message: e.message || '网络请求异常',
+      });
+      toast.error('代理测试异常');
+    } finally {
+      setIsTestingProxy(false);
+    }
+  };
+
   return (
     <>
       <div className="settings-card">

@@ -5,11 +5,53 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"hpic/internal/config"
 )
+
+// TestConfigSaveSyncsPostsTrackerBaseDir 验证保存配置后 postsTracker / hexoRunner 同步到新目录，
+// 避免列表接口继续走旧目录的全量 Walk 快速分支失效。
+func TestConfigSaveSyncsPostsTrackerBaseDir(t *testing.T) {
+	_, s, cleanup := setupTestBlogDir(t)
+	defer cleanup()
+
+	config.SetCustomConfigPath(filepath.Join(t.TempDir(), "config.json"))
+	defer config.SetCustomConfigPath("")
+
+	otherRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(otherRoot, "_config.yml"), []byte("title: Other\n"), 0644); err != nil {
+		t.Fatalf("write other _config.yml: %v", err)
+	}
+	otherPosts := filepath.Join(otherRoot, "source", "_posts")
+	if err := os.MkdirAll(otherPosts, 0755); err != nil {
+		t.Fatalf("mkdir other posts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(otherPosts, "other.md"), []byte("---\ntitle: Other\ndate: 2026-01-01\n---\nbody\n"), 0644); err != nil {
+		t.Fatalf("write other post: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{"hexo_dir": otherRoot})
+	req := newLocalRequest("POST", "/api/config", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.Mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST /api/config failed: code=%d, body=%s", w.Code, w.Body.String())
+	}
+
+	if got := s.postsTracker.BaseDir(); got != otherRoot {
+		t.Fatalf("expected postsTracker base dir %q, got %q", otherRoot, got)
+	}
+	status, err := s.postsTracker.GetStatus()
+	if err != nil {
+		t.Fatalf("tracker status: %v", err)
+	}
+	if status.Count != 1 {
+		t.Fatalf("expected tracker to observe 1 post in new root, got %d", status.Count)
+	}
+}
 
 // TestConfigCustomCSSClearOnEmpty 覆盖「自定义 CSS 为空字符串」的保存语义：
 // 必须允许显式清空（否则会残留上一次的预设样式，导致保存后又变回旧皮肤）。

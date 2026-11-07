@@ -1,6 +1,8 @@
 package httputil
 
 import (
+	"net/http"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -78,5 +80,46 @@ func TestOpenURLValidation(t *testing.T) {
 	// 拒绝空 URL
 	if err := OpenURL(""); err == nil {
 		t.Errorf("Expected error for empty url, got nil")
+	}
+}
+
+// transportPointer 返回 Transport 的底层指针值，用于复用性校验
+func transportPointer(t *testing.T, client *http.Client) uintptr {
+	t.Helper()
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || transport == nil {
+		t.Fatalf("client.Transport is not *http.Transport")
+	}
+	return reflect.ValueOf(transport).Pointer()
+}
+
+func TestNewClientTransportReuse(t *testing.T) {
+	// 相同 (proxy, insecureTLS) 配置复用同一 Transport（连接池 / TLS 会话共享）
+	c1 := NewClient("http://127.0.0.1:7890", 5*time.Second, false)
+	c2 := NewClient("http://127.0.0.1:7890", 9*time.Second, false)
+	if transportPointer(t, c1) != transportPointer(t, c2) {
+		t.Errorf("same configuration should reuse the same shared Transport")
+	}
+	// 复用不影响 Client 自身的 Timeout
+	if c2.Timeout != 9*time.Second {
+		t.Errorf("client timeout should stay configurable, got %v", c2.Timeout)
+	}
+
+	// 不同 insecureTLS → 不同 Transport
+	c3 := NewClient("http://127.0.0.1:7890", 5*time.Second, true)
+	if transportPointer(t, c3) == transportPointer(t, c1) {
+		t.Errorf("different insecureTLS should create different Transport")
+	}
+
+	// 不同代理 → 不同 Transport
+	c4 := NewClient("http://127.0.0.1:7891", 5*time.Second, false)
+	if transportPointer(t, c4) == transportPointer(t, c1) {
+		t.Errorf("different proxy should create different Transport")
+	}
+
+	// 无代理（env / 直连）
+	c5 := NewClient("", 5*time.Second, false)
+	if transportPointer(t, c5) == transportPointer(t, c1) {
+		t.Errorf("no-proxy client should not share transport with proxied client")
 	}
 }

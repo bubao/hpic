@@ -1,7 +1,9 @@
 package post
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +22,12 @@ type BrokenImageReport struct {
 }
 
 type HealthCheckResult struct {
-	TotalPosts     int                 `json:"total_posts"`
-	TotalImages    int                 `json:"total_images"`
-	HealthyImages  int                 `json:"healthy_images"`
-	BrokenCount    int                 `json:"broken_count"`
-	BrokenReports  []BrokenImageReport `json:"broken_reports"`
-	Duration       string              `json:"duration"`
+	TotalPosts    int                 `json:"total_posts"`
+	TotalImages   int                 `json:"total_images"`
+	HealthyImages int                 `json:"healthy_images"`
+	BrokenCount   int                 `json:"broken_count"`
+	BrokenReports []BrokenImageReport `json:"broken_reports"`
+	Duration      string              `json:"duration"`
 }
 
 // HealthProgressEvent 实时体检进度事件
@@ -115,7 +117,8 @@ func CheckImageHealthStream(postsDir string, coverFields []string, proxyStr stri
 		return res, nil
 	}
 
-	var brokenList []BrokenImageReport
+	// 初始化为空切片，保证无坏图时 JSON 序列化为 [] 而非 null（前端契约）
+	brokenList := make([]BrokenImageReport, 0)
 	var scannedImages int
 	var healthyImages int
 	var mu sync.Mutex
@@ -219,8 +222,28 @@ func CheckImageHealth(postsDir string, coverFields []string, proxyStr string) (*
 // PingSingleImage 快速检验单张图片链接的连通性，检测 404 及防盗链限制
 func PingSingleImage(urlStr string, proxyStr string) (statusCode int, needProxy bool, err error) {
 	urlStr = strings.TrimSpace(urlStr)
-	if urlStr == "" || !strings.HasPrefix(urlStr, "http") {
-		return 200, false, nil // 本地相对路径或 data URI 视为直接可用
+	if urlStr == "" {
+		return 200, false, nil
+	}
+
+	// data URI 内嵌数据，天然可用，无需网络探测
+	if strings.HasPrefix(strings.ToLower(urlStr), "data:") {
+		return 200, false, nil
+	}
+
+	u, parseErr := url.Parse(urlStr)
+	if parseErr != nil {
+		return 0, false, fmt.Errorf("malformed url: %s", urlStr)
+	}
+
+	// 无 scheme（相对路径 / 裸文件名）视为本地资源，无需网络探测
+	if u.Scheme == "" {
+		return 200, false, nil
+	}
+
+	// 仅允许 http(s) 协议执行真实网络可达性探测，其余 scheme 明确拒绝
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return 0, false, fmt.Errorf("unsupported url scheme or malformed url (only http/https or local path): %s", urlStr)
 	}
 
 	client := httputil.NewClient(proxyStr, 5*time.Second, true)

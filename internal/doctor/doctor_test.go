@@ -20,24 +20,24 @@ type fakeDatabase struct {
 func (f fakeDatabase) Ping() error { return f.pingErr }
 
 func TestRunProbeDefinitionsStable(t *testing.T) {
-	defs := probeDefs()
+	defs := builtinProbes()
 	if len(defs) == 0 {
-		t.Fatal("probeDefs 不应为空")
+		t.Fatal("builtinProbes 不应为空")
 	}
 
 	seen := make(map[string]bool)
 	for _, def := range defs {
-		if def.ID == "" || def.Name == "" || def.Category == "" {
+		if def.ID() == "" || def.Name() == "" || def.Category() == "" {
 			t.Fatalf("探针定义字段不完整: %+v", def)
 		}
-		if seen[def.ID] {
-			t.Fatalf("探针 ID 重复: %s", def.ID)
+		if seen[def.ID()] {
+			t.Fatalf("探针 ID 重复: %s", def.ID())
 		}
-		seen[def.ID] = true
-		switch def.Category {
+		seen[def.ID()] = true
+		switch def.Category() {
 		case CategoryApp, CategoryEnvironment, CategoryConfig, CategoryStorage, CategoryNetwork:
 		default:
-			t.Fatalf("未知探针分类 %q (id=%s)", def.Category, def.ID)
+			t.Fatalf("未知探针分类 %q (id=%s)", def.Category(), def.ID())
 		}
 	}
 
@@ -79,8 +79,15 @@ func TestRunWithoutNetwork(t *testing.T) {
 	}
 	report := Run(context.Background(), deps, Options{IncludeNetwork: false, NetworkTimeout: 8 * time.Second})
 
-	if len(report.Probes) != 11 {
-		t.Fatalf("关闭网络探针后期望 11 项，实际 %d", len(report.Probes))
+	// 期望项数 = 全部注册探针 - 网络类探针（保持与注册表现状一致）
+	expected := 0
+	for _, d := range probeDefs() {
+		if d.Category() != CategoryNetwork {
+			expected++
+		}
+	}
+	if len(report.Probes) != expected {
+		t.Fatalf("关闭网络探针后期望 %d 项，实际 %d", expected, len(report.Probes))
 	}
 	for _, p := range report.Probes {
 		if p.ID == "" || p.Name == "" || p.Category == "" {
@@ -204,8 +211,8 @@ func TestProbeDatabase(t *testing.T) {
 func TestRunProbeIsolatedTimeoutAndPanic(t *testing.T) {
 	// panic 恢复
 	panicDef := probeDef{
-		ID: "test.panic",
-		Run: func(context.Context, Deps, Options, hexo.EnvironmentInfo) Probe {
+		id: "test.panic",
+		run: func(context.Context, Deps, Options, hexo.EnvironmentInfo) Probe {
 			panic("boom")
 		},
 	}
@@ -216,8 +223,8 @@ func TestRunProbeIsolatedTimeoutAndPanic(t *testing.T) {
 
 	// 超时隔离
 	hangDef := probeDef{
-		ID: "test.hang",
-		Run: func(context.Context, Deps, Options, hexo.EnvironmentInfo) Probe {
+		id: "test.hang",
+		run: func(context.Context, Deps, Options, hexo.EnvironmentInfo) Probe {
 			time.Sleep(5 * time.Second)
 			return Probe{Status: StatusOK}
 		},
@@ -276,4 +283,3 @@ func TestDoctorRedaction(t *testing.T) {
 		}
 	}
 }
-

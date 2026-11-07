@@ -27,7 +27,6 @@ type StatusResponse struct {
 	HasHexo         bool            `json:"has_hexo"`
 	GenerateRunning bool            `json:"generate_running"`
 	GenerateWatch   bool            `json:"generate_watch"`
-	Logs            []string        `json:"logs"`
 	RecentLogs      []string        `json:"recent_logs"`
 	Env             EnvironmentInfo `json:"env"`
 }
@@ -46,12 +45,18 @@ type Runner struct {
 	serverCmd       *exec.Cmd
 	serverPort      int
 	serverRunning   bool
+	serverStopping  bool
 	serverStartTime time.Time
-	recentLogs      []string
+	// serverDone 由 StartServer 创建、唯一 Wait 协程关闭，StopServer 仅负责等待信号。
+	serverDone chan struct{}
+	recentLogs []string
 
-	generateCmd     *exec.Cmd
-	generateRunning bool
-	generateWatch   bool
+	generateCmd      *exec.Cmd
+	generateRunning  bool
+	generateWatch    bool
+	generateStopping bool
+	// generateDone 语义同 serverDone，由 Generate(watch) 的唯一 Wait 协程关闭。
+	generateDone chan struct{}
 }
 
 func NewRunner(postsDir string, customHexoRoot string) *Runner {
@@ -231,69 +236,87 @@ func (r *Runner) StartServer(port int) error {
 
 	r.serverCmd = cmd
 	r.serverRunning = true
+	r.serverStopping = false
 	r.serverStartTime = time.Now()
+	serverDone := make(chan struct{})
+	r.serverDone = serverDone
 	r.appendLog(fmt.Sprintf("[OK] Hexo Server 已启动 (PID: %d), 监听端口: %d", cmd.Process.Pid, actualPort))
 	LogDebug("Hexo Server 启动成功 (PID: %d, CMD: %s %v)", cmd.Process.Pid, bin, args)
 
 	// 异步读取标准输出与错误输出
 	go r.streamLogs(io.MultiReader(stdout, stderr))
 
-	// 异步监控进程退出
+	// 异步监控进程退出：全局唯一 Wait 调用方，负责状态回收与 serverDone 关闭。
+	// 主动停止（serverStopping）与异常退出区分日志，避免用户正常停止被记为 ERROR。
 	go func() {
 		waitErr := cmd.Wait()
 		r.mu.Lock()
 		r.serverRunning = false
 		r.serverCmd = nil
-		if waitErr != nil {
+		switch {
+		case r.serverStopping:
+			r.serverStopping = false
+			r.appendLog("[INFO] Hexo Server 服务已停止")
+			LogDebug("Hexo Server 已被用户主动停止")
+		case waitErr != nil:
 			r.appendLog(fmt.Sprintf("[ERROR] Hexo Server 异常退出: %v", waitErr))
 			LogDebug("Hexo Server 异常退出: %v", waitErr)
-		} else {
+		default:
 			r.appendLog("[INFO] Hexo Server 服务已停止")
 			LogDebug("Hexo Server 已正常退出")
 		}
 		r.mu.Unlock()
+		close(serverDone)
 	}()
 
 	return nil
 }
 
 // StopServer 停止 Hexo 服务
+//
+// 临界区内只做状态翻转与日志记录；kill 与等待全部移出全局锁，
+// 避免停止期间 GetStatus（前端每秒轮询）/ Generate / Deploy 被阻塞。
 func (r *Runner) StopServer() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if !r.serverRunning || r.serverCmd == nil || r.serverCmd.Process == nil {
 		r.serverRunning = false
+		r.mu.Unlock()
 		return nil
 	}
 
 	pid := r.serverCmd.Process.Pid
+	r.serverStopping = true
+	done := r.serverDone
+	port := r.serverPort
+	root := r.hexoRoot
 	r.appendLog("正在停止 Hexo Server...")
+	r.mu.Unlock()
 
 	// 1. 向子进程、进程组及所有子孙进程发送终止信号
 	_ = killProcessGroupSys(pid)
 
-	// 2. 限时 1200ms 观察退出，超时则直接多重强杀，防止残留孤儿进程
-	done := make(chan struct{})
-	cmd := r.serverCmd
-	go func() {
-		_ = cmd.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(1200 * time.Millisecond):
+	// 2. 等待唯一 Wait 协程关闭 serverDone；限时 1200ms 观察退出，超时则直接多重强杀
+	if !waitForDone(done, 1200*time.Millisecond) {
 		_ = forceKillProcessGroupSys(pid)
+		// 强杀后再给一个短窗口，避免极端情况下 StopServer 无限等待
+		_ = waitForDone(done, 2*time.Second)
 	}
 
 	// 3. 端口与孤儿进程最终保底清理
-	CleanOrphanProcessOnPort(r.serverPort, r.hexoRoot)
+	CleanOrphanProcessOnPort(port, root)
 
-	r.serverRunning = false
-	r.serverCmd = nil
 	r.appendLog("⏹ Hexo Server 服务已完全退出")
 	return nil
+}
+
+// waitForDone 在 timeout 内等待进程退出信号，返回是否已退出。
+func waitForDone(done <-chan struct{}, timeout time.Duration) bool {
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 // Generate 执行 Hexo generate (静态页面编译)，若 watch 为 true 则在后台持续监听重编
@@ -330,22 +353,28 @@ func (r *Runner) Generate(watch bool) (*GenerateResult, error) {
 		r.generateRunning = true
 		r.generateWatch = true
 		r.generateCmd = cmd
+		r.generateStopping = false
+		generateDone := make(chan struct{})
+		r.generateDone = generateDone
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			r.generateRunning = false
+			r.generateCmd = nil
 			r.mu.Unlock()
 			return nil, err
 		}
 		stderr, err := cmd.StderrPipe()
 		if err != nil {
 			r.generateRunning = false
+			r.generateCmd = nil
 			r.mu.Unlock()
 			return nil, err
 		}
 
 		if err := cmd.Start(); err != nil {
 			r.generateRunning = false
+			r.generateCmd = nil
 			r.mu.Unlock()
 			return nil, err
 		}
@@ -353,14 +382,22 @@ func (r *Runner) Generate(watch bool) (*GenerateResult, error) {
 		r.appendLog("[INFO] Hexo Generate --watch 模式已在后台启动")
 		go r.streamLogs(io.MultiReader(stdout, stderr))
 
+		// 与 StopServer 同理：唯一 Wait 调用方负责状态回收与 generateDone 关闭，
+		// StopGenerateWatch 只等待信号，避免持锁阻塞其他接口。
 		go func() {
 			_ = cmd.Wait()
 			r.mu.Lock()
 			r.generateRunning = false
 			r.generateWatch = false
 			r.generateCmd = nil
-			r.appendLog("[INFO] Hexo Generate --watch 已退出")
+			if r.generateStopping {
+				r.generateStopping = false
+				r.appendLog("[INFO] Hexo Generate --watch 已停止")
+			} else {
+				r.appendLog("[INFO] Hexo Generate --watch 已退出")
+			}
 			r.mu.Unlock()
+			close(generateDone)
 		}()
 		r.mu.Unlock()
 
@@ -411,36 +448,29 @@ func (r *Runner) Generate(watch bool) (*GenerateResult, error) {
 }
 
 // StopGenerateWatch 停止正在后台运行的 watch 任务
+//
+// 与 StopServer 同理：临界区外执行 kill 与等待；仅当存在 watch 子进程时才处理，
+// 避免误清空单次 Generate 任务的状态。
 func (r *Runner) StopGenerateWatch() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if !r.generateRunning || r.generateCmd == nil || r.generateCmd.Process == nil {
-		r.generateRunning = false
-		r.generateWatch = false
+		r.mu.Unlock()
 		return nil
 	}
 
 	pid := r.generateCmd.Process.Pid
+	r.generateStopping = true
+	done := r.generateDone
 	r.appendLog("正在停止 Hexo Generate Watch...")
+	r.mu.Unlock()
+
 	_ = killProcessGroupSys(pid)
-
-	done := make(chan struct{})
-	cmd := r.generateCmd
-	go func() {
-		_ = cmd.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(1200 * time.Millisecond):
+	if !waitForDone(done, 1200*time.Millisecond) {
 		_ = forceKillProcessGroupSys(pid)
+		_ = waitForDone(done, 2*time.Second)
 	}
 
-	r.generateRunning = false
-	r.generateWatch = false
-	r.generateCmd = nil
+	r.appendLog("⏹ Hexo Generate Watch 已完全退出")
 	return nil
 }
 
@@ -738,7 +768,6 @@ func (r *Runner) GetStatus() StatusResponse {
 		HasHexo:         bin != "",
 		GenerateRunning: r.generateRunning,
 		GenerateWatch:   r.generateWatch,
-		Logs:            logsCopy,
 		RecentLogs:      logsCopy,
 		Env:             GetEnvironmentInfo(r.hexoRoot),
 	}

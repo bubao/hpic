@@ -131,6 +131,24 @@ func TestPendingUpdatePathInit(t *testing.T) {
 	}
 }
 
+func TestExitCleanupHook(t *testing.T) {
+	called := 0
+	SetExitCleanup(func() { called++ })
+
+	runExitCleanup()
+	runExitCleanup()
+	if called != 2 {
+		t.Errorf("exitCleanup called %d times, want 2", called)
+	}
+
+	// 清理钩子应可注销，避免测试间互相污染
+	SetExitCleanup(nil)
+	runExitCleanup()
+	if called != 2 {
+		t.Errorf("exitCleanup should not run after being cleared, called %d times", called)
+	}
+}
+
 func TestFormatShellArgsNoInjection(t *testing.T) {
 	// 安全回归测试：确保 shell 元字符被正确转义，避免命令注入
 	dangerous := []string{

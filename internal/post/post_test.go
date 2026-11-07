@@ -1,6 +1,7 @@
 package post
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,9 +60,9 @@ tags:
 	}
 
 	// 1. 添加 cover 字段
-	updates := map[string]string{
-		"cover":     "https://images.unsplash.com/photo-12345?w=1200",
-		"index_img": "https://images.unsplash.com/photo-67890?w=1200",
+	updates := map[string]FieldUpdate{
+		"cover":     {Value: "https://images.unsplash.com/photo-12345?w=1200"},
+		"index_img": {Value: "https://images.unsplash.com/photo-67890?w=1200"},
 	}
 	if err := UpdateDynamicFields(tmpFile.Name(), updates); err != nil {
 		t.Fatalf("UpdateDynamicFields failed: %v", err)
@@ -84,9 +85,9 @@ tags:
 		t.Errorf("Markdown body was corrupted:\n%s", updatedStr)
 	}
 
-	// 2. 清空 cover 字段 ("CLEAR")
-	clearUpdates := map[string]string{
-		"cover": "CLEAR",
+	// 2. 通过显式 Clear 清空 cover 字段
+	clearUpdates := map[string]FieldUpdate{
+		"cover": {Clear: true},
 	}
 	if err := UpdateDynamicFields(tmpFile.Name(), clearUpdates); err != nil {
 		t.Fatalf("UpdateDynamicFields clear failed: %v", err)
@@ -103,6 +104,30 @@ tags:
 	}
 	if !strings.Contains(clearedStr, "index_img:") {
 		t.Errorf("index_img field should remain untouched:\n%s", clearedStr)
+	}
+
+	// 3. 真实字段值恰好为 "CLEAR" 时不得被误删，应按字面量写入
+	literalContent := "---\ntitle: Literal Clear\nindex_img: https://example.com/img.jpg\ncover: CLEAR\n---\n\nliteral\n"
+	literalPath := filepath.Join(t.TempDir(), "literal.md")
+	if err := os.WriteFile(literalPath, []byte(literalContent), 0644); err != nil {
+		t.Fatalf("write literal file: %v", err)
+	}
+	if err := UpdateDynamicFields(literalPath, map[string]FieldUpdate{"cover": {Value: "CLEAR"}}); err != nil {
+		t.Fatalf("UpdateDynamicFields literal CLEAR failed: %v", err)
+	}
+	literalBytes, err := os.ReadFile(literalPath)
+	if err != nil {
+		t.Fatalf("read literal file: %v", err)
+	}
+	if !strings.Contains(string(literalBytes), "cover: CLEAR") {
+		t.Errorf("literal value CLEAR should be preserved, got:\n%s", literalBytes)
+	}
+	parsedLiteral, err := ParsePost(literalPath, []string{"index_img", "cover"})
+	if err != nil {
+		t.Fatalf("parse literal file: %v", err)
+	}
+	if parsedLiteral.Images["cover"] != "CLEAR" {
+		t.Errorf("parsed literal CLEAR mismatch: %q", parsedLiteral.Images["cover"])
 	}
 }
 
@@ -249,6 +274,115 @@ func TestListPosts_Subdirectories(t *testing.T) {
 	}
 }
 
+// clearParseCacheForTest 保证缓存相关用例从空缓存开始并在结束后复原。
+func clearParseCacheForTest(t *testing.T) {
+	t.Helper()
+	parseCacheMu.Lock()
+	parseCache = make(map[string]parseCacheEntry)
+	parseCacheMu.Unlock()
+	t.Cleanup(func() {
+		parseCacheMu.Lock()
+		parseCache = make(map[string]parseCacheEntry)
+		parseCacheMu.Unlock()
+	})
+}
+
+func parseCacheSize() int {
+	parseCacheMu.Lock()
+	defer parseCacheMu.Unlock()
+	return len(parseCache)
+}
+
+// TestListPostsParseCacheReuseAndInvalidation 覆盖解析缓存三条核心行为：
+// 未变更文件命中复用、mtime/大小变化自动失效、仅关键词/排序变化不产生新条目。
+func TestListPostsParseCacheReuseAndInvalidation(t *testing.T) {
+	clearParseCacheForTest(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache_a.md")
+
+	v1 := "---\ntitle: 缓存标题A\ndate: 2026-01-01 10:00:00\nindex_img: https://example.com/a.jpg\nbanner_img: https://example.com/banner.jpg\n---\n\nv1 body\n"
+	if err := os.WriteFile(path, []byte(v1), 0644); err != nil {
+		t.Fatalf("write post: %v", err)
+	}
+
+	posts, err := ListPosts(dir, "", []string{"index_img"}, "date_desc")
+	if err != nil || len(posts) != 1 || posts[0].Title != "缓存标题A" {
+		t.Fatalf("first ListPosts: %d posts, err=%v", len(posts), err)
+	}
+	if got := parseCacheSize(); got != 1 {
+		t.Fatalf("expected 1 cached entry after first scan, got %d", got)
+	}
+
+	// 未变更文件重复扫描（排序/关键词不同）：命中缓存，条目数不增长
+	posts, err = ListPosts(dir, "缓存", []string{"index_img"}, "date_asc")
+	if err != nil || len(posts) != 1 {
+		t.Fatalf("second ListPosts: %d posts, err=%v", len(posts), err)
+	}
+	if got := parseCacheSize(); got != 1 {
+		t.Fatalf("expected cache reuse for unchanged file, got %d entries", got)
+	}
+
+	// 封面字段集不同 → 解析配置指纹不同，需新增条目并按新字段解析
+	posts, err = ListPosts(dir, "", []string{"banner_img"}, "date_desc")
+	if err != nil || len(posts) != 1 {
+		t.Fatalf("ListPosts with different fields: %d posts, err=%v", len(posts), err)
+	}
+	if _, ok := posts[0].Images["banner_img"]; !ok {
+		t.Fatal("expected banner_img parsed into Images")
+	}
+	if got := parseCacheSize(); got != 2 {
+		t.Fatalf("expected 2 cached entries for different field configs, got %d", got)
+	}
+
+	// 改写文件（内容与 mtime 均变化）→ 旧条目自动失效并重新解析
+	v2 := "---\ntitle: 缓存标题B\ndate: 2026-02-01 10:00:00\nindex_img: https://example.com/b.jpg\nbanner_img: https://example.com/banner2.jpg\n---\n\nv2 body, 明显更长的正文用于同时改变文件大小\n"
+	if err := os.WriteFile(path, []byte(v2), 0644); err != nil {
+		t.Fatalf("rewrite post: %v", err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatalf("touch post mtime: %v", err)
+	}
+	posts, err = ListPosts(dir, "", []string{"index_img"}, "date_desc")
+	if err != nil || len(posts) != 1 || posts[0].Title != "缓存标题B" {
+		t.Fatalf("expected cache invalidation after rewrite, got %+v err=%v", posts, err)
+	}
+	if got := parseCacheSize(); got != 2 {
+		t.Fatalf("expected stale entry replaced in place, got %d entries", got)
+	}
+}
+
+// TestParseCacheCapacityEviction 验证容量超限整体清空且扫描结果不受影响。
+func TestParseCacheCapacityEviction(t *testing.T) {
+	parseCacheMu.Lock()
+	prevLimit := parseCacheLimit
+	parseCacheLimit = 2
+	parseCache = make(map[string]parseCacheEntry)
+	parseCacheMu.Unlock()
+	defer func() {
+		parseCacheMu.Lock()
+		parseCacheLimit = prevLimit
+		parseCache = make(map[string]parseCacheEntry)
+		parseCacheMu.Unlock()
+	}()
+
+	dir := t.TempDir()
+	for _, name := range []string{"a.md", "b.md", "c.md"} {
+		content := "---\ntitle: Title " + name + "\ndate: 2026-01-01 10:00:00\n---\n\nbody\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	posts, err := ListPosts(dir, "", []string{"index_img"}, "date_desc")
+	if err != nil || len(posts) != 3 {
+		t.Fatalf("expected 3 posts, got %d err=%v", len(posts), err)
+	}
+	if got := parseCacheSize(); got > 2 {
+		t.Fatalf("cache exceeded capacity limit: %d entries", got)
+	}
+}
+
 func TestParseDateTime(t *testing.T) {
 	fallback := time.Date(2020, 1, 1, 0, 0, 0, 0, time.Local)
 
@@ -284,6 +418,171 @@ func TestBuildSocialifyURL(t *testing.T) {
 	uDefault := BuildSocialifyURL("", "", "", "")
 	if !strings.Contains(uDefault, "https://socialify.git.ci/owner/image") && !strings.Contains(uDefault, "/owner/") {
 		t.Errorf("Default owner fallback failed: %s", uDefault)
+	}
+}
+
+func writeTempPost(t *testing.T, frontmatter string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "post.md")
+	content := "---\n" + frontmatter + "\n---\nbody\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write temp post: %v", err)
+	}
+	return path
+}
+
+// TestParsePost_YAMLSemantics 覆盖 yaml.v3 带来的标准 YAML 语义：
+// 无引号冒号值、引号转义、注释、anchor/alias、块标量、列表与日期原文保留。
+func TestParsePost_YAMLSemantics(t *testing.T) {
+	cases := []struct {
+		name  string
+		fm    string
+		check func(t *testing.T, info *PostInfo)
+	}{
+		{
+			name: "unquoted colon value",
+			fm:   "title: foo: bar\ndate: 2026-01-01 10:00:00",
+			check: func(t *testing.T, info *PostInfo) {
+				if info.Title != "foo: bar" {
+					t.Fatalf("expected title %q, got %q", "foo: bar", info.Title)
+				}
+			},
+		},
+		{
+			name: "quoted value and comment",
+			fm:   `title: "A: B" # comment` + "\ndate: 2026-01-01",
+			check: func(t *testing.T, info *PostInfo) {
+				if info.Title != "A: B" {
+					t.Fatalf("expected quoted title %q, got %q", "A: B", info.Title)
+				}
+			},
+		},
+		{
+			name: "anchor and alias",
+			fm:   "title: Anchored\nx-base: &base https://example.com/base.jpg\nindex_img: *base\ndate: 2026-01-01",
+			check: func(t *testing.T, info *PostInfo) {
+				if info.Images["index_img"] != "https://example.com/base.jpg" {
+					t.Fatalf("expected alias image, got %q", info.Images["index_img"])
+				}
+			},
+		},
+		{
+			name: "block scalar, list and timestamp text",
+			fm:   "title: >-\n  Hello\n  World\ndate: 2026-05-20 08:30:00\nupdated: 2026-05-21T14:00:00Z\ntags:\n  - Go\n  - React\nindex_img: https://example.com/c.jpg",
+			check: func(t *testing.T, info *PostInfo) {
+				if info.Title != "Hello World" {
+					t.Fatalf("expected folded block title, got %q", info.Title)
+				}
+				if info.Tags != "Go, React" {
+					t.Fatalf("expected list joined tags, got %q", info.Tags)
+				}
+				if info.Date != "2026-05-20 08:30:00" {
+					t.Fatalf("expected raw timestamp text, got %q", info.Date)
+				}
+				if info.Updated != "2026-05-21T14:00:00Z" {
+					t.Fatalf("expected raw ISO timestamp text, got %q", info.Updated)
+				}
+				if info.ParsedDate.Year() != 2026 || info.ParsedDate.Month() != 5 {
+					t.Fatalf("ParsedDate mismatch: %v", info.ParsedDate)
+				}
+			},
+		},
+		{
+			name: "duplicate key last wins",
+			fm:   "title: First\ntitle: Second\ndate: 2026-01-01",
+			check: func(t *testing.T, info *PostInfo) {
+				if info.Title != "Second" {
+					t.Fatalf("expected last duplicate title, got %q", info.Title)
+				}
+			},
+		},
+		{
+			name: "alias of sequence",
+			fm:   "base_tags: &tags [A, B]\ntags: *tags\ndate: 2026-01-01",
+			check: func(t *testing.T, info *PostInfo) {
+				if info.Tags != "A, B" {
+					t.Fatalf("expected aliased sequence tags, got %q", info.Tags)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info, err := ParsePost(writeTempPost(t, tc.fm), []string{"index_img"})
+			if err != nil {
+				t.Fatalf("ParsePost failed: %v", err)
+			}
+			tc.check(t, info)
+		})
+	}
+}
+
+func TestParseFrontmatterPropsFallback(t *testing.T) {
+	// 不完整的引号无法被 yaml.v3 解析，应回退旧逐行解析。
+	props := parseFrontmatterProps("title: ok\nfoo: \"bar")
+	if got := props.getExact("title"); got != "ok" {
+		t.Fatalf("expected fallback title %q, got %q", "ok", got)
+	}
+	if got := props.getFold("foo"); got != "bar" {
+		t.Fatalf("expected fallback foo %q, got %q", "bar", got)
+	}
+}
+
+func TestParseFrontmatterYAMLFallbackOnError(t *testing.T) {
+	// yaml 语法错误时 legacy 解析器仍能给出可用的 title / date。
+	props := parseFrontmatterProps("title: Legacy\ndate: 2026-01-01\nbroken: [unclosed")
+	if got := props.getExact("title"); got != "Legacy" {
+		t.Fatalf("fallback should keep legacy title, got %q", got)
+	}
+	if got := props.getFold("date"); got != "2026-01-01" {
+		t.Fatalf("fallback should keep legacy date, got %q", got)
+	}
+}
+
+// TestPostInfoMarshalJSONDerivesCoverFields 验证兼容字段由 Images 动态派生，
+// 不再依赖双写维护。
+func TestPostInfoMarshalJSONDerivesCoverFields(t *testing.T) {
+	info := PostInfo{
+		Images: map[string]string{
+			"index_img":  "https://example.com/index.jpg",
+			"banner_img": "https://example.com/banner.jpg",
+		},
+	}
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal PostInfo: %v", err)
+	}
+	var fields map[string]interface{}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("unmarshal PostInfo: %v", err)
+	}
+	if got, _ := fields["index_img"].(string); got != "https://example.com/index.jpg" {
+		t.Errorf("index_img should be derived from images, got %q", fields["index_img"])
+	}
+	if got, _ := fields["banner_img"].(string); got != "https://example.com/banner.jpg" {
+		t.Errorf("banner_img should be derived from images, got %q", fields["banner_img"])
+	}
+}
+
+// TestParsePostDoesNotInferIsDraft 验证 ParsePost 不再依据文件路径猜测草稿，
+// IsDraft 必须由 ListPosts 通过 ScanTarget 注入。
+func TestParsePostDoesNotInferIsDraft(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "_drafts")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("mkdir drafts: %v", err)
+	}
+	path := filepath.Join(dir, "direct.md")
+	content := "---\ntitle: Direct Parse\ndate: 2026-01-01\nindex_img: https://example.com/a.jpg\n---\nbody\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write direct post: %v", err)
+	}
+	info, err := ParsePost(path, []string{"index_img"})
+	if err != nil {
+		t.Fatalf("ParsePost failed: %v", err)
+	}
+	if info.IsDraft {
+		t.Fatalf("ParsePost must not infer IsDraft from file path")
 	}
 }
 
@@ -355,5 +654,3 @@ index_img: https://example.com/custom.jpg
 		t.Errorf("ParsedDate year/month mismatch: %v", infoCustom.ParsedDate)
 	}
 }
-
-

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +28,30 @@ import (
 //go:generate npm --prefix frontend run build
 //go:embed web/*
 var embeddedWeb embed.FS
+
+// desktopUIProc 记录由主进程启动的桌面 UI 子进程。
+// 主进程退出时必须先清理它：在 macOS 上，若 UI 进程（hpic-mac-ui）成为孤儿残留，
+// 重启时的 open -a 将只激活旧窗口而不会启动新实例。
+var (
+	desktopUIProcMu sync.Mutex
+	desktopUIProc   *os.Process
+)
+
+func setDesktopUIProcess(proc *os.Process) {
+	desktopUIProcMu.Lock()
+	defer desktopUIProcMu.Unlock()
+	desktopUIProc = proc
+}
+
+func killDesktopUIProcess() {
+	desktopUIProcMu.Lock()
+	proc := desktopUIProc
+	desktopUIProc = nil
+	desktopUIProcMu.Unlock()
+	if proc != nil {
+		_ = proc.Kill()
+	}
+}
 
 //go:embed VERSION
 var embeddedVersion string
@@ -124,6 +149,10 @@ func main() {
 	flag.Usage = printUsage
 
 	flag.Parse()
+
+	// 注册退出前清理钩子：重启流程退出主进程前清理桌面 UI 子进程，
+	// 避免 macOS 上留下孤儿窗口导致 open -a 无法启动新实例
+	api.SetExitCleanup(killDesktopUIProcess)
 
 	if versionFlag {
 		printVersion()
@@ -229,6 +258,7 @@ func main() {
 	<-sigChan
 
 	fmt.Println("\n[INFO] 正在关闭 hpic，清理子进程并退出...")
+	killDesktopUIProcess()
 	if server != nil {
 		server.Close()
 	}
@@ -334,6 +364,8 @@ func launchDesktopWindow(url string) {
 			if fileExists(uiBin) {
 				cmd := exec.Command(uiBin, url)
 				if err := cmd.Start(); err == nil {
+					// 记录 UI 子进程：主进程重启/退出时统一清理，避免 macOS 孤儿窗口残留
+					setDesktopUIProcess(cmd.Process)
 					// 监控原生窗口：当用户关闭窗口时，后台主守护服务优雅退出
 					go func() {
 						_ = cmd.Wait()

@@ -1,39 +1,26 @@
 import React from 'react';
 import { Image, Sliders } from 'lucide-react';
+import { Config } from '../../types';
+import { useConfigField } from './useConfigField';
 
 interface GalleryTabProps {
-  orientation: string;
-  setOrientation: (val: string) => void;
-  imageSize: string;
-  setImageSize: (val: string) => void;
-  minWidth: number;
-  setMinWidth: (val: number) => void;
-  minHeight: number;
-  setMinHeight: (val: number) => void;
-  imageWidth: number;
-  setImageWidth: (val: number) => void;
-  imageQuality: number;
-  setImageQuality: (val: number) => void;
-  infiniteScroll: boolean;
-  setInfiniteScroll: (val: boolean) => void;
+  config: Config;
+  onConfigChange: (patch: Partial<Config>) => void;
 }
 
-export const GalleryTab: React.FC<GalleryTabProps> = ({
-  orientation,
-  setOrientation,
-  imageSize,
-  setImageSize,
-  minWidth,
-  setMinWidth,
-  minHeight,
-  setMinHeight,
-  imageWidth,
-  setImageWidth,
-  imageQuality,
-  setImageQuality,
-  infiniteScroll,
-  setInfiniteScroll,
-}) => {
+/**
+ * 图库与尺寸设置（A9 状态下沉）：
+ * 表单草稿保存在 Tab 内部，编辑时通过 onConfigChange 增量上抛。
+ */
+export const GalleryTab: React.FC<GalleryTabProps> = ({ config, onConfigChange }) => {
+  const [orientation, setOrientation] = useConfigField('orientation', config, onConfigChange);
+  const [imageSize, setImageSize] = useConfigField('image_size', config, onConfigChange);
+  const [minWidth, setMinWidth] = useConfigField('min_width', config, onConfigChange);
+  const [minHeight, setMinHeight] = useConfigField('min_height', config, onConfigChange);
+  const [imageWidth, setImageWidth] = useConfigField('image_width', config, onConfigChange);
+  const [imageQuality, setImageQuality] = useConfigField('image_quality', config, onConfigChange);
+  const [infiniteScroll, setInfiniteScroll] = useConfigField('infinite_scroll', config, onConfigChange);
+
   return (
     <>
       <div className="settings-card">
@@ -45,7 +32,11 @@ export const GalleryTab: React.FC<GalleryTabProps> = ({
         <div className="form-row-2">
           <div className="form-group">
             <label className="form-label">默认构图比例 (orientation):</label>
-            <select className="form-input" value={orientation} onChange={e => setOrientation(e.target.value)}>
+            <select
+              className="form-input"
+              value={orientation}
+              onChange={e => setOrientation(e.target.value)}
+            >
               <option value="landscape">宽屏横图 (Landscape - 推荐博客封面)</option>
               <option value="portrait">竖屏人像 (Portrait)</option>
               <option value="squarish">方形画幅 (Squarish)</option>
@@ -55,7 +46,11 @@ export const GalleryTab: React.FC<GalleryTabProps> = ({
 
           <div className="form-group">
             <label className="form-label">默认尺寸范围 (image_size):</label>
-            <select className="form-input" value={imageSize} onChange={e => setImageSize(e.target.value)}>
+            <select
+              className="form-input"
+              value={imageSize}
+              onChange={e => setImageSize(e.target.value)}
+            >
               <option value="large">高清大图 (≥1200px)</option>
               <option value="wallpaper">2K/4K 超清壁纸 (≥1920px)</option>
               <option value="all">不限尺寸</option>

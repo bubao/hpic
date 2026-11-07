@@ -81,4 +81,3 @@ func TestRunner_AppendLogConcurrency(t *testing.T) {
 		t.Errorf("Expected logs to be appended, got 0")
 	}
 }
-

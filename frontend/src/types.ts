@@ -29,6 +29,44 @@ export interface Config {
   custom_css?: string;
 }
 
+/**
+ * 配置字段默认值（单一真相源）。
+ * 新增字段时只需在此登记默认值，设置面板 / 差分保存均可自动派生，
+ * 配合 createDefaultConfig() 可得到隔离的独立副本。
+ */
+export const DEFAULT_CONFIG: Config = {
+  hexo_dir: '',
+  posts_dir: '',
+  drafts_dir: '',
+  cover_fields: ['index_img', 'banner_img'],
+  date_field: 'date',
+  updated_field: 'updated',
+  orientation: 'landscape',
+  image_size: 'large',
+  min_width: 1200,
+  min_height: 600,
+  image_width: 1200,
+  image_quality: 80,
+  github_owner: '',
+  socialify_pattern: 'Signal',
+  socialify_theme: 'Dark',
+  proxy: '',
+  deploy_mode: 'git',
+  git_commit_template: 'chore(cover): update cover for {title}',
+  auto_search: false,
+  infinite_scroll: false,
+  theme: 'dark',
+  custom_css: '',
+};
+
+/** 默认配置工厂：返回深隔离副本（数组字段独立拷贝，调用方可安全变更） */
+export function createDefaultConfig(): Config {
+  return {
+    ...DEFAULT_CONFIG,
+    cover_fields: [...DEFAULT_CONFIG.cover_fields],
+  };
+}
+
 export type GeneratePhase = 'idle' | 'stopping_server' | 'generating' | 'restarting_server';
 
 export interface LegacyCheckResult {
@@ -123,6 +161,27 @@ export interface TagStat {
   count: number;
 }
 
+/**
+ * 封面图片来源元数据（CoverProvider 注册表 wire 契约镜像）。
+ * kind: search = 关键词检索来源；generator = 参数化生成来源。
+ */
+export interface GalleryProvider {
+  id: string;
+  display_name: string;
+  kind: string;
+}
+
+/** 跨来源统一候选封面图（CoverCandidate wire 契约镜像） */
+export interface CoverCandidate {
+  url: string;
+  thumbnail: string;
+  width: number;
+  height: number;
+  author: string;
+  source_id: string;
+  meta?: Record<string, unknown>;
+}
+
 export interface HexoEnvironment {
   node_path: string;
   npx_path: string;
@@ -147,7 +206,6 @@ export interface HexoStatus {
   hexo_bin: string;
   posts_dir: string;
   recent_logs?: string[];
-  logs?: string[];
   env?: HexoEnvironment;
 }
 
@@ -301,6 +359,22 @@ export interface LocaleMeta {
 export interface LocalesListResponse {
   locales: LocaleMeta[];
   locales_dir: string;
+}
+
+/** 外观预设（内置或用户放置于 ~/.config/hpic/themes/*.json 的自定义皮肤） */
+export interface ThemePreset {
+  id: string;
+  name: string;
+  desc?: string;
+  theme: 'dark' | 'light' | 'auto';
+  css: string;
+  is_builtin: boolean;
+  has_override?: boolean;
+}
+
+export interface ThemePresetsResponse {
+  presets: ThemePreset[];
+  themes_dir: string;
 }
 
 

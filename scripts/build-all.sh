@@ -145,7 +145,10 @@ title hpic 卸载程序
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1"
 pause
 EOF
-(cd "$STAGE_DIR" && zip -q -r "${DIST_DIR}/hpic-v${VERSION}-windows-amd64.zip" "hpic-windows-amd64")
+# zip 便携包仅保留 hpic.exe：hpic-desktop.exe 是 updater/卸载链路的内部副本，
+# install.ps1 安装时会自行编译并创建，无需随包分发（省 ~5.5MB）。
+# 注意：NSIS 安装包仍从同一目录取全部文件，保持不变。
+(cd "$STAGE_DIR" && zip -q -r "${DIST_DIR}/hpic-v${VERSION}-windows-amd64.zip" "hpic-windows-amd64" -x "hpic-windows-amd64/hpic-desktop.exe")
 echo -e "     ${GREEN}-> dist/hpic-v${VERSION}-windows-amd64.zip${NC}"
 
 # 尝试调用 NSIS 生成 Windows 单文件 Setup 安装程序
@@ -187,19 +190,19 @@ fi
 tar -czf "${DIST_DIR}/hpic-v${VERSION}-darwin-amd64.tar.gz" -C "$STAGE_DIR" "hpic-darwin-amd64"
 echo -e "     ${GREEN}-> dist/hpic-v${VERSION}-darwin-amd64.tar.gz${NC}"
 
-# 若宿主机为 macOS，调用系统 hdiutil 制作 DMG 安装包
+# 若宿主机为 macOS，按架构拆分制作双份原生 DMG 安装包（arm64 / amd64）
 if [ "$(uname -s)" = "Darwin" ]; then
     echo ""
-    echo -e "${CYAN}[4/5] 宿主机为 macOS，制作原生 hpic-v${VERSION}-macOS.dmg 与 App 归档...${NC}"
-    make app
-    if bash ./scripts/package-dmg.sh "${VERSION}"; then
-        echo -e "   ${GREEN}-> dist/hpic-v${VERSION}-macOS.dmg${NC}"
-    else
-        echo -e "   ${RED}[WARN] macOS DMG 安装包制作失败，请检查 dmgbuild 配置${NC}"
+    echo -e "${CYAN}[4/5] 宿主机为 macOS，制作按架构拆分的 hpic-v${VERSION}-macOS-{arm64,amd64}.dmg...${NC}"
+    # 保障 Swift 原生启动器存在（hpic-mac-ui 不随仓库分发，需要现场编译）
+    if [ ! -f "native_macos/hpic-mac-ui" ]; then
+        make build >/dev/null || { echo -e "${RED}[ERROR] Swift 启动器构建失败${NC}"; exit 1; }
     fi
-    if [ -d "hpic.app" ]; then
-        zip -q -r "${DIST_DIR}/hpic-v${VERSION}-macOS.zip" "hpic.app"
-        echo -e "   ${GREEN}-> dist/hpic-v${VERSION}-macOS.zip${NC}"
+    if LDFLAGS="$LDFLAGS" bash ./scripts/package-macos-arch-dmgs.sh "${VERSION}"; then
+        echo -e "   ${GREEN}-> dist/hpic-v${VERSION}-macOS-arm64.dmg${NC}"
+        echo -e "   ${GREEN}-> dist/hpic-v${VERSION}-macOS-amd64.dmg${NC}"
+    else
+        echo -e "   ${RED}[WARN] macOS DMG 安装包制作失败（已重试 3 次），请检查 hdiutil/dmgbuild 环境或重跑 make dist${NC}"
     fi
 else
     echo ""

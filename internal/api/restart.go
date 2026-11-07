@@ -14,6 +14,21 @@ import (
 // 由 DownloadAndInstallUpdate 写入；由 RestartApp 消费并清理。
 var pendingUpdatePath string
 
+// exitCleanup 注册由 main 包提供的进程退出前清理钩子（如清理桌面 UI 子进程）
+var exitCleanup func()
+
+// SetExitCleanup 注册主进程退出前需要执行的清理钩子（幂等）
+func SetExitCleanup(fn func()) {
+	exitCleanup = fn
+}
+
+// runExitCleanup 执行退出前清理；未注册时为 no-op
+func runExitCleanup() {
+	if exitCleanup != nil {
+		exitCleanup()
+	}
+}
+
 // RestartApp 尝试在应用更新后启动新版本并关闭当前进程。
 // macOS/Linux：通过 shell 脚本兜底重启，等待新进程就绪后平滑退出当前进程。
 // Windows：通过 .bat 批处理脚本等主进程退出后启动新 exe（因运行中文件被锁定）。
@@ -53,19 +68,30 @@ func RestartApp() error {
 		}
 	}
 
+	// macOS: 同 bundle 内的原生 UI 进程（hpic-mac-ui）在主进程退出后会成为孤儿进程，
+	// 此时 LaunchServices 仍认为 app 在前台运行，导致 open -a 只激活旧窗口而不启动新实例。
+	// 记录其路径，重启脚本会在拉起新实例前清理掉残留的 UI 进程。
+	uiBinPath := ""
+	if runtime.GOOS == "darwin" {
+		candidate := filepath.Join(exeDir, "hpic-mac-ui")
+		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+			uiBinPath = candidate
+		}
+	}
+
 	switch runtime.GOOS {
 	case "windows":
 		return restartWindows(exePath, exeDir, exeName, args, hasSidecar, "")
 	default:
-		return restartUnix(exePath, exeDir, exeName, args, hasSidecar, appBundlePath)
+		return restartUnix(exePath, exeDir, exeName, args, hasSidecar, appBundlePath, uiBinPath)
 	}
 }
 
 // findAppBundlePath 若 exe 位于 Foo.app/Contents/MacOS/ 内则返回 .app 根路径，否则返回空
 func findAppBundlePath(exePath string) string {
-	dir := filepath.Dir(exePath)                    // .../Contents/MacOS
-	parent := filepath.Dir(dir)                     // .../Contents
-	grandparent := filepath.Dir(parent)             // .../Foo.app
+	dir := filepath.Dir(exePath)        // .../Contents/MacOS
+	parent := filepath.Dir(dir)         // .../Contents
+	grandparent := filepath.Dir(parent) // .../Foo.app
 	if filepath.Base(parent) == "Contents" && strings.HasSuffix(grandparent, ".app") {
 		return grandparent
 	}
@@ -151,7 +177,7 @@ func escapeBatchArgs(args []string) []string {
 }
 
 // restartUnix 在 macOS/Linux 上使用 shell 脚本执行重启
-func restartUnix(exePath, exeDir, exeName string, args []string, hasSidecar bool, appBundlePath string) error {
+func restartUnix(exePath, exeDir, exeName string, args []string, hasSidecar bool, appBundlePath, uiBinPath string) error {
 	shellScript := filepath.Join(os.TempDir(), fmt.Sprintf("hpic_restart_%d.sh", time.Now().UnixNano()))
 
 	// 构建 sidecar 覆盖逻辑
@@ -164,6 +190,16 @@ if [ -f ".hpic_update_pending" ]; then
     mv -f ".hpic_update_pending" "$EXE_PATH" 2>/dev/null || true
     chmod +x "$EXE_PATH" 2>/dev/null || true
 fi`
+	}
+
+	// 构建 UI 子进程清理逻辑：主进程退出后 UI 进程（如 macOS 的 hpic-mac-ui）可能成为孤儿，
+	// 残留的 UI 进程会让 LaunchServices 判定 app 仍在前台运行，使 open -a 只激活旧窗口而不启动新实例
+	uiCleanupBlock := ""
+	if uiBinPath != "" {
+		uiCleanupBlock = fmt.Sprintf(`
+# 清理同 bundle 内残留的原生 UI 进程，确保 open -a 能启动全新实例
+pkill -f "%s" 2>/dev/null || true
+`, formatShellArgs([]string{uiBinPath}))
 	}
 
 	// 构建启动逻辑
@@ -225,7 +261,8 @@ done
 sleep 1
 %s
 %s
-`, exePath, exeDir, sidecarBlock, launchBlock)
+%s
+`, exePath, exeDir, sidecarBlock, uiCleanupBlock, launchBlock)
 
 	if err := os.WriteFile(shellScript, []byte(script), 0755); err != nil {
 		return fmt.Errorf("failed to write restart script: %w", err)

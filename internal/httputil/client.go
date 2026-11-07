@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -54,9 +55,32 @@ func ParseProxyURL(proxyStr string) (*url.URL, error) {
 	return url.Parse(proxyStr)
 }
 
-// NewClient 创建支持 HTTP/HTTPS/SOCKS5 代理的通用 HTTP 客户端
-func NewClient(proxyStr string, timeout time.Duration, insecureTLS bool) *http.Client {
-	transport := &http.Transport{
+// transportPool 按 (proxyStr, insecureTLS) 复用共享 *http.Transport，
+// 启用连接池、TLS 会话与 keep-alive 复用；有界防止长生命周期进程无界增长。
+var transportPool = struct {
+	sync.Mutex
+	m map[string]*http.Transport
+}{m: make(map[string]*http.Transport)}
+
+// getSharedTransport 返回指定配置下共享的 Transport（勿对其做任何写入，
+// 需要自定义 DialContext 等字段的调用方请 Clone 后使用）。
+func getSharedTransport(proxyStr string, insecureTLS bool) *http.Transport {
+	key := fmt.Sprintf("%s|%t", strings.TrimSpace(proxyStr), insecureTLS)
+
+	transportPool.Lock()
+	defer transportPool.Unlock()
+
+	if t, ok := transportPool.m[key]; ok {
+		return t
+	}
+	if len(transportPool.m) >= 8 {
+		for k := range transportPool.m {
+			delete(transportPool.m, k)
+			break
+		}
+	}
+
+	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: insecureTLS,
@@ -67,11 +91,18 @@ func NewClient(proxyStr string, timeout time.Duration, insecureTLS bool) *http.C
 	}
 
 	if parsed, err := ParseProxyURL(proxyStr); err == nil && parsed != nil {
-		transport.Proxy = http.ProxyURL(parsed)
+		t.Proxy = http.ProxyURL(parsed)
 	}
 
+	transportPool.m[key] = t
+	return t
+}
+
+// NewClient 创建支持 HTTP/HTTPS/SOCKS5 代理的通用 HTTP 客户端。
+// Transport 按配置复用（连接池与 TLS 会话共享），Client 本身的 Timeout 仍按调用方设置。
+func NewClient(proxyStr string, timeout time.Duration, insecureTLS bool) *http.Client {
 	return &http.Client{
-		Transport: transport,
+		Transport: getSharedTransport(proxyStr, insecureTLS),
 		Timeout:   timeout,
 	}
 }

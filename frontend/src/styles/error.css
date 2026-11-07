@@ -128,3 +128,78 @@
   line-height: 1.5;
   margin: 0;
 }
+
+/* --------------------------------------------------------------------------
+   局部 ErrorBoundary 兜底（区块级占位 + 重试）
+   -------------------------------------------------------------------------- */
+
+.section-error-fallback {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  margin: 12px 0;
+  box-sizing: border-box;
+  border: 1px dashed rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-md, 10px);
+  background: rgba(245, 158, 11, 0.06);
+  color: var(--text-primary, #f8fafc);
+  animation: fadeIn 0.2s ease;
+}
+
+/* 大区块（侧边栏 / 封面区 / 图库区）填满剩余空间并居中，避免区域视觉塌陷 */
+.section-error-fallback.is-fill {
+  margin: 0;
+  min-height: 180px;
+  height: 100%;
+  flex: 1;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  gap: 10px;
+}
+
+.section-error-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.14);
+  color: var(--warning-color, #f59e0b);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.section-error-fallback.is-fill .section-error-icon {
+  width: 44px;
+  height: 44px;
+}
+
+.section-error-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.section-error-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.section-error-desc {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, #94a3b8);
+  word-break: break-all;
+}
+
+.section-error-retry {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

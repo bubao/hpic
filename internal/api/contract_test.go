@@ -15,8 +15,10 @@ import (
 	"hpic/internal/db"
 	"hpic/internal/doctor"
 	"hpic/internal/favorites"
+	"hpic/internal/gallery"
 	"hpic/internal/hexo"
 	"hpic/internal/post"
+	"hpic/internal/theme"
 	"hpic/internal/unsplash"
 )
 
@@ -46,6 +48,9 @@ var tsNameByGoType = map[string]string{
 	"db.OperationRecord":       "OperationRecord",
 	"favorites.FavoriteItem":   "FavoriteItem",
 	"favorites.TagStat":        "TagStat",
+	"gallery.CoverCandidate":   "CoverCandidate",
+	"gallery.ProviderInfo":     "GalleryProvider",
+	"theme.Preset":             "ThemePreset",
 	"unsplash.Photo":           "Photo",
 	"unsplash.PhotoURLs":       "PhotoURLs",
 	"unsplash.User":            "",
@@ -185,6 +190,10 @@ func wireDTOs() []contractDTO {
 		dtoOf(db.OperationRecord{}, "OperationRecord"),
 		dtoOf(favorites.FavoriteItem{}, "FavoriteItem"),
 		dtoOf(favorites.TagStat{}, "TagStat"),
+		dtoOf(gallery.CoverCandidate{}, "CoverCandidate"),
+		dtoOf(gallery.ProviderInfo{}, "GalleryProvider"),
+		dtoOf(theme.Preset{}, "ThemePreset"),
+		dtoOf(theme.ListResponse{}, "ThemePresetsResponse"),
 		dtoOf(unsplash.Photo{}, "Photo"),
 		dtoOf(unsplash.PhotoURLs{}, "PhotoURLs"),
 		dtoOf(hexo.StatusResponse{}, "HexoStatus"),
@@ -209,6 +218,8 @@ func contractEndpoints() []contractEndpoint {
 		{Method: "POST", Path: "/api/config/proxy-test", Frontend: true},
 		{Method: "GET", Path: "/api/doctor", Response: "DoctorReport", Frontend: true},
 		{Method: "GET", Path: "/api/doctor/export", Response: "DoctorExportBundle", Frontend: true},
+		{Method: "GET", Path: "/api/gallery/provider/{id}/search", Response: "CoverCandidate", Frontend: false},
+		{Method: "GET", Path: "/api/gallery/providers", Response: "GalleryProvider", Frontend: true},
 		{Method: "GET", Path: "/api/favorites", Response: "FavoriteItem", Frontend: true},
 		{Method: "POST", Path: "/api/favorites/add", Response: "FavoriteItem", Frontend: true},
 		{Method: "GET", Path: "/api/favorites/check", Frontend: false},
@@ -246,6 +257,8 @@ func contractEndpoints() []contractEndpoint {
 		{Method: "GET", Path: "/api/socialify/preview", Frontend: false},
 		{Method: "POST", Path: "/api/system/open", Frontend: true},
 		{Method: "POST", Path: "/api/system/select-directory", Frontend: true},
+		{Method: "POST", Path: "/api/theme/open-folder", Frontend: true},
+		{Method: "GET", Path: "/api/theme/presets", Response: "ThemePresetsResponse", Frontend: true},
 		{Method: "GET", Path: "/api/unsplash/search", Response: "SearchResponse", Frontend: true},
 		{Method: "GET", Path: "/api/version/changelog", Frontend: true},
 		{Method: "GET", Path: "/api/version/check", Response: "VersionCheckResponse", Frontend: true},

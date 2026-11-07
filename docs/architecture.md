@@ -6,7 +6,7 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
 
 ## 1. 架构总览
 
-系统采用 **Go 内核 + React 19 前端单页** 架构。前端静态资源通过 Go 1.16+ 的 `//go:embed` 直接内嵌至最终二进制中，整体可执行文件约 7.5MB，无任何 Electron 运行时依赖。
+系统采用 **Go 内核 + React 19 前端单页** 架构。前端静态资源通过 Go 1.16+ 的 `//go:embed` 直接内嵌至最终二进制中，整体可执行文件约 12MB（压缩包约 5.5MB），无任何 Electron 运行时依赖。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -85,8 +85,8 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
 ### 2.10 自升级引擎与热替换安全机制 (Atomic In-Place Self-Updating)
 系统内置自动化更新检测与就地升级热替换引擎（In-App Updater）：
 1. **版本检测与静默轮询**：前端每 10 分钟在后台静默轮询一次 GitHub Releases API，顶栏提供永久更新状态徽标；
-2. **下载前安全断言与 Payload 隔离**：在自升级触发下载前，严格校验目标产物后缀，杜绝将面向用户的安装镜像（如 `.dmg`）误作为原地可执行热替换目标，必须匹配对应操作系统架构的压缩归档（`.tar.gz` / `.zip`）；
-3. **原子文件替换 (`atomicReplaceFile`)**：针对 Windows / Linux / macOS 下“正在运行的进程二进制文件被 OS 独占锁定不可直接覆写”的特性，采用两步法（下载 ➔ 重命名旧文件为 `.old` 临时文件 ➔ 移动替换新文件 ➔ 调度清理），实现无缝热替换；
+2. **下载前安全断言与 Payload 隔离**：在自升级触发下载前，严格校验目标产物后缀，杜绝将面向用户的安装镜像（如 `.dmg`）误作为原地可执行热替换目标，必须匹配当前操作系统架构的压缩归档（`darwin-<arch>.tar.gz` / `windows-<arch>.zip` / `linux-<arch>.tar.gz`）；手动安装包的挑选同样优先按当前芯片匹配同架构镜像（macOS `-arm64` / `-amd64.dmg`），并在无匹配时明确提示前往 Release 页面手动下载；
+3. **原子文件替换 (`atomicReplaceFile`)**：针对 Windows / Linux / macOS 下“正在运行的进程二进制文件被 OS 独占锁定不可直接覆写”的特性，采用两步法（下载 ➔ 重命名旧文件为 `.old` 临时文件 ➔ 移动替换新文件 ➔ 调度清理），实现无缝热替换；Windows 平台运行中的 `.exe` 会阻断直接覆盖，此时新版二进制先持久写入同目录 sidecar 文件 `.hpic_update_pending`，待应用退出后由重启辅助脚本消费并完成最终写回；
 4. **macOS 自动重签名**：在 macOS 替换二进制后，自动调用系统 `codesign --force --options runtime --sign -` 重新签署，防止 macOS Gatekeeper 触发代码完整性拦截。
 
 ### 2.11 失效配图闭环追踪与全局状态同步 (Persistent Broken Asset Lifecycle)
@@ -100,11 +100,14 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
 
 ### 2.12 Go API 领域 Handler 垂直拆解 (Decoupled Domain Handlers)
 为杜绝后端巨石化（Monolith），服务层采用同 package `api` 下挂载在 `(s *Server)` 接收器上的多领域 Handler 拆解架构：
-- **`server.go` (~200 行)**：负责生命周期构造与资源清理 (`NewServer` / `Close`)、集中路由注册 (`routes()`) 以及网络安全基座（SSRF 探测、路径遍历校验与本地 Origin 鉴权）；
-- **`handler_posts.go`**：文章列表扫描、单篇博文读取、Frontmatter 增改删、正文插入配图、操作审计与安全回退；
+- **`server.go` (~400 行)**：负责生命周期构造与资源清理 (`NewServer` / `Close`)、集中路由注册 (`routes()`) 以及网络安全基座（SSRF 探测、路径遍历校验与本地 Origin 鉴权）；
+- **`handler_posts.go`**：文章列表扫描、单篇博文读取、Frontmatter 增改删、正文插入配图与操作审计（底层委托 `service` 层编排）；
 - **`handler_hexo.go`**：Hexo 服务进程启停调度、状态轮询、静态生成与 Git 部署集成；
 - **`handler_proxy.go`**：海外图床安全防盗链代理转发与连通性检测；
-- **`handler_search.go`**：Unsplash / Wallhaven 图片检索、GitHub 动态卡片 (Socialify / SkillIcons) 与收藏夹管理；
+- **`handler_search.go`**：Unsplash 检索、GitHub 动态卡片 (Socialify / SkillIcons) 预览与收藏夹管理；
+- **`handler_gallery.go`**：统一图库适配层 (`internal/gallery`) 的 Provider 列表与检索编排；
+- **`handler_theme.go`**：外观预设清单下发与主题目录定位；
+- **`handler_i18n.go` / `handler_doctor.go`**：本地语言包管理与运行时只读诊断、诊断包导出；
 - **`handler_config.go`**：用户配置读写、旧版配置迁移、原生目录选择对话框与自升级链路。
 
 ### 2.13 SQLite 事务审计与单一事实源 (SSOT & Connection Pool Governance)
@@ -113,14 +116,17 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
 2. **纯 Go 免 CGO SQLite 引擎 (`modernc.org/sqlite`)**：持久化管理博文变更审计日志 (`operation_logs`)、收藏夹 (`favorites`) 与搜索历史；
 3. **连接池治理与锁竞争免疫**：开启 `WAL` (Write-Ahead Logging) 模式与 `busy_timeout(5000)`，并通过显式限制连接池（`SetMaxOpenConns(1)` / `SetMaxIdleConns(1)`），在纯 Go 运行时下彻底消除高频读写时的文件锁锁死风险。
 
+### 2.14 外观预设系统 (Theme Presets)
+系统将皮肤抽象为可移植的预设对象（`Preset`: id/name/desc/theme/css），内置预设随程序嵌入；用户可在标准目录 `~/.config/hpic/themes/*.json` 放置自定义预设，同名 `id` 可覆盖内置预设的对应字段。`/api/theme/presets` 统一汇总下发（含 `themes_dir`），外观设置面板支持扫描刷新、一键应用与目录定位。
+
 ---
 
 ## 3. 跨平台打包与分发管道
 
 | 平台 | 打包流程与产物 | 交付形态与系统集成 |
 | :--- | :--- | :--- |
-| **🍎 macOS** | `make dmg` / `scripts/package-dmg.sh` 生成 `dist/hpic-macOS.dmg` | 原生 WebKit 独立窗口 App Bundle，提供 Applications 拖拽安装与优雅卸载 |
-| **🪟 Windows** | 交叉编译为 `dist/hpic-windows-amd64.zip` 与 `dist/hpic-setup-amd64.exe` (NSIS) | 部署至 `%LOCALAPPDATA%\Programs\hpic`，配置专属图标快捷方式、开始菜单（含主程序与卸载入口）、自动配置 PATH，并注册至控制面板「已安装的应用」与 `uninstall.cmd` |
+| **🍎 macOS** | `make dmg` / `scripts/package-macos-arch-dmgs.sh` 按架构拆分生成 `dist/hpic-v${VERSION}-macOS-{arm64,amd64}.dmg` | 原生 WebKit 独立窗口 App Bundle，单架构约 6MB，提供 Applications 拖拽安装与优雅卸载 |
+| **🪟 Windows** | 交叉编译为 `dist/hpic-windows-amd64.zip`（仅含 `hpic.exe`）与 `dist/hpic-setup-amd64.exe` (NSIS) | 部署至 `%LOCALAPPDATA%\Programs\hpic`，配置专属图标快捷方式、开始菜单（含主程序与卸载入口）、自动配置 PATH，并注册至控制面板「已安装的应用」与 `uninstall.cmd` |
 | **🐧 Linux** | 编译 `dist/hpic-linux-amd64.tar.gz` 与 `dist/hpic_*.deb` | 标准 XDG 桌面菜单集成（`hpic.desktop` + `icon.png`）；Debian/Ubuntu 提供标准 `.deb` 安装包支持（基于 POSIX `ar + tar` 原生组装，跨平台免 root 生成） |
 | **全平台汇总** | `make dist` / `scripts/build-all.sh` / `scripts/build-all.ps1` | 一键十余秒内跨平台编译并输出全部 3 大系统所有架构的压缩包、安装向导及 SHA256 校验清单 |
 
@@ -164,6 +170,7 @@ flowchart TD
 2. **封面应用动作抽象 (`ApplyCoverButtons`)**：封装「设为全部」与动态 frontmatter 字段（如 `index_img`, `banner_img`），支持尺寸与变体切换；
 3. **弹窗基底标准化 (`Modal`)**：彻底收敛 Backdrop 蒙层、居中布局、动态尺寸预设（sm/md/lg/xl）、全局 Escape 键盘监听以及防穿透事件处理；
 4. **生成器模块解耦 (`generators/`)**：将庞大的 `Generators` 分解为独立的 `PosterGenerator`、`SocialifyGenerator` 和 `SkillIconsGenerator`，保持清晰的单向数据流与专注的业务职责；
-5. **顶层状态解耦与 Custom Hooks 模式 (`hooks/`)**：`App.tsx` 作为轻量协调器（Coordinator），将复杂的文章过滤/检索逻辑封装进 `usePostList`，将 Hexo 服务监控与部署联动封装进 `useHexoRunner`，将全站弹窗状态与载荷封装进 `useModalManager`；
-6. **设置弹窗多 Tab 组件化 (`components/settings/`)**：设置面板解耦为受控子组件（`BlogTab`、`GalleryTab`、`AppearanceTab`、`SocialifyTab`、`NetworkTab`、`AboutTab`），主弹窗仅负责骨架导航与保存分发。
+5. **顶层状态解耦与 Custom Hooks 模式 (`hooks/`)**：`App.tsx` 作为轻量协调器（Coordinator），将文章过滤/检索逻辑封装进 `usePostList`，Hexo 服务监控与部署联动封装进 `useHexoRunner`，全站弹窗状态与载荷封装进 `useModalManager`，外观控制、博文变更与失效图片全局登记分别封装进 `useAppearanceController` / `usePostMutator` / `useBrokenImageRegistry`；
+6. **设置弹窗多 Tab 组件化 (`components/settings/`)**：设置面板解耦为受控子组件（`BlogTab`、`AppearanceTab`、`I18nTab`、`GalleryTab`、`GeneratorsTab`、`NetworkTab`、`DoctorTab`、`AboutTab`），按需懒加载，主弹窗仅负责骨架导航与保存分发。
+7. **全局命令面板 (Command Palette)**：`Ctrl/⌘ + K` 唤起，`src/commands/` 注册表汇总服务控制、文章跳转、主题切换、Hexo 操作与设置直达等命令，由自研 `commandMatcher` 做模糊匹配（支持中文、英文与拼音首字母关键词），实现全程键盘的高效操作流。
 

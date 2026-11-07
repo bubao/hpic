@@ -53,17 +53,18 @@ func applyRollback(database *db.Database, op *db.OperationRecord, targetFields [
 			batchOps = []db.OperationRecord{*op}
 		}
 
-		updates := make(map[string]string)
+		updates := make(map[string]FieldUpdate)
 		for _, bOp := range batchOps {
 			field := bOp.Field
 			if field == "" {
 				field = "index_img"
 			}
-			restoreVal := bOp.OldValue
-			if restoreVal == "" {
-				restoreVal = "CLEAR"
+			if bOp.OldValue == "" {
+				// 旧值为空代表原操作是清除字段；撤销时同样显式清除。
+				updates[field] = FieldUpdate{Clear: true}
+			} else {
+				updates[field] = FieldUpdate{Value: bOp.OldValue}
 			}
-			updates[field] = restoreVal
 		}
 		// 使用 MarkBatchUndone 一次性标记整批撤销
 		if op.BatchID > 0 {

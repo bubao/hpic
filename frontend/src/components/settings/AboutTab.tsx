@@ -1,33 +1,86 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Info, Download, RefreshCw, Check, Copy } from 'lucide-react';
 import { Config, VersionInfo, DEFAULT_APP_VERSION } from '../../types';
+import { api } from '../../api';
+import { useToast } from '../../context/ToastContext';
 import { MarkdownView } from '../MarkdownView';
 
 interface AboutTabProps {
   config: Config;
-  isCheckingVersion: boolean;
-  versionResult: VersionInfo | null;
-  isInstalling: boolean;
-  changelogContent: string;
-  isLoadingChangelog: boolean;
-  handleManualCheckVersion: () => void;
-  handleInstallUpdate: () => void;
-  handleCopyConfigPath: () => void;
-  hasCopiedPath: boolean;
 }
 
-export const AboutTab: React.FC<AboutTabProps> = ({
-  config,
-  isCheckingVersion,
-  versionResult,
-  isInstalling,
-  changelogContent,
-  isLoadingChangelog,
-  handleManualCheckVersion,
-  handleInstallUpdate,
-  handleCopyConfigPath,
-  hasCopiedPath,
-}) => {
+/**
+ * 关于与更新（A9 状态下沉）：
+ * 版本检测、更新日志与路径复制等交互状态全部下沉到 Tab 内部。
+ */
+export const AboutTab: React.FC<AboutTabProps> = ({ config }) => {
+  const toast = useToast();
+  const [changelogContent, setChangelogContent] = useState('');
+  const [isLoadingChangelog, setIsLoadingChangelog] = useState(false);
+  const [hasCopiedPath, setHasCopiedPath] = useState(false);
+  const [versionResult, setVersionResult] = useState<VersionInfo | null>(null);
+  const [isCheckingVersion, setIsCheckingVersion] = useState(false);
+  const [isInstalling, setIsInstalling] = useState(false);
+
+  // 进入 About Tab 时加载更新日志（每次挂载仅加载一次）
+  useEffect(() => {
+    if (!changelogContent && typeof api?.getChangelog === 'function') {
+      setIsLoadingChangelog(true);
+      api
+        .getChangelog()
+        .then(res => {
+          if (res?.success && res.changelog) {
+            setChangelogContent(res.changelog);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setIsLoadingChangelog(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleManualCheckVersion = async () => {
+    setIsCheckingVersion(true);
+    try {
+      const res = await api.checkVersion();
+      setVersionResult(res);
+      if (res.has_update) {
+        toast.info(`发现新版本 ${res.latest_version}`);
+      } else {
+        toast.success('当前已是最新版本');
+      }
+    } catch {
+      toast.error('检测版本失败');
+    } finally {
+      setIsCheckingVersion(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    setIsInstalling(true);
+    try {
+      const res = await api.installVersion();
+      if (res.success) {
+        toast.success('升级包安装完成，请重启客户端');
+      } else {
+        toast.error('升级安装失败: ' + (res.message || '未知错误'));
+      }
+    } catch (e: any) {
+      toast.error('升级异常: ' + (e?.message || '未知错误'));
+    } finally {
+      setIsInstalling(false);
+    }
+  };
+
+  const handleCopyConfigPath = () => {
+    if (config.config_file_path) {
+      navigator.clipboard.writeText(config.config_file_path);
+      setHasCopiedPath(true);
+      toast.success('配置文件路径已复制到剪贴板');
+      setTimeout(() => setHasCopiedPath(false), 2000);
+    }
+  };
+
   return (
     <>
       <div className="settings-card">

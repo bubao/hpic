@@ -67,7 +67,7 @@ func TestUndoOperation(t *testing.T) {
 	// 1. 模拟修改封面，并记录操作日志
 	newCover := "https://new_cover.jpg"
 	oldCover := "https://original.jpg"
-	_ = UpdateDynamicFields(postFile, map[string]string{"index_img": newCover})
+	_ = UpdateDynamicFields(postFile, map[string]FieldUpdate{"index_img": {Value: newCover}})
 	_, _ = database.RecordOperation(postFile, "撤销测试博文", "update_cover", "index_img", oldCover, newCover)
 
 	// 确认封面已变更新值

@@ -1,26 +1,25 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Config, SelectDirectoryResult } from '../types';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Config, createDefaultConfig } from '../types';
 import { api } from '../api';
 import { useToast } from '../context/ToastContext';
 import { AppTheme, applyTheme, applyCustomCSS, getCurrentCustomCSS, triggerThemeTransition } from '../utils/useTheme';
-import { Icon } from './common/Icon';
 import { FolderGit2, Image, Palette, Languages, Sparkles, Globe, Stethoscope, Info, ArrowLeft, Check, AlertTriangle } from 'lucide-react';
-import { BlogTab } from './settings/BlogTab';
-import { GalleryTab } from './settings/GalleryTab';
-import { AppearanceTab } from './settings/AppearanceTab';
-import { I18nTab } from './settings/I18nTab';
-import { SocialifyTab } from './settings/SocialifyTab';
-import { NetworkTab } from './settings/NetworkTab';
-import { DoctorTab } from './settings/DoctorTab';
-import { AboutTab } from './settings/AboutTab';
+import { SettingsTabProps } from './settings/types';
+import { buildConfigUpdate } from './settings/configDiff';
+import { ErrorBoundary } from './ErrorBoundary';
+import { SectionErrorFallback } from './common/SectionErrorFallback';
 
 export type SettingsCategory = 'blog' | 'gallery' | 'appearance' | 'i18n' | 'socialify' | 'network' | 'doctor' | 'about';
+
+/** 通过 React.lazy 按需分包加载的 Tab 组件（注册表统一契约） */
+type LazySettingsTab = React.LazyExoticComponent<React.ComponentType<SettingsTabProps>>;
 
 interface CategoryItem {
   id: SettingsCategory;
   label: string;
   description: string;
   icon: React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
+  tab: LazySettingsTab;
 }
 
 export const CATEGORIES: CategoryItem[] = [
@@ -29,48 +28,56 @@ export const CATEGORIES: CategoryItem[] = [
     label: '博客与路径',
     description: '配置 Hexo 博客根目录、博文 Frontmatter 封面字段及时间元数据映射',
     icon: FolderGit2,
+    tab: React.lazy(() => import('./settings/BlogTab').then(m => ({ default: m.BlogTab }))),
   },
   {
     id: 'gallery',
     label: '图库与尺寸',
     description: '设置 Unsplash / Wallhaven 壁纸尺寸阈值、构图比例与压缩参数',
     icon: Image,
+    tab: React.lazy(() => import('./settings/GalleryTab').then(m => ({ default: m.GalleryTab }))),
   },
   {
     id: 'appearance',
     label: '外观与样式',
     description: '深浅色视觉风格切换、预设皮肤注入与自定义 CSS 样式设计',
     icon: Palette,
+    tab: React.lazy(() => import('./settings/AppearanceTab').then(m => ({ default: m.AppearanceTab }))),
   },
   {
     id: 'i18n',
     label: '语言与国际化',
     description: '界面语言切换、本地语言包自定义覆盖与自主扩展多国语言',
     icon: Languages,
+    tab: React.lazy(() => import('./settings/I18nTab').then(m => ({ default: m.I18nTab }))),
   },
   {
     id: 'socialify',
     label: '卡片生成器',
     description: 'GitHub 仓库分享卡片 (Socialify)、技术栈图标 (SkillIcons) 生成配置',
     icon: Sparkles,
+    tab: React.lazy(() => import('./settings/SocialifyTab').then(m => ({ default: m.SocialifyTab }))),
   },
   {
     id: 'network',
     label: '网络与部署',
     description: '配置 HTTP/SOCKS5 代理加速、网络连通性检测与 Git 部署规则',
     icon: Globe,
+    tab: React.lazy(() => import('./settings/NetworkTab').then(m => ({ default: m.NetworkTab }))),
   },
   {
     id: 'doctor',
     label: '诊断与自检',
     description: '只读检查运行时、Node/Hexo 环境、配置存储与网络连通性，并导出诊断包',
     icon: Stethoscope,
+    tab: React.lazy(() => import('./settings/DoctorTab').then(m => ({ default: m.DoctorTab }))),
   },
   {
     id: 'about',
     label: '关于与更新',
     description: '查看当前应用版本、更新检测、Release Notes 及系统底层配置清单',
     icon: Info,
+    tab: React.lazy(() => import('./settings/AboutTab').then(m => ({ default: m.AboutTab }))),
   },
 ];
 
@@ -83,29 +90,8 @@ interface SettingsModalProps {
   initialCategory?: SettingsCategory;
 }
 
-const FALLBACK_CONFIG: Config = {
-  hexo_dir: '',
-  posts_dir: '',
-  cover_fields: ['index_img', 'banner_img'],
-  date_field: 'date',
-  updated_field: 'updated',
-  orientation: 'landscape',
-  image_size: 'large',
-  min_width: 1200,
-  min_height: 600,
-  image_width: 1200,
-  image_quality: 80,
-  github_owner: '',
-  socialify_pattern: 'Signal',
-  socialify_theme: 'Dark',
-  proxy: '',
-  deploy_mode: 'git',
-  git_commit_template: 'chore(cover): update cover for {title}',
-  auto_search: false,
-  infinite_scroll: false,
-  theme: 'dark',
-  custom_css: '',
-};
+/** 深拷贝配置（草稿 / 基准快照相互隔离） */
+const cloneConfig = (cfg: Config): Config => JSON.parse(JSON.stringify(cfg));
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -117,108 +103,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const toast = useToast();
   const [localConfig, setLocalConfig] = useState<Config | null>(null);
-  const activeConfig = config || localConfig || FALLBACK_CONFIG;
+  const activeConfig = config || localConfig || createDefaultConfig();
+
+  // A9 状态下沉：Modal 只持有「草稿 + 基准快照」，表单状态全部由各 Tab 内部维护
+  const [draftConfig, setDraftConfig] = useState<Config>(() => createDefaultConfig());
+  const [baselineConfig, setBaselineConfig] = useState<Config | null>(null);
 
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory || 'blog');
   const [isSaving, setIsSaving] = useState(false);
 
-  // 1. Hexo 博客与封面字段
-  const [hexoDir, setHexoDir] = useState(activeConfig.hexo_dir || '');
-  const [coverFields, setCoverFields] = useState((activeConfig.cover_fields || ['index_img', 'banner_img']).join(', '));
-  const [dateField, setDateField] = useState(activeConfig.date_field || 'date');
-  const [updatedField, setUpdatedField] = useState(activeConfig.updated_field || 'updated');
-
-  // 2. Unsplash / Wallhaven 壁纸偏好
-  const [orientation, setOrientation] = useState(activeConfig.orientation || 'landscape');
-  const [imageSize, setImageSize] = useState(activeConfig.image_size || 'large');
-  const [minWidth, setMinWidth] = useState(activeConfig.min_width || 1200);
-  const [minHeight, setMinHeight] = useState(activeConfig.min_height || 600);
-  const [imageWidth, setImageWidth] = useState(activeConfig.image_width || 1200);
-  const [imageQuality, setImageQuality] = useState(activeConfig.image_quality || 80);
-
-  // 3. GitHub 与 Socialify
-  const [githubOwner, setGithubOwner] = useState(activeConfig.github_owner || '');
-  const [socialifyPattern, setSocialifyPattern] = useState(activeConfig.socialify_pattern || 'Signal');
-  const [socialifyTheme, setSocialifyTheme] = useState(activeConfig.socialify_theme || 'Dark');
-
-  // 4. 网络代理
-  const [proxy, setProxy] = useState(activeConfig.proxy || '');
-
-  // 5. 部署方式
-  const [deployMode, setDeployMode] = useState<'git' | 'hexo'>(activeConfig.deploy_mode || 'git');
-  const [gitCommitTemplate, setGitCommitTemplate] = useState(activeConfig.git_commit_template || 'chore(cover): update cover for {title}');
-
-  // 6. 交互偏好
-  const [autoSearch, setAutoSearch] = useState(!!activeConfig.auto_search);
-  const [infiniteScroll, setInfiniteScroll] = useState(!!activeConfig.infinite_scroll);
-
-  // 7. 外观与主题
-  const [theme, setTheme] = useState<'dark' | 'light' | 'auto'>('dark');
-  const [customCSS, setCustomCSS] = useState('');
-
-  // 8. 路径选择器状态与代理测试
-  const [isBrowsingDir, setIsBrowsingDir] = useState(false);
-  const [isTestingProxy, setIsTestingProxy] = useState(false);
-  const [proxyTestResult, setProxyTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
-
-  // 9. 更新日志历史与版本检测
-  const [changelogContent, setChangelogContent] = useState('');
-  const [isLoadingChangelog, setIsLoadingChangelog] = useState(false);
-  const [hasCopiedPath, setHasCopiedPath] = useState(false);
-  const [versionResult, setVersionResult] = useState<any | null>(null);
-  const [isCheckingVersion, setIsCheckingVersion] = useState(false);
-  const [isInstalling, setIsInstalling] = useState(false);
-
-  const handleManualCheckVersion = async () => {
-    setIsCheckingVersion(true);
-    try {
-      const res = await api.checkVersion();
-      setVersionResult(res);
-      if (res.has_update) {
-        toast.info(`发现新版本 ${res.latest_version}`);
-      } else {
-        toast.success('当前已是最新版本');
-      }
-    } catch {
-      toast.error('检测版本失败');
-    } finally {
-      setIsCheckingVersion(false);
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    setIsInstalling(true);
-    try {
-      const res = await api.installVersion();
-      if (res.success) {
-        toast.success('升级包安装完成，请重启客户端');
-      } else {
-        toast.error('升级安装失败: ' + (res.message || '未知错误'));
-      }
-    } catch (e: any) {
-      toast.error('升级异常: ' + (e?.message || '未知错误'));
-    } finally {
-      setIsInstalling(false);
-    }
-  };
-
-  const handleCopyConfigPath = () => {
-    if (activeConfig.config_file_path) {
-      navigator.clipboard.writeText(activeConfig.config_file_path);
-      setHasCopiedPath(true);
-      toast.success('配置文件路径已复制到剪贴板');
-      setTimeout(() => setHasCopiedPath(false), 2000);
-    }
-  };
-
-  // 10. 未保存状态拦截控制 (Unsaved Changes Guard)
-  const baselineConfigRef = useRef<Config | null>(null);
+  // 未保存状态拦截控制 (Unsaved Changes Guard)
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
   const [pendingAction, setPendingAction] = useState<
     { type: 'switch_tab'; target: SettingsCategory } | { type: 'close' } | null
   >(null);
-
-  const pendingRestartVersionRef = useRef<string | null>(null);
 
   const prevIsOpenRef = useRef(false);
 
@@ -233,38 +131,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [config, isOpen]);
 
-  // 将外部配置装载到表单状态并同步记录基准快照
-  const syncFromConfig = (cfg: Config) => {
-    setHexoDir(cfg.hexo_dir || '');
-    setCoverFields((cfg.cover_fields || ['index_img', 'banner_img']).join(', '));
-    setDateField(cfg.date_field || 'date');
-    setUpdatedField(cfg.updated_field || 'updated');
-    setOrientation(cfg.orientation || 'landscape');
-    setImageSize(cfg.image_size || 'large');
-    setMinWidth(cfg.min_width || 1200);
-    setMinHeight(cfg.min_height || 600);
-    setImageWidth(cfg.image_width || 1200);
-    setImageQuality(cfg.image_quality || 80);
-    setGithubOwner(cfg.github_owner || '');
-    setSocialifyPattern(cfg.socialify_pattern || 'Signal');
-    setSocialifyTheme(cfg.socialify_theme || 'Auto');
-    setProxy(cfg.proxy || '');
-    setDeployMode(cfg.deploy_mode || 'git');
-    setGitCommitTemplate(cfg.git_commit_template || 'chore(cover): update cover for {title}');
-    setAutoSearch(Boolean(cfg.auto_search));
-    setInfiniteScroll(Boolean(cfg.infinite_scroll));
-    setTheme(cfg.theme || 'dark');
-    setCustomCSS(cfg.custom_css || '');
-
-    baselineConfigRef.current = JSON.parse(JSON.stringify(cfg));
-  };
-
-  // 关键修复：仅在弹窗从关闭变为打开（首次打开）时，才同步初始状态与定位到 initialCategory。
-  // 在弹窗保持开启期间（例如保存配置后），绝对不跳回 initialCategory 首页，保证用户留在当前 Tab！
+  // 仅在弹窗从关闭变为打开（首次打开）时，才把外部配置装载为草稿并记录基准快照。
+  // 弹窗保持开启期间（例如保存配置后）绝对不重新播种，保证用户留在当前 Tab 与草稿状态。
   useEffect(() => {
     if (isOpen) {
       if (!prevIsOpenRef.current) {
-        syncFromConfig(activeConfig);
+        setDraftConfig(cloneConfig(activeConfig));
+        setBaselineConfig(cloneConfig(activeConfig));
         if (initialCategory) {
           setActiveCategory(initialCategory);
         }
@@ -273,85 +146,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     prevIsOpenRef.current = isOpen;
   }, [isOpen, initialCategory, activeConfig]);
 
-  // 计算当前表单是否被修改 (Dirty Check)
-  const isDirty = useMemo(() => {
-    const base = baselineConfigRef.current;
-    if (!base) return false;
+  // 各 Tab 的增量 patch 统一合并进草稿（onConfigChange 契约入口）
+  const handleConfigChange = useCallback((patch: Partial<Config>) => {
+    setDraftConfig(prev => ({ ...prev, ...patch }));
+  }, []);
 
-    // 1. hexoDir
-    if ((hexoDir || '').trim() !== (base.hexo_dir || '').trim()) return true;
-
-    // 2. coverFields
-    const currentRawCoverFields = coverFields
-      .split(/[,，\s]+/)
-      .map(f => f.trim())
-      .filter(Boolean);
-    const baseCoverFields = (base.cover_fields || []).map(f => f.trim()).filter(Boolean);
-    if (
-      currentRawCoverFields.length !== baseCoverFields.length ||
-      !currentRawCoverFields.every((f, i) => f === baseCoverFields[i])
-    ) {
-      return true;
-    }
-
-    // 3. dateField & updatedField
-    if ((dateField || 'date').trim() !== (base.date_field || 'date').trim()) return true;
-    if ((updatedField || 'updated').trim() !== (base.updated_field || 'updated').trim()) return true;
-
-    // 4. orientation & imageSize
-    if ((orientation || 'landscape') !== (base.orientation || 'landscape')) return true;
-    if ((imageSize || 'large') !== (base.image_size || 'large')) return true;
-
-    // 5. numbers
-    if (Number(minWidth || 1200) !== Number(base.min_width || 1200)) return true;
-    if (Number(minHeight || 600) !== Number(base.min_height || 600)) return true;
-    if (Number(imageWidth || 1200) !== Number(base.image_width || 1200)) return true;
-    if (Number(imageQuality || 80) !== Number(base.image_quality || 80)) return true;
-
-    // 6. githubOwner, socialifyPattern, socialifyTheme
-    if ((githubOwner || '').trim() !== (base.github_owner || '').trim()) return true;
-    if ((socialifyPattern || 'Signal') !== (base.socialify_pattern || 'Signal')) return true;
-    if ((socialifyTheme || 'Auto').toLowerCase() !== (base.socialify_theme || 'Auto').toLowerCase()) return true;
-
-    // 7. proxy
-    if ((proxy || '').trim() !== (base.proxy || '').trim()) return true;
-
-    // 8. deployMode & gitCommitTemplate
-    if ((deployMode || 'git') !== (base.deploy_mode || 'git')) return true;
-    const defaultTmpl = 'chore(cover): update cover for {title}';
-    if ((gitCommitTemplate || defaultTmpl).trim() !== (base.git_commit_template || defaultTmpl).trim()) return true;
-
-    // 9. booleans
-    if (Boolean(autoSearch) !== Boolean(base.auto_search)) return true;
-    if (Boolean(infiniteScroll) !== Boolean(base.infinite_scroll)) return true;
-
-    // 10. theme & customCSS
-    if ((theme || 'dark') !== (base.theme || 'dark')) return true;
-    if ((customCSS || '').trim() !== (base.custom_css || '').trim()) return true;
-
-    return false;
-  }, [
-    hexoDir,
-    coverFields,
-    dateField,
-    updatedField,
-    orientation,
-    imageSize,
-    minWidth,
-    minHeight,
-    imageWidth,
-    imageQuality,
-    githubOwner,
-    socialifyPattern,
-    socialifyTheme,
-    proxy,
-    deployMode,
-    gitCommitTemplate,
-    autoSearch,
-    infiniteScroll,
-    theme,
-    customCSS,
-  ]);
+  // 草稿 vs 基准快照的 entries 差异 → 保存 patch，同时用于未保存拦截判定
+  const pendingPatch = useMemo(
+    () => (baselineConfig ? buildConfigUpdate(draftConfig, baselineConfig) : {}),
+    [draftConfig, baselineConfig]
+  );
+  const isDirty = Object.keys(pendingPatch).length > 0;
 
   // 拦截关闭请求
   const handleRequestClose = () => {
@@ -391,58 +196,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, isDirty, showUnsavedPrompt]);
 
-  // 切换至关于页面时自动加载更新日志
-  useEffect(() => {
-    if (activeCategory === 'about' && !changelogContent && typeof api?.getChangelog === 'function') {
-      setIsLoadingChangelog(true);
-      api.getChangelog()
-        .then(res => {
-          if (res?.success && res.changelog) {
-            setChangelogContent(res.changelog);
-          }
-        })
-        .catch(() => {})
-        .finally(() => setIsLoadingChangelog(false));
-    }
-  }, [activeCategory, changelogContent]);
-
   if (!isOpen) return null;
 
   const handleSave = async (): Promise<boolean> => {
     setIsSaving(true);
     try {
-      const rawFields = coverFields
-        .split(/[,，\s]+/)
-        .map(f => f.trim())
-        .filter(Boolean);
-
-      const updated: Config = {
-        hexo_dir: hexoDir.trim(),
-        posts_dir: hexoDir.trim() ? `${hexoDir.trim()}/source/_posts` : '',
-        drafts_dir: hexoDir.trim() ? `${hexoDir.trim()}/source/_drafts` : '',
-        cover_fields: rawFields.length > 0 ? rawFields : ['index_img', 'banner_img'],
-        date_field: dateField.trim() || 'date',
-        updated_field: updatedField.trim() || 'updated',
-        orientation,
-        image_size: imageSize,
-        min_width: Math.max(100, Number(minWidth) || 1200),
-        min_height: Math.max(100, Number(minHeight) || 600),
-        image_width: Math.max(100, Number(imageWidth) || 1200),
-        image_quality: Math.max(1, Math.min(100, Number(imageQuality) || 80)),
-        github_owner: githubOwner.trim(),
-        socialify_pattern: socialifyPattern,
-        socialify_theme: socialifyTheme,
-        proxy: proxy.trim(),
-        deploy_mode: deployMode,
-        git_commit_template: gitCommitTemplate.trim() || 'chore(cover): update cover for {title}',
-        auto_search: autoSearch,
-        infinite_scroll: infiniteScroll,
-        theme,
-        custom_css: customCSS,
-      };
-
-      const res = await api.saveConfig(updated);
+      const res = await api.saveConfig(pendingPatch);
       if (res.success) {
+        const theme = draftConfig.theme || 'dark';
+        const customCSS = draftConfig.custom_css || '';
         const domTheme = document.documentElement.getAttribute('data-theme') || 'dark';
         const domCss = getCurrentCustomCSS();
         if (theme !== domTheme || customCSS !== domCss) {
@@ -452,7 +214,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           applyCustomCSS(customCSS);
         }
         toast.success('配置与外观样式已成功同步保存！');
-        baselineConfigRef.current = JSON.parse(JSON.stringify(res.config));
+        const saved = cloneConfig(res.config);
+        setBaselineConfig(saved);
+        setDraftConfig(saved);
         onSaved(res.config);
         return true;
       } else {
@@ -481,10 +245,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  // 弹窗确认 2：放弃修改并继续
+  // 弹窗确认 2：放弃修改并继续（草稿回滚到基准快照，Tab 切换 / 关闭后重新播种）
   const handlePromptDiscardAndContinue = () => {
-    if (baselineConfigRef.current) {
-      syncFromConfig(baselineConfigRef.current);
+    if (baselineConfig) {
+      setDraftConfig(cloneConfig(baselineConfig));
     }
     setShowUnsavedPrompt(false);
     if (pendingAction?.type === 'switch_tab') {
@@ -501,57 +265,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setPendingAction(null);
   };
 
-  const handleBrowseDir = async () => {
-    setIsBrowsingDir(true);
-    try {
-      const res = await api.selectDirectory('请选择本地 Hexo 博客根目录', hexoDir || undefined);
-      if (res.success && res.path) {
-        setHexoDir(res.path);
-        if (res.is_hexo_root) {
-          toast.success('已识别有效 Hexo 根目录 (_config.yml 存在)');
-        } else {
-          toast.info('已选择目录，未检测到 _config.yml');
-        }
-      }
-    } catch {
-      toast.error('调用原生目录选择器失败');
-    } finally {
-      setIsBrowsingDir(false);
-    }
-  };
-
-  const handleTestProxy = async () => {
-    if (!proxy.trim()) {
-      toast.info('请输入待检测的代理地址');
-      return;
-    }
-    setIsTestingProxy(true);
-    setProxyTestResult(null);
-    try {
-      const res = await api.testProxy(proxy.trim());
-      setProxyTestResult({
-        success: res.success,
-        message: res.message || (res.success ? '代理连接成功' : res.error || '连接超时'),
-        latency: res.latency_ms,
-      });
-      if (res.success) {
-        toast.success(`代理连通可用！延迟: ${res.latency_ms || 0}ms`);
-      } else {
-        toast.error(`代理检测失败: ${res.error || res.message}`);
-      }
-    } catch (e: any) {
-      setProxyTestResult({
-        success: false,
-        message: e.message || '网络请求异常',
-      });
-      toast.error('代理测试异常');
-    } finally {
-      setIsTestingProxy(false);
-    }
-  };
-
-  const computedPostsDir = hexoDir ? `${hexoDir}/source/_posts` : '未指定';
-  const computedDraftsDir = hexoDir ? `${hexoDir}/source/_drafts` : '未指定';
   const currentCategoryMeta = CATEGORIES.find(c => c.id === activeCategory);
 
   return (
@@ -634,102 +347,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <p>{currentCategoryMeta?.description}</p>
               </div>
 
-              {activeCategory === 'blog' && (
-                <BlogTab
-                  hexoDir={hexoDir}
-                  setHexoDir={setHexoDir}
-                  computedPostsDir={computedPostsDir}
-                  computedDraftsDir={computedDraftsDir}
-                  isBrowsingDir={isBrowsingDir}
-                  handleBrowseDir={handleBrowseDir}
-                  coverFields={coverFields}
-                  setCoverFields={setCoverFields}
-                  dateField={dateField}
-                  setDateField={setDateField}
-                  updatedField={updatedField}
-                  setUpdatedField={setUpdatedField}
-                  autoSearch={autoSearch}
-                  setAutoSearch={setAutoSearch}
-                />
-              )}
-
-              {activeCategory === 'gallery' && (
-                <GalleryTab
-                  orientation={orientation}
-                  setOrientation={setOrientation}
-                  imageSize={imageSize}
-                  setImageSize={setImageSize}
-                  minWidth={minWidth}
-                  setMinWidth={setMinWidth}
-                  minHeight={minHeight}
-                  setMinHeight={setMinHeight}
-                  imageWidth={imageWidth}
-                  setImageWidth={setImageWidth}
-                  imageQuality={imageQuality}
-                  setImageQuality={setImageQuality}
-                  infiniteScroll={infiniteScroll}
-                  setInfiniteScroll={setInfiniteScroll}
-                />
-              )}
-
-              {activeCategory === 'appearance' && (
-                <AppearanceTab
-                  theme={theme}
-                  setTheme={setTheme}
-                  customCSS={customCSS}
-                  setCustomCSS={setCustomCSS}
-                  onAppearanceChange={onAppearanceChange}
-                />
-              )}
-
-              {activeCategory === 'i18n' && (
-                <I18nTab />
-              )}
-
-              {activeCategory === 'socialify' && (
-                <SocialifyTab
-                  githubOwner={githubOwner}
-                  setGithubOwner={setGithubOwner}
-                  socialifyPattern={socialifyPattern}
-                  setSocialifyPattern={setSocialifyPattern}
-                  socialifyTheme={socialifyTheme}
-                  setSocialifyTheme={setSocialifyTheme}
-                />
-              )}
-
-              {activeCategory === 'network' && (
-                <NetworkTab
-                  proxy={proxy}
-                  setProxy={setProxy}
-                  isTestingProxy={isTestingProxy}
-                  proxyTestResult={proxyTestResult}
-                  setProxyTestResult={setProxyTestResult}
-                  handleTestProxy={handleTestProxy}
-                  deployMode={deployMode}
-                  setDeployMode={setDeployMode}
-                  gitCommitTemplate={gitCommitTemplate}
-                  setGitCommitTemplate={setGitCommitTemplate}
-                />
-              )}
-
-              {activeCategory === 'doctor' && (
-                <DoctorTab />
-              )}
-
-              {activeCategory === 'about' && (
-                <AboutTab
-                  config={activeConfig}
-                  isCheckingVersion={isCheckingVersion}
-                  versionResult={versionResult}
-                  isInstalling={isInstalling}
-                  changelogContent={changelogContent}
-                  isLoadingChangelog={isLoadingChangelog}
-                  handleManualCheckVersion={handleManualCheckVersion}
-                  handleInstallUpdate={handleInstallUpdate}
-                  handleCopyConfigPath={handleCopyConfigPath}
-                  hasCopiedPath={hasCopiedPath}
-                />
-              )}
+              {/* C3：设置内容区局部边界（chunk 加载失败 / Tab 渲染异常仅替换该区） */}
+              <ErrorBoundary
+                fallback={props => <SectionErrorFallback title="设置面板" {...props} />}
+              >
+                {/* A9：Tab 懒加载 + 按需分包（config / onConfigChange 契约下发草稿） */}
+                {currentCategoryMeta && (
+                  <React.Suspense fallback={<div className="settings-tab-loading">加载中…</div>}>
+                    <currentCategoryMeta.tab
+                      config={draftConfig}
+                      onConfigChange={handleConfigChange}
+                      onAppearanceChange={onAppearanceChange}
+                    />
+                  </React.Suspense>
+                )}
+              </ErrorBoundary>
             </div>
           </main>
         </div>

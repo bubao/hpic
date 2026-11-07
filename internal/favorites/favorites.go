@@ -13,9 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"hpic/internal/atomicfile"
 	"hpic/internal/config"
+	"hpic/internal/db"
 )
 
+// FavoriteItem 为对外契约结构（前端 / MCP 共用），字段不可随意变更。
 type FavoriteItem struct {
 	ID        string    `json:"id"`
 	URL       string    `json:"url"`
@@ -31,10 +34,21 @@ type TagStat struct {
 	Count int    `json:"count"`
 }
 
+// favoritesImportedKey 记录历史 favorites.json 是否已一次性导入 SQLite。
+const favoritesImportedKey = "favorites_json_imported"
+
+// Store 是收藏夹的唯一入口。生产环境始终接入 *db.Database，
+// SQLite 为唯一真相源；仅当数据库未初始化（db.Init 失败）或单测构造时
+// 保留 JSON 回退路径，该路径只负责兼容历史数据，不再作为日常写入目标。
 type Store struct {
 	mu       sync.RWMutex
 	filePath string
-	items    []FavoriteItem
+	database *db.Database
+
+	// items 仅在 database == nil 的 JSON 回退模式下使用。
+	items []FavoriteItem
+	// jsonImported 表示本进程内已完成历史 JSON 的一次性导入。
+	jsonImported bool
 }
 
 func fileExists(p string) bool {
@@ -58,10 +72,9 @@ func DefaultFavoritesPath() string {
 	return stdPath
 }
 
-// GetStore 返回全局默认 Store 实例（首次调用时初始化）
-// 注意：SetFilePath 后 store 会自动加载新路径的数据
+// GetStore 返回全局默认 Store 实例（首次调用时初始化）。
+// 生产调用方需在数据库就绪后调用 SetDatabase 接入 SQLite 后端。
 func GetStore() *Store {
-	// 使用 sync.OnceValue (Go 1.21+) 或手写 once 逻辑
 	return getStoreOnce()
 }
 
@@ -78,14 +91,38 @@ func getStoreOnce() *Store {
 	return storeInstance
 }
 
+// SetFilePath 更新历史 JSON 路径。已接入 SQLite 时仅用于触发一次性迁移，
+// 不会把收藏夹切换回 JSON 存储。
 func (s *Store) SetFilePath(p string) {
 	s.mu.Lock()
 	s.filePath = p
 	s.mu.Unlock()
+
+	if s.hasDatabase() {
+		s.migrateLegacyJSON()
+		return
+	}
 	s.load()
 }
 
+// SetDatabase 接入 SQLite 后端，并在首次接入时自动导入历史 JSON 收藏。
+// 传入 nil 会退回 JSON 模式（数据库初始化失败时的兜底）。
+func (s *Store) SetDatabase(database *db.Database) {
+	s.mu.Lock()
+	s.database = database
+	if database == nil {
+		s.jsonImported = false
+	}
+	s.mu.Unlock()
+
+	s.migrateLegacyJSON()
+}
+
 func (s *Store) Reload() {
+	if s.hasDatabase() {
+		// SQLite 是唯一真相源，无需也无法从 JSON 重载。
+		return
+	}
 	s.load()
 }
 
@@ -96,6 +133,89 @@ func NewStore(filePath string) *Store {
 	}
 	s.load()
 	return s
+}
+
+// NewStoreWithDB 构造以 SQLite 为后端的收藏夹存储，并在首次使用时导入历史 JSON。
+func NewStoreWithDB(filePath string, database *db.Database) *Store {
+	s := &Store{
+		filePath: filePath,
+		database: database,
+		items:    make([]FavoriteItem, 0),
+	}
+	s.migrateLegacyJSON()
+	return s
+}
+
+func (s *Store) hasDatabase() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.database != nil
+}
+
+// migrateLegacyJSON 将历史 favorites.json 中的收藏一次性导入 SQLite。
+// 仅当数据库为空且尚未导入时执行；导入完成后写入 kv_config 标记，
+// 避免用户清空收藏后被历史 JSON 重新填充。
+func (s *Store) migrateLegacyJSON() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.database == nil || s.jsonImported {
+		return
+	}
+	s.jsonImported = true
+
+	if marker, err := s.database.GetKV(favoritesImportedKey); err == nil && marker == "1" {
+		return
+	}
+
+	count, err := s.database.CountFavorites()
+	if err != nil {
+		return
+	}
+	if count > 0 {
+		_ = s.database.SetKV(favoritesImportedKey, "1")
+		return
+	}
+
+	data, err := os.ReadFile(s.filePath)
+	if err != nil {
+		_ = s.database.SetKV(favoritesImportedKey, "1")
+		return
+	}
+
+	var rawItems []FavoriteItem
+	if err := json.Unmarshal(data, &rawItems); err != nil {
+		_ = s.database.SetKV(favoritesImportedKey, "1")
+		return
+	}
+
+	// 复用历史去重合并规则：同一物理图片（不同参数）只保留一条并合并标签。
+	seenKeys := make(map[string]int)
+	var merged []FavoriteItem
+	for _, it := range rawItems {
+		key := NormalizeImageKey(it.URL)
+		if key == "" {
+			continue
+		}
+		if idx, exists := seenKeys[key]; exists {
+			merged[idx].Tags = mergeTags(merged[idx].Tags, it.Tags)
+			if merged[idx].Title == "" || merged[idx].Title == "收藏图片" {
+				merged[idx].Title = it.Title
+			}
+			continue
+		}
+		seenKeys[key] = len(merged)
+		merged = append(merged, it)
+	}
+
+	for i := range merged {
+		it := &merged[i]
+		if it.ID == "" {
+			it.ID = HashURL(NormalizeImageKey(it.URL))
+		}
+		_ = s.database.InsertFavorite(toDBRecord(it), NormalizeImageKey(it.URL))
+	}
+	_ = s.database.SetKV(favoritesImportedKey, "1")
 }
 
 var (
@@ -131,6 +251,7 @@ func NormalizeImageKey(rawURL string) string {
 	return rawURL
 }
 
+// load 从 JSON 文件读取收藏（仅 JSON 回退模式使用）。
 func (s *Store) load() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -166,11 +287,8 @@ func (s *Store) load() {
 	s.items = deduped
 }
 
-// save 将收藏列表持久化到 JSON 文件。
-// 注意：不再异步写入 SQLite。原因：
-//   1. 异步写入会导致 JSON 与 SQLite 数据不一致（JSON 先写成功，SQLite 后写失败）
-//   2. 每次 save 都 Init+Close DB 连接，连接池限为 1，并发场景下争抢严重
-//   3. SQLite 中的 favorites 表由独立的数据库管理流程维护（如需要同步，应在 Store 初始化时一次性导入）
+// save 仅在 JSON 回退模式下使用，将收藏列表持久化到 JSON 文件。
+// SQLite 模式下不会调用（SQLite 即唯一真相源，不再产生 JSON 写入）。
 func (s *Store) save() error {
 	dir := filepath.Dir(s.filePath)
 	if dir != "" && dir != "." {
@@ -185,41 +303,9 @@ func (s *Store) save() error {
 	return atomicWriteFileJSON(s.filePath, data)
 }
 
-// atomicWriteFileJSON 原子写入 JSON 文件（写临时文件后 rename，防断电截断）
+// atomicWriteFileJSON 原子写入 JSON 文件（临时文件 + fsync + rename，防断电截断）
 func atomicWriteFileJSON(filePath string, data []byte) error {
-	dir := filepath.Dir(filePath)
-	if dir == "" || dir == "." {
-		dir = "."
-	}
-	tmpFile, err := os.CreateTemp(dir, filepath.Base(filePath)+".tmp-*")
-	if err != nil {
-		return os.WriteFile(filePath, data, 0644)
-	}
-	tmpName := tmpFile.Name()
-	defer func() {
-		if tmpName != "" {
-			_ = os.Remove(tmpName)
-		}
-	}()
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, filePath); err != nil {
-		_ = os.Remove(filePath)
-		if err2 := os.Rename(tmpName, filePath); err2 != nil {
-			return os.WriteFile(filePath, data, 0644)
-		}
-	}
-	tmpName = ""
-	return nil
+	return atomicfile.Write(filePath, data)
 }
 
 func HashURL(urlStr string) string {
@@ -235,7 +321,7 @@ func (s *Store) Add(item FavoriteItem) (FavoriteItem, error) {
 		return item, nil
 	}
 	if item.ID == "" {
-		item.ID = HashURL(item.URL)
+		item.ID = HashURL(NormalizeImageKey(item.URL))
 	}
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = time.Now()
@@ -243,10 +329,49 @@ func (s *Store) Add(item FavoriteItem) (FavoriteItem, error) {
 
 	targetKey := NormalizeImageKey(item.URL)
 
-	// 检查是否已存在 (同时比对 ID、原 URL 或图片规范化主键)
+	if s.database != nil {
+		return s.addDBLocked(item, targetKey)
+	}
+	return s.addJSONLocked(item, targetKey)
+}
+
+// addDBLocked 在 SQLite 中新增或合并收藏。
+// 同一物理图片（不同 URL 参数）由 norm_key 唯一定位，重复添加仅合并标签。
+func (s *Store) addDBLocked(item FavoriteItem, targetKey string) (FavoriteItem, error) {
+	existing, err := s.database.GetFavoriteByNormKey(targetKey)
+	if err != nil {
+		return item, err
+	}
+	// 兼容调用方显式指定 ID 的历史行为。
+	if existing == nil && item.ID != "" {
+		existing, err = s.database.GetFavoriteByIDOrURL(item.ID)
+		if err != nil {
+			return item, err
+		}
+	}
+
+	if existing == nil {
+		if err := s.database.InsertFavorite(toDBRecord(&item), targetKey); err != nil {
+			return item, err
+		}
+		return item, nil
+	}
+
+	merged := *existing
+	merged.Tags = mergeTags(existing.Tags, item.Tags)
+	if existing.Title == "" || existing.Title == "收藏图片" {
+		merged.Title = item.Title
+	}
+	if err := s.database.UpdateFavorite(merged, targetKey); err != nil {
+		return item, err
+	}
+	return favoriteItemFromDB(merged), nil
+}
+
+// addJSONLocked 为数据库不可用时的回退路径，行为与历史版本保持一致。
+func (s *Store) addJSONLocked(item FavoriteItem, targetKey string) (FavoriteItem, error) {
 	for i, existing := range s.items {
 		if existing.URL == item.URL || existing.ID == item.ID || (targetKey != "" && NormalizeImageKey(existing.URL) == targetKey) {
-			// 更新 tags 和信息
 			if len(item.Tags) > 0 {
 				s.items[i].Tags = mergeTags(s.items[i].Tags, item.Tags)
 			}
@@ -258,7 +383,6 @@ func (s *Store) Add(item FavoriteItem) (FavoriteItem, error) {
 		}
 	}
 
-	// 插入新记录置顶
 	s.items = append([]FavoriteItem{item}, s.items...)
 	_ = s.save()
 	return item, nil
@@ -270,6 +394,15 @@ func (s *Store) Remove(idOrURL string) bool {
 
 	target := strings.TrimSpace(idOrURL)
 	targetKey := NormalizeImageKey(target)
+
+	if s.database != nil {
+		removed, err := s.database.DeleteFavorite(target, targetKey)
+		if err != nil {
+			return false
+		}
+		return removed
+	}
+
 	var newItems []FavoriteItem
 	removed := false
 
@@ -293,15 +426,26 @@ func (s *Store) UpdateTags(idOrURL string, tags []string) bool {
 	defer s.mu.Unlock()
 
 	target := strings.TrimSpace(idOrURL)
+	if target == "" {
+		return false
+	}
+	targetKey := NormalizeImageKey(target)
+	cleaned := cleanTags(tags)
+
+	if s.database != nil {
+		tagsJSON, err := json.Marshal(cleaned)
+		if err != nil {
+			return false
+		}
+		ok, err := s.database.UpdateFavoriteTags(target, targetKey, string(tagsJSON))
+		if err != nil {
+			return false
+		}
+		return ok
+	}
+
 	for i, it := range s.items {
-		if it.ID == target || it.URL == target {
-			var cleaned []string
-			for _, t := range tags {
-				t = strings.TrimSpace(t)
-				if t != "" {
-					cleaned = append(cleaned, t)
-				}
-			}
+		if it.ID == target || it.URL == target || (targetKey != "" && NormalizeImageKey(it.URL) == targetKey) {
 			s.items[i].Tags = cleaned
 			_ = s.save()
 			return true
@@ -314,11 +458,13 @@ func (s *Store) List(tag string, query string) []FavoriteItem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	items := s.itemsSnapshot()
+
 	tag = strings.TrimSpace(strings.ToLower(tag))
 	query = strings.TrimSpace(strings.ToLower(query))
 
 	var res []FavoriteItem
-	for _, it := range s.items {
+	for _, it := range items {
 		// 标签过滤
 		if tag != "" {
 			hasTag := false
@@ -360,7 +506,7 @@ func (s *Store) ListTags() []TagStat {
 	defer s.mu.RUnlock()
 
 	counts := make(map[string]int)
-	for _, it := range s.items {
+	for _, it := range s.itemsSnapshot() {
 		for _, t := range it.Tags {
 			t = strings.TrimSpace(t)
 			if t != "" {
@@ -388,14 +534,39 @@ func (s *Store) ListTags() []TagStat {
 func (s *Store) IsFavorite(url string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	url = strings.TrimSpace(url)
 	targetKey := NormalizeImageKey(url)
+	if s.database != nil {
+		exists, err := s.database.FavoriteExists(url, targetKey)
+		if err != nil {
+			return false
+		}
+		return exists
+	}
 	for _, it := range s.items {
 		if it.URL == url || (targetKey != "" && NormalizeImageKey(it.URL) == targetKey) {
 			return true
 		}
 	}
 	return false
+}
+
+// itemsSnapshot 返回当前收藏列表快照（按创建时间倒序）。
+// 调用方必须持有 s.mu（读锁或写锁）。
+func (s *Store) itemsSnapshot() []FavoriteItem {
+	if s.database != nil {
+		records, err := s.database.GetAllFavorites()
+		if err != nil {
+			return nil
+		}
+		items := make([]FavoriteItem, 0, len(records))
+		for _, rec := range records {
+			items = append(items, favoriteItemFromDB(rec))
+		}
+		return items
+	}
+	return s.items
 }
 
 func mergeTags(orig, incoming []string) []string {
@@ -409,4 +580,39 @@ func mergeTags(orig, incoming []string) []string {
 		}
 	}
 	return res
+}
+
+func cleanTags(tags []string) []string {
+	var cleaned []string
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			cleaned = append(cleaned, t)
+		}
+	}
+	return cleaned
+}
+
+func toDBRecord(it *FavoriteItem) db.FavoriteRecord {
+	return db.FavoriteRecord{
+		ID:        it.ID,
+		URL:       it.URL,
+		ThumbURL:  it.ThumbURL,
+		Title:     it.Title,
+		Source:    it.Source,
+		Tags:      it.Tags,
+		CreatedAt: it.CreatedAt,
+	}
+}
+
+func favoriteItemFromDB(rec db.FavoriteRecord) FavoriteItem {
+	return FavoriteItem{
+		ID:        rec.ID,
+		URL:       rec.URL,
+		ThumbURL:  rec.ThumbURL,
+		Title:     rec.Title,
+		Source:    rec.Source,
+		Tags:      rec.Tags,
+		CreatedAt: rec.CreatedAt,
+	}
 }

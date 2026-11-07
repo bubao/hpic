@@ -74,7 +74,7 @@ describe('SettingsModal full-coverage tests', () => {
     expect(handleClose).toHaveBeenCalledTimes(1);
   });
 
-  it('should switch categories when category items are clicked', () => {
+  it('should switch categories when category items are clicked', async () => {
     render(
       <ToastProvider>
         <SettingsModal
@@ -86,22 +86,22 @@ describe('SettingsModal full-coverage tests', () => {
       </ToastProvider>
     );
 
-    // 初始处于 "博客与路径"
-    expect(screen.getByText('Hexo 博客根目录 (hexo_dir):')).toBeDefined();
+    // 初始处于 "博客与路径"（懒加载 chunk 就绪后渲染）
+    expect(await screen.findByText('Hexo 博客根目录 (hexo_dir):')).toBeDefined();
 
     // 切换到 "图库与尺寸"
     fireEvent.click(screen.getByText('图库与尺寸'));
-    expect(screen.getByText('默认构图比例 (orientation):')).toBeDefined();
+    expect(await screen.findByText('默认构图比例 (orientation):')).toBeDefined();
     expect(screen.getByText('外部图片压缩宽度 (image_width):')).toBeDefined();
 
     // 切换到 "网络与部署"
     fireEvent.click(screen.getByText('网络与部署'));
-    expect(screen.getByText('网络代理地址 (支持 HTTP / SOCKS5):')).toBeDefined();
+    expect(await screen.findByText('网络代理地址 (支持 HTTP / SOCKS5):')).toBeDefined();
     expect(screen.getByText('发布模式 (deploy_mode):')).toBeDefined();
 
     // 切换到 "关于与更新"
     fireEvent.click(screen.getByText('关于与更新'));
-    expect(screen.getByText('hpic 桌面客户端')).toBeDefined();
+    expect(await screen.findByText('hpic 桌面客户端')).toBeDefined();
     expect(screen.getByText('检查新版本')).toBeDefined();
   });
 
@@ -152,7 +152,7 @@ describe('SettingsModal full-coverage tests', () => {
     });
   });
 
-  it('should switch to appearance tab and inject cyberpunk preset', () => {
+  it('should switch to appearance tab and inject cyberpunk preset', async () => {
     render(
       <ToastProvider>
         <SettingsModal
@@ -167,8 +167,8 @@ describe('SettingsModal full-coverage tests', () => {
     const appearanceNav = screen.getByText('外观与样式');
     fireEvent.click(appearanceNav);
 
-    // 统一后的外观预设卡片
-    expect(screen.getByText('外观样式')).toBeDefined();
+    // 统一后的外观预设卡片（懒加载 chunk 就绪后渲染）
+    expect(await screen.findByText('外观样式')).toBeDefined();
     expect(screen.getByText('亮色清爽')).toBeDefined();
 
     // 展开自定义 CSS 面板以读取内容
@@ -197,8 +197,8 @@ describe('SettingsModal full-coverage tests', () => {
       </ToastProvider>
     );
 
-    // 修改 hexoDir 使表单处于 dirty 状态
-    const hexoInput = screen.getByPlaceholderText('/Users/username/my-hexo-blog');
+    // 修改 hexoDir 使表单处于 dirty 状态（懒加载 chunk 就绪后再操作）
+    const hexoInput = await screen.findByPlaceholderText('/Users/username/my-hexo-blog');
     fireEvent.change(hexoInput, { target: { value: '/Users/test/dirty-hexo' } });
 
     // 尝试切换到 "图库与尺寸"
@@ -221,5 +221,54 @@ describe('SettingsModal full-coverage tests', () => {
     // 点击“放弃更改”后允许继续关闭
     fireEvent.click(screen.getByText('放弃更改'));
     expect(handleClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('should render user custom theme presets group and apply custom preset', async () => {
+    const spy = vi.spyOn(api, 'getThemePresets').mockResolvedValue({
+      themes_dir: '/tmp/hpic-themes',
+      presets: [
+        { id: 'dark', name: '暗色极客', desc: '深黑沉浸', theme: 'dark', css: '', is_builtin: true },
+        { id: 'light', name: '亮色清爽', desc: '纸白纯净', theme: 'light', css: '', is_builtin: true },
+        { id: 'auto', name: '跟随系统', desc: '自动适配', theme: 'auto', css: '', is_builtin: true },
+        { id: 'cyberpunk', name: '赛博霓虹', desc: '深紫霓虹', theme: 'dark', css: '', is_builtin: true },
+        { id: 'minimal', name: '极简墨水', desc: '纸墨极简', theme: 'light', css: '', is_builtin: true },
+        {
+          id: 'my-theme',
+          name: '我的主题',
+          desc: '用户自定义皮肤',
+          theme: 'light',
+          css: ':root { --accent-color: #123456; }',
+          is_builtin: false,
+        },
+      ],
+    });
+
+    try {
+      render(
+        <ToastProvider>
+          <SettingsModal
+            isOpen={true}
+            onClose={vi.fn()}
+            config={dummyConfig}
+            onSaved={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      fireEvent.click(screen.getByText('外观与样式'));
+      expect(await screen.findByText('外观样式')).toBeDefined();
+
+      // 用户自定义主题分组（来自主题预设目录）
+      expect(await screen.findByText('用户自定义主题')).toBeDefined();
+      expect(screen.getByText('我的主题')).toBeDefined();
+
+      // 展开自定义 CSS 面板后点击自定义预设，读取注入内容
+      fireEvent.click(screen.getByText('自定义 CSS'));
+      fireEvent.click(screen.getByText('我的主题'));
+      const textarea = screen.getByPlaceholderText(/例如自定义强调色与圆角/i) as HTMLTextAreaElement;
+      expect(textarea.value).toContain('--accent-color: #123456');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

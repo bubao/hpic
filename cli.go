@@ -14,6 +14,7 @@ import (
 	"hpic/internal/api"
 	"hpic/internal/config"
 	"hpic/internal/db"
+	"hpic/internal/favorites"
 	"hpic/internal/hexo"
 	"hpic/internal/mcp"
 	"hpic/internal/post"
@@ -89,8 +90,13 @@ func runCLIUpdate() {
 		return
 	}
 
+	assetName := info.BinaryAssetFileName
+	if assetName == "" && installTargetURL == info.DownloadURL {
+		assetName = info.AssetFileName
+	}
+
 	fmt.Println("")
-	fmt.Printf("[INFO] 正在下载最新版本资产 (%s)...\n", info.BinaryAssetFileName)
+	fmt.Printf("[INFO] 正在下载最新版本资产 (%s)...\n", assetName)
 
 	msg, err := api.DownloadAndInstallUpdate(installTargetURL, info.LatestVersion, cfg.Proxy)
 	if err != nil {
@@ -233,10 +239,14 @@ func runCLIMCP() {
 	database, _ := db.Init(dbPath)
 	tracker := post.NewPostsTracker(baseDir)
 
+	// 收藏夹以 SQLite 为唯一真相源；MCP 独占进程同样需要接入并导入历史 JSON。
+	if database != nil {
+		favorites.GetStore().SetDatabase(database)
+	}
+
 	host := mcp.NewHost(cfg, runner, database, tracker, Version)
 	if err := host.RunStdio(context.Background()); err != nil && err != io.EOF {
 		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 		os.Exit(1)
 	}
 }
-

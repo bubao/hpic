@@ -12,8 +12,8 @@ hpic 采用 **Go + React + 平台原生层** 的技术架构。根据你所处�
 
 | 软件 / 工具 | 最低版本要求 | 推荐版本 | 用途说明 |
 | :--- | :--- | :--- | :--- |
-| **Go** | >= 1.22 | >= 1.22 | 服务端内核编译、内嵌静态资源 (`embed`)、自更新与 CLI 工具链 |
-| **Node.js** | >= 18.0 | >= 20.0 LTS | 编译 React 19 前端静态产物、运行图标算法构建脚本 |
+| **Go** | >= 1.27.2（与 `go.mod` 同步） | >= 1.27.2 | 服务端内核编译、内嵌静态资源 (`embed`)、自更新与 CLI 工具链 |
+| **Node.js** | >= 20.0 | >= 22.0 LTS | 编译 React 19 前端静态产物、运行图标算法构建脚本 |
 | **npm** | >= 9.0 | 最新稳定版 | 前端依赖管理与 Vite 构建驱动 |
 | **Git** | >= 2.0 | 最新版 | 权威版本推导 (Git Tag)、发版工作流、博客部署状态检测 |
 
@@ -31,7 +31,8 @@ hpic 采用 **Go + React + 平台原生层** 的技术架构。根据你所处�
   - `swiftc`（Xcode CLT 自带）：用于自动编译 `native_macos/main.swift`（原生独立 WebKit 浮动窗口组件 `hpic-mac-ui`）；若系统未安装，hpic 会自动降级为浏览器交互模式；
   - `hdiutil`（macOS 系统内置）：用于一键生成原生拖拽式 DMG 镜像；
   - `iconutil`（macOS 系统内置）：用于将 `icon.iconset` 编译为原生 `AppIcon.icns` 图标；
-  - `codesign`（macOS 系统内置）：用于本地临时 ad-hoc 签名，防止被 Gatekeeper 阻断。
+  - `codesign`（macOS 系统内置）：用于本地临时 ad-hoc 签名，防止被 Gatekeeper 阻断；
+  - `dmgbuild`（Python DMG 组装引擎）：用于按架构拆分制作双份原生 DMG 镜像；`scripts/package-dmg.sh` 会在缺失时自动通过 `pip3 install --break-system-packages dmgbuild ds_store mac_alias` 安装，也可提前手动安装。
 - **可选增强工具 (Homebrew)**：
   ```bash
   # 1. 如需在 macOS 上直接交叉编译生成 Windows Setup.exe 单文件安装向导
@@ -105,7 +106,8 @@ hpic/
 │   ├── icon.svg        # 矢量母版 (1024x1024，数学几何纯代码生成)
 │   ├── icon.png        # Linux 应用图标
 │   ├── app.ico         # Windows 原生多尺寸打包图标
-│   └── hpic.desktop    # Linux 桌面启动入口配置
+│   ├── hpic.desktop    # Linux 桌面启动入口配置
+│   └── screenshots/    # README 界面预览截图 (主界面 / 图库 / 生成器 / 设置 / 体检)
 ├── docs/               # 技术架构与开发文档
 │   ├── architecture.md # 系统总体架构设计
 │   ├── config.md       # 配置文件规范说明
@@ -114,27 +116,46 @@ hpic/
 │   └── theme-guide.md  # 自定义换肤与主题样式指南
 ├── frontend/           # React 19 前端工程 (Vite + TypeScript + Custom Hooks)
 │   ├── src/components/ # 原子组件、弹窗与设置分类 Tab (components/settings/)
-│   └── src/hooks/      # 领域状态解耦 Hooks (useHexoRunner / usePostList / useModalManager)
+│   ├── src/hooks/      # 领域状态解耦 Hooks (usePostList / useHexoRunner / useModalManager / useConfig 等)
+│   ├── src/commands/   # 命令面板注册表 (Ctrl/⌘ + K 唤起)
+│   └── src/utils/      # imageMeta / svgFixer / poster 等纯函数工具
 ├── internal/           # Go 后台核心模块
-│   ├── api/            # 领域拆解的 HTTP 路由 (posts / hexo / proxy / search / config)
+│   ├── api/            # 领域拆解的 HTTP 路由 (posts / hexo / proxy / search / gallery / theme / config / i18n / doctor)
+│   ├── service/        # 应用服务层 (Posts 写操作编排)
 │   ├── config/         # 静态 JSON 配置文件读写与环境隔离
 │   ├── db/             # 纯 Go 免 CGO SQLite 审计与操作历史数据库 (hpic.db)
+│   ├── doctor/         # 运行时 / Node / Hexo / 网络只读诊断与诊断包导出
 │   ├── favorites/      # 收藏夹与去重规范化
+│   ├── gallery/        # 统一图库检索适配层 (Unsplash / Wallhaven / Socialify / SkillIcons)
 │   ├── hexo/           # Hexo CLI 智能探测与子进程生命周期
+│   ├── httputil/       # 代理 URL 解析与 HTTP 客户端工具
+│   ├── i18n/           # 内置语言包与本地自定义语言包加载
+│   ├── mcp/            # Model Context Protocol 服务端 (供外部 AI 客户端调用)
 │   ├── post/           # Markdown Frontmatter 解析与近零流量体检
-│   └── unsplash/       # 图床适配器与图片搜索
+│   ├── redact/         # 日志与错误输出脱敏
+│   ├── theme/          # 外观预设发现与管理 (~/.config/hpic/themes)
+│   ├── unsplash/       # 图床适配器与图片搜索
+│   └── version/        # 版本信息与更新检测
 ├── native_macos/       # macOS 原生独立 WebKit 浮动窗口模块 (Swift)
 ├── scripts/            # 跨平台构建与发布自动化脚本
 │   ├── build-all.sh    # 全平台全套产物打包入口
+│   ├── build-all.ps1   # Windows 平台全量产物打包入口
 │   ├── build-deb.sh    # 零外部依赖 POSIX Debian .deb 打包器
 │   ├── build-icons.mjs # 声明式数学代码生成跨平台矢量与栅格图标
 │   ├── installer.nsi   # Windows NSIS 单文件 Setup 安装向导脚本
+│   ├── package-macos-arch-dmgs.sh  # 按架构拆分 (arm64/amd64) 双份 DMG 打包入口
+│   ├── build-macos-app.sh  # 参数化 macOS App Bundle 组装 (通用/单架构复用)
 │   ├── package-dmg.sh  # macOS hdiutil 原生 DMG 磁盘镜像制作脚本
+│   ├── dmgbuild-settings.py # DMG 镜像背景与布局配置
+│   ├── generate-dmg-bg.mjs  # DMG 背景图生成脚本
 │   ├── generate-changelog.sh # Conventional Commits 更新日志提炼引擎
 │   └── release.sh      # 核心维护者端到端版本发布向导 (make release)
-├── web/                # 前端生产打包产物 (由 Go embed 自动内嵌打包进单一二进制)
+├── web/                # 前端生产打包产物 (由 Go embed 自动内嵌打包进单一二进制；
+│                       # 需保留 web/placeholder.txt 作为空目录占位，Vite 构建后自动补写)
 ├── install.sh          # macOS / Linux 一键编译安装与系统集成脚本
 ├── install.ps1         # Windows PowerShell 一键安装与快捷方式部署脚本
+├── uninstall.ps1       # Windows 交互式完全卸载脚本
+├── cli.go              # CLI 子命令路由 (version / changelog / update / uninstall / help)
 ├── Makefile            # 多平台编译规则
 └── main.go             # 程序主入口、单实例保护与窗口调度
 ```
@@ -183,13 +204,16 @@ npm run dev
 
 ### 方式 2：使用 Makefile
 ```bash
-# 检查开发环境与编译器工具链版本 (Go >= 1.22, Node >= 18)
+# 检查开发环境与编译器工具链版本 (Go >= 1.27，与 go.mod 同步；Node >= 20)
 make check-env
 
 # 增量构建：自动环境预检，修改 frontend 源码自动触发前端打包并编译二进制
 make
 
-# 制作 macOS 原生 DMG 磁盘镜像安装包（生成 Universal 通用架构的 dist/hpic-v${VERSION}-macOS.dmg）
+# 组装 macOS 原生 App Bundle（自动 lipo 合并 arm64+amd64 为 Universal 双架构 hpic.app）
+make app
+
+# 制作 macOS 原生 DMG 磁盘镜像安装包（按架构拆分，生成 dist/hpic-v${VERSION}-macOS-{arm64,amd64}.dmg，各约 6MB）
 make dmg
 
 # 一次性交叉编译并打包三大系统全部安装包 (macOS, Windows, Linux)
@@ -219,14 +243,18 @@ make clean
 
 | 平台与架构 | 产物文件名格式 | 打包机制 |
 | :--- | :--- | :--- |
-| **macOS (Apple Silicon)** | `hpic-v${VERSION}-darwin-arm64.tar.gz` | Go 交叉编译 + arm64 原生 UI + install.sh 脚本归档 |
-| **macOS (Intel)** | `hpic-v${VERSION}-darwin-amd64.tar.gz` | Go 交叉编译 + amd64 原生 UI + install.sh 脚本归档 |
-| **macOS (Universal)** | `hpic-v${VERSION}-macOS.dmg` | `lipo` 通用双架构二进制 + 系统原生 `hdiutil` 镜像制作 |
+| **macOS (Apple Silicon)** | `hpic-v${VERSION}-darwin-arm64.tar.gz` / `hpic-v${VERSION}-macOS-arm64.dmg` | Go 交叉编译 + arm64 原生 UI + install.sh 脚本归档 / 原生 DMG 镜像 |
+| **macOS (Intel)** | `hpic-v${VERSION}-darwin-amd64.tar.gz` / `hpic-v${VERSION}-macOS-amd64.dmg` | Go 交叉编译 + amd64 原生 UI + install.sh 脚本归档 / 原生 DMG 镜像 |
 | **Linux (x86_64)** | `hpic-v${VERSION}-linux-amd64.tar.gz` | Go 交叉编译 + desktop 桌面集成归档 |
 | **Linux (ARM64)** | `hpic-v${VERSION}-linux-arm64.tar.gz` | Go 交叉编译 + desktop 桌面集成归档 |
 | **Linux (Debian/Ubuntu)** | `hpic_${VERSION}_amd64.deb` / `arm64.deb` | POSIX `ar` + `tar` 零外部依赖打包 |
-| **Windows (x64)** | `hpic-v${VERSION}-windows-amd64.zip` | 绿色便携压缩包 (含一键安装与卸载器) |
+| **Windows (x64)** | `hpic-v${VERSION}-windows-amd64.zip` | 绿色便携压缩包 (仅含 `hpic.exe` 与集成脚本，内部副本不随包分发) |
 | **Windows (x64)** | `hpic-v${VERSION}-setup-amd64.exe` | NSIS 原生单文件安装向导 |
+
+> 📦 **打包稳定性说明**
+> - **macOS 双架构 DMG**：`scripts/package-macos-arch-dmgs.sh` 按 `arm64` / `amd64` 逐一构建，单架构 DMG 制作最多重试 3 次；`dmgbuild` 使用 `--detach-retries 5` 自动重试挂载/卸载，抵御 `hdiutil` 偶发的设备争用抖动。
+> - **Windows 便携包瘦身**：ZIP 通过 `-x "hpic-windows-amd64/hpic-desktop.exe"` 排除 updater / 卸载链路的内部副本（约 5.5MB），该副本在运行 `install.ps1` 时按需生成；NSIS 安装向导仍打包完整文件集。
+> - **CI 门禁**：`.github/workflows/release.yml` 通过 `go-version-file: 'go.mod'` 与本地 Go 工具链自动同步，并在发版前新增 `go vet ./...` 与 `gofmt` 检查。
 
 执行全平台打包：
 ```bash

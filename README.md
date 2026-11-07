@@ -18,7 +18,7 @@
 
 **hpic** 是一个专为 Hexo 博客博主设计的轻量桌面配图管理工具。它通过读取和修改博文 Frontmatter 的元数据参数，帮助博主快速检索、挑选网络图片，并一键更新到指定的博文图片字段中，让博客配图变得轻松优雅。
 
-后端基于 Go 编写，前端采用 React 18，静态资源直接内嵌到单一二进制文件中（约 7.5MB），无任何 Electron 运行时依赖，支持 macOS、Linux 与 Windows。
+后端基于 Go 编写，前端采用 React 19，静态资源直接内嵌到单一二进制文件中（约 12MB，压缩包约 5.5MB），无任何 Electron 运行时依赖，支持 macOS、Linux 与 Windows。
 
 ---
 
@@ -31,7 +31,7 @@ flowchart LR
         Drafts["source/_drafts/*.md<br/>(本地草稿)"]
     end
 
-    subgraph Core ["Go 内核服务 (~7.5MB 单二进制)"]
+    subgraph Core ["Go 内核服务 (~12MB 单二进制)"]
         FM["Frontmatter 幂等解析/写入"]
         Proxy["防盗链安全代理 & 404 检测"]
         GitOps["变更文件按需勾选提交"]
@@ -86,16 +86,17 @@ flowchart LR
 - **灵感收藏夹与全局灯箱**：跨文章临时收藏心仪图片，支持全屏灯箱预览，规范化 Key 自动去重。
 
 <p align="center">
-  <img src="assets/screenshots/05-health-check-modal.png" width="95%" alt="文章封面 404 健康体检" />
+  <img src="assets/screenshots/05-health-check-modal.png" width="95%" alt="全站封面健康体检" />
 </p>
 
 ### 5. 灵活偏好设置、自定义主题与安全 Git 部署
 - **图库与尺寸偏好配置**：自由设定 Wallhaven / Unsplash 默认检索构图（横屏/竖屏/全部）、最小宽高阈值约束、图片质量压缩及无限滚动交互模式。
-- **现代化主题与自由换肤**：原生支持暗色 (Dark)、亮色 (Light) 与跟随系统 (Auto) 顶栏一键切换；支持通过自定义 CSS 变量打造专属调色板，内置 5 套精选皮肤预设（详见 [换肤指南](docs/theme-guide.md)）。
+- **现代化主题与自由换肤**：原生支持暗色 (Dark)、亮色 (Light) 与跟随系统 (Auto) 顶栏一键切换；支持通过自定义 CSS 变量与 `custom.css` 打造专属调色板，内置精选皮肤预设，并可把整套配色保存为 `~/.config/hpic/themes/*.json` 自定义主题预设，在设置面板中一键切换与跨设备分享（详见 [换肤指南](docs/theme-guide.md)）。
+- **全局命令面板**：按下 ⌘K / Ctrl+K 唤起命令面板，支持中文、英文与拼音首字母模糊检索，服务启停、主题切换、Hexo 生成部署与设置直达等操作全程纯键盘完成。
 - **自定义 Frontmatter 字段与 Git 部署保护**：可任意指定博文封面键名（如 `index_img`、`banner_img`、`cover` 等）；部署前自动扫描工作区 `git status`，支持按需勾选本次要发布的文件，杜绝误推未完成的草稿。
 
 <p align="center">
-  <img src="assets/screenshots/04-settings-modal.png" width="95%" alt="偏好设置 - 图库与尺寸约束配置" />
+  <img src="assets/screenshots/04-settings-modal.png" width="95%" alt="偏好设置 - 外观与样式与主题预设" />
 </p>
 
 ---
@@ -105,8 +106,11 @@ flowchart LR
 ### macOS
 
 **方式一：DMG 安装包（推荐）**
-- 从 [Releases](https://github.com/bubao/hpic/releases) 下载最新版 `hpic-macOS.dmg`。
+- **Apple Silicon（M1 / M2 / M3 / M4）**：从 [Releases](https://github.com/bubao/hpic/releases) 下载 `hpic-v<版本号>-macOS-arm64.dmg`；
+- **Intel 芯片（较老机型）**：从 [Releases](https://github.com/bubao/hpic/releases) 下载 `hpic-v<版本号>-macOS-amd64.dmg`；
 - 双击打开 DMG，将 `hpic` 图标直接拖拽至 `Applications` 文件夹即可完成安装。
+
+> 💡 macOS 安装包按架构拆分（arm64 / amd64），单份约 6MB，下载体积约为通用双架构版的一半；客户端【关于与更新】面板检测到新版本时，会自动按当前芯片匹配对应架构的安装包。
 
 **方式二：源码编译安装（开发者）**
 ```bash
@@ -124,8 +128,8 @@ cd hpic
 ### Windows
 
 **方式一：预编译安装向导 / 免安装包（推荐）**
-- 从 [Releases](https://github.com/bubao/hpic/releases) 下载 `hpic-setup-amd64.exe` 单文件安装向导直接双击安装；
-- 或下载 `hpic-windows-amd64.zip` 解压即用（解压包内提供 `install.ps1` 可一键创建桌面与开始菜单快捷方式并配置 PATH）。
+- 从 [Releases](https://github.com/bubao/hpic/releases) 下载 `hpic-v<版本号>-setup-amd64.exe` 单文件安装向导直接双击安装；
+- 或下载 `hpic-v<版本号>-windows-amd64.zip` 解压即用（仅含 `hpic.exe` 与 `install.ps1`、`uninstall.ps1` / `uninstall.cmd` 等集成脚本，内部副本不随包分发、体积更精简；运行 `install.ps1` 可一键创建桌面与开始菜单快捷方式并配置 PATH，并自动生成 `hpic-desktop.exe` 副本）。
 
 **方式二：源码编译安装（开发者）**
 ```powershell
@@ -156,7 +160,7 @@ sudo apt install ./hpic_*_amd64.deb
 ```
 
 **方式二：预编译二进制压缩包**
-从 Releases 下载 `hpic-linux-amd64.tar.gz`，解压并将 `hpic` 移动至 `~/.local/bin/`：
+从 Releases 下载 `hpic-v<版本号>-linux-amd64.tar.gz`，解压并将 `hpic` 移动至 `~/.local/bin/`：
 ```bash
 tar -xzf hpic-linux-amd64.tar.gz
 mkdir -p ~/.local/bin
@@ -184,7 +188,7 @@ cd hpic
 # 启动（默认唤起窗口，若已在运行则置前现有窗口）
 hpic
 
-# 一键检查 GitHub 最新版本并自动下载升级
+# 一键检查 GitHub 最新版本，按当前系统架构匹配热更新包并下载升级
 hpic update
 
 # 交互式完全卸载（彻底清理二进制与桌面集成）

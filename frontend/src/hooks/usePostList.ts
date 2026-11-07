@@ -23,6 +23,9 @@ export function usePostList(options?: UsePostListOptions) {
     count: null,
   });
   const isCheckingRef = useRef(false);
+  // 递增请求序号：仅接受最新一次 getPosts 的结果，防止轮询 / focus / 手动刷新并发时
+  // 旧响应后到覆盖新数据（避免引入 AbortController 的接口改造）。
+  const refreshSeqRef = useRef(0);
 
   // 组件卸载保护 ref，避免在已卸载组件上调用 setState
   const isMountedRef = useRef(true);
@@ -55,11 +58,15 @@ export function usePostList(options?: UsePostListOptions) {
   }, [selectedPost?.file_path, loadPostHistory]);
 
   const handleRefreshPosts = useCallback(async (silent = false, q = searchQuery, s = sortBy) => {
+    const requestSeq = ++refreshSeqRef.current;
     setIsRefreshingPosts(true);
     try {
       const res = await api.getPosts(q, s);
       const newPosts = res.posts || [];
       if (!isMountedRef.current) return;
+
+      // 已有更新的请求发起 → 本次为过期响应，丢弃（不覆盖列表 / 不提示）
+      if (requestSeq !== refreshSeqRef.current) return;
 
       setPosts(newPosts);
 
@@ -79,12 +86,17 @@ export function usePostList(options?: UsePostListOptions) {
         toast.success(`已刷新博文列表 (共 ${newPosts.length} 篇)`);
       }
     } catch (err: unknown) {
+      // 过期请求的失败不再打扰用户（更新的请求会给出最终结果）
+      if (requestSeq !== refreshSeqRef.current) return;
       if (!silent && isMountedRef.current) {
         const message = err instanceof Error ? err.message : '刷新博文列表失败';
         toast.error(message);
       }
     } finally {
-      if (isMountedRef.current) setIsRefreshingPosts(false);
+      // 仅最新请求结束时才复位 refreshing，避免旧请求先返回导致状态闪烁
+      if (requestSeq === refreshSeqRef.current && isMountedRef.current) {
+        setIsRefreshingPosts(false);
+      }
     }
   }, [searchQuery, sortBy, toast]);
 

@@ -819,6 +819,182 @@
       ]
     },
     {
+      "goType": "gallery.CoverCandidate",
+      "tsType": "CoverCandidate",
+      "fields": [
+        {
+          "name": "URL",
+          "json": "url",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Thumbnail",
+          "json": "thumbnail",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Width",
+          "json": "width",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Height",
+          "json": "height",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Author",
+          "json": "author",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "SourceID",
+          "json": "source_id",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Meta",
+          "json": "meta",
+          "goKind": "map",
+          "ts": "Record\u003cstring, unknown\u003e",
+          "tsKind": "record",
+          "omitempty": true
+        }
+      ]
+    },
+    {
+      "goType": "gallery.ProviderInfo",
+      "tsType": "GalleryProvider",
+      "fields": [
+        {
+          "name": "ID",
+          "json": "id",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "DisplayName",
+          "json": "display_name",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Kind",
+          "json": "kind",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "theme.Preset",
+      "tsType": "ThemePreset",
+      "fields": [
+        {
+          "name": "ID",
+          "json": "id",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Name",
+          "json": "name",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Desc",
+          "json": "desc",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": true
+        },
+        {
+          "name": "Theme",
+          "json": "theme",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "CSS",
+          "json": "css",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "IsBuiltin",
+          "json": "is_builtin",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "HasOverride",
+          "json": "has_override",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": true
+        }
+      ]
+    },
+    {
+      "goType": "theme.ListResponse",
+      "tsType": "ThemePresetsResponse",
+      "fields": [
+        {
+          "name": "Presets",
+          "json": "presets",
+          "goKind": "slice",
+          "ts": "ThemePreset[]",
+          "tsKind": "array-struct",
+          "omitempty": false
+        },
+        {
+          "name": "ThemesDir",
+          "json": "themes_dir",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
+    },
+    {
       "goType": "unsplash.Photo",
       "tsType": "Photo",
       "fields": [
@@ -1032,14 +1208,6 @@
           "goKind": "bool",
           "ts": "boolean",
           "tsKind": "primitive",
-          "omitempty": false
-        },
-        {
-          "name": "Logs",
-          "json": "logs",
-          "goKind": "slice",
-          "ts": "string[]",
-          "tsKind": "array-primitive",
           "omitempty": false
         },
         {
@@ -1579,6 +1747,17 @@
       "frontend": true
     },
     {
+      "method": "GET",
+      "path": "/api/gallery/provider/{id}/search",
+      "response": "CoverCandidate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/gallery/providers",
+      "response": "GalleryProvider",
+      "frontend": true
+    },
+    {
       "method": "POST",
       "path": "/api/hexo/clean",
       "response": "GenerateResult",
@@ -1747,6 +1926,17 @@
     {
       "method": "POST",
       "path": "/api/system/select-directory",
+      "frontend": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/theme/open-folder",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/theme/presets",
+      "response": "ThemePresetsResponse",
       "frontend": true
     },
     {

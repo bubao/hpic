@@ -111,19 +111,19 @@ func SearchWallhaven(query string, page int, orientation string, size string, pr
 
 	var whResp struct {
 		Data []struct {
-			ID          string `json:"id"`
-			DimensionX  int    `json:"dimension_x"`
-			DimensionY  int    `json:"dimension_y"`
-			Path        string `json:"path"`
-			Category    string `json:"category"`
-			Thumbs      struct {
+			ID         string `json:"id"`
+			DimensionX int    `json:"dimension_x"`
+			DimensionY int    `json:"dimension_y"`
+			Path       string `json:"path"`
+			Category   string `json:"category"`
+			Thumbs     struct {
 				Large    string `json:"large"`
 				Original string `json:"original"`
 				Small    string `json:"small"`
 			} `json:"thumbs"`
 		} `json:"data"`
 		Meta struct {
-			Total   int `json:"total"`
+			Total    int `json:"total"`
 			LastPage int `json:"last_page"`
 		} `json:"meta"`
 	}

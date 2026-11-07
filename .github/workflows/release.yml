@@ -11,10 +11,10 @@ permissions:
 
 jobs:
   # ==============================================================================
-  # 0. 自动化测试防线 Job (Go 竞态检测 + 前端 Vitest 单元测试)
+  # 0. 自动化测试防线 Job (Go 静态检查 + 竞态检测 + 前端构建 / Vitest 单元测试)
   # ==============================================================================
   test:
-    name: Run Test Suite & Race Check
+    name: Run Static Checks, Test Suite & Race Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -23,7 +23,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          # 与仓库 go.mod 保持同步，避免本地与 CI 的 Go 工具链版本漂移导致构建失败
+          go-version-file: 'go.mod'
           check-latest: true
           cache: false
 
@@ -40,6 +41,19 @@ jobs:
           npm ci || npm install
           npm run build
           npm test
+
+      - name: Run Go Static Analysis (go vet)
+        run: go vet ./...
+
+      - name: Check Go Formatting (gofmt)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "[ERROR] 以下 Go 文件未通过 gofmt 格式化："
+            echo "$unformatted"
+            exit 1
+          fi
+          echo "[OK] 所有 Go 文件均符合 gofmt 规范"
 
       - name: Run Backend Tests with Race Detector
         run: go test -race -v ./...
@@ -60,7 +74,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          # 与仓库 go.mod 保持同步，避免本地与 CI 的 Go 工具链版本漂移导致构建失败
+          go-version-file: 'go.mod'
           check-latest: true
           cache: false
 
@@ -94,7 +109,7 @@ jobs:
           rm -rf dist .stage hpic.app
           mkdir -p dist
 
-      - name: Build macOS Artifacts & DMG (dmgbuild)
+      - name: Build macOS Per-Arch DMGs & Tarballs
         env:
           VERSION: ${{ github.ref_name }}
         run: |
@@ -106,33 +121,16 @@ jobs:
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           LDFLAGS="-w -s -X main.Version=${RAW_VER} -X main.GitCommit=${GIT_COMMIT} -X main.BuildDate=${BUILD_DATE}"
 
-          # 构建 hpic.app
-          make app
-          test -d "hpic.app" || (echo "[ERROR] make app 未产出 hpic.app" && exit 1)
+          # 编译 Swift 启动器与 Go 二进制（注入版本号）
+          make build
 
-          # ========== dmgbuild 打包，使用你 scripts/dmgbuild-settings.py ==========
-          DMG_OUT="dist/hpic-v${RAW_VER}-macOS.dmg"
-          python3 -m dmgbuild \
-            -s scripts/dmgbuild-settings.py \
-            -D app="./hpic.app" \
-            -D ver="${RAW_VER}" \
-            "hpic" \
-            "${DMG_OUT}"
-          test -s "${DMG_OUT}" || (echo "[ERROR] dmgbuild DMG 打包失败" && exit 1)
-
-          # ✅ 校验：必须存在 .DS_Store
-          TMP_MNT=$(mktemp -d)
-          hdiutil attach "${DMG_OUT}" -mountpoint "${TMP_MNT}" -noverify -nobrowse
-          if [ ! -f "${TMP_MNT}/.DS_Store" ]; then
-            echo "[ERROR] DMG 内缺少 .DS_Store，背景布局失效！"
-            hdiutil detach "${TMP_MNT}"
-            exit 1
-          fi
-          hdiutil detach "${TMP_MNT}"
-          rmdir "${TMP_MNT}"
-
-          # 打包 hpic.app 为 zip
-          zip -q -r "dist/hpic-v${RAW_VER}-macOS.zip" "hpic.app"
+          # ========== 按架构拆分制作双份原生 DMG (arm64 / amd64) ==========
+          # 单架构包约 6MB，较此前 lipo 通用二进制包 (~12MB) 下载体积减半
+          # package-dmg.sh 内部会挂载校验每份 DMG 的 .DS_Store，此处再校验产物存在性
+          LDFLAGS="$LDFLAGS" bash ./scripts/package-macos-arch-dmgs.sh "${RAW_VER}"
+          for A in arm64 amd64; do
+            test -s "dist/hpic-v${RAW_VER}-macOS-${A}.dmg" || (echo "[ERROR] 缺失 ${A} DMG 产物" && exit 1)
+          done
 
           # 2. 编译 Apple Silicon (arm64) 独立二进制包
           mkdir -p .stage/hpic-darwin-arm64
@@ -175,7 +173,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          # 与仓库 go.mod 保持同步，避免本地与 CI 的 Go 工具链版本漂移导致构建失败
+          go-version-file: 'go.mod'
           check-latest: true
           cache: false
 
@@ -253,7 +252,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          # 与仓库 go.mod 保持同步，避免本地与 CI 的 Go 工具链版本漂移导致构建失败
+          go-version-file: 'go.mod'
           check-latest: true
           cache: false
 
@@ -313,8 +313,17 @@ jobs:
           "@
           Set-Content -Path .stage\hpic-windows-amd64\uninstall.cmd -Value $UninstallCmd -Encoding ASCII
 
-          # 打包 zip 便携安装包
-          Compress-Archive -Path .stage\hpic-windows-amd64\* -DestinationPath "dist\hpic-v$RawVer-windows-amd64.zip" -Force
+          # 打包 zip 便携安装包（排除内部副本 hpic-desktop.exe：字节与 hpic.exe 完全相同，
+          # install.ps1 安装时会自行创建，无需随包分发，可省 ~5.5MB；
+          # 同一目录下的 NSIS 安装向导仍保留该副本，不受影响）
+          $RepoRoot = (Get-Location).Path
+          $WinStage = Join-Path $RepoRoot "\.stage\hpic-windows-amd64"
+          # 单独建临时目录并沿用同名子目录，保证 zip 内仍是 hpic-windows-amd64/ 结构
+          $WinZipStage = Join-Path $RepoRoot "\.stage\zip\hpic-windows-amd64"
+          if (Test-Path $WinZipStage) { Remove-Item $WinZipStage -Recurse -Force }
+          Copy-Item $WinStage $WinZipStage -Recurse
+          Remove-Item (Join-Path $WinZipStage "hpic-desktop.exe") -Force
+          Compress-Archive -Path "$WinZipStage\*" -DestinationPath "dist\hpic-v$RawVer-windows-amd64.zip" -Force
 
           # 编译 NSIS 原生安装向导
           $makensisBin = "makensis"
@@ -397,7 +406,7 @@ jobs:
             Hexo 博客封面与文章配图管理工具。
 
             ### 多系统原生安装包推荐
-            - **macOS (Apple Silicon / Intel)**: 下载 `hpic-v${{ env.RAW_VER }}-macOS.dmg` 拖拽安装，或下载便携 `hpic-v${{ env.RAW_VER }}-macOS.zip` 解压使用。
+            - **macOS (Apple Silicon / Intel)**: 按芯片下载 `hpic-v${{ env.RAW_VER }}-macOS-arm64.dmg`（Apple Silicon）或 `hpic-v${{ env.RAW_VER }}-macOS-amd64.dmg`（Intel）拖拽安装。
             - **Windows (x64)**: 下载 `hpic-v${{ env.RAW_VER }}-setup-amd64.exe` 一键单文件安装向导；或下载 `hpic-v${{ env.RAW_VER }}-windows-amd64.zip` 解压便携使用。
             - **Ubuntu / Debian (Linux)**: 下载 `hpic_${{ env.RAW_VER }}_amd64.deb`，通过 `sudo dpkg -i` 或 `sudo apt install ./hpic_*.deb` 安装。
             - **全平台绿色归档**: 亦可下载对应系统的 `.tar.gz` 纯净二进制包。
