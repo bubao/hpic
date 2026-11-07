@@ -105,6 +105,9 @@ hpic version
 # 查看全量版本更新历史 (CHANGELOG)
 hpic changelog
 
+# 启动标准输入输出 MCP (Model Context Protocol) 协议服务供 AI 客户端接入
+hpic mcp
+
 # 检查 GitHub Releases 并自动下载就地升级
 hpic update
 
@@ -196,3 +199,28 @@ hpic help
 ### 20. 如何不碰鼠标快速切换文章或执行常用操作？
 - 按下 `Ctrl / ⌘ + K` 唤起全局**命令面板**，支持中文、英文关键词与拼音首字母模糊匹配（如输入 `fwq` 启动服务、`qh` 切换主题、`sl` 全站体检）；
 - 可执行服务控制、文章跳转、主题切换、Hexo 操作与设置直达等命令，实现全程纯键盘的高效操作流。
+
+---
+
+### 21. 如何通过 MCP (Model Context Protocol) 让 Claude 或 Cursor 等 AI 助手直接管理博客？
+- **机制原理**：hpic 内置了符合 JSON-RPC 2.0 规范的 MCP 服务端（与 REST API 共用相同的文章领域层与 SQLite 事务引擎），支持通过标准输入输出（stdio）与各类 AI Agent / 客户端无缝集成；
+- **配置方式**：在 Claude Desktop 配置文件（如 macOS `~/Library/Application Support/Claude/claude_desktop_config.json`）中添加：
+  ```json
+  {
+    "mcpServers": {
+      "hpic": {
+        "command": "hpic",
+        "args": ["mcp"]
+      }
+    }
+  }
+  ```
+- **核心工具能力清单**：
+  - `hpic_list_posts` / `hpic_get_post`：获取文章列表、草稿及 Frontmatter 配图元数据；
+  - `hpic_create_post`：一键新建文章或草稿文件；
+  - `hpic_update_cover`：自动更新指定文章的封面图片（写入前自动记录快照，支持原子回退）；
+  - `hpic_undo_operation`：安全回滚误操作的封面变动；
+  - `hpic_hexo_status` / `hpic_hexo_action`：查询 Hexo 本地服务状态，调度启动、停止、构建（generate）与清理（clean）；
+  - `hpic_doctor_report`：运行全站配图健康体检，发现 404 失效图床链接；
+  - `hpic_list_favorites` / `hpic_get_config`：检索灵感壁纸库与当前系统偏好设置。
+

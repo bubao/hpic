@@ -155,7 +155,7 @@ hpic/
 ├── install.sh          # macOS / Linux 一键编译安装与系统集成脚本
 ├── install.ps1         # Windows PowerShell 一键安装与快捷方式部署脚本
 ├── uninstall.ps1       # Windows 交互式完全卸载脚本
-├── cli.go              # CLI 子命令路由 (version / changelog / update / uninstall / help)
+├── cli.go              # CLI 子命令路由 (version / changelog / update / uninstall / mcp / help)
 ├── Makefile            # 多平台编译规则
 └── main.go             # 程序主入口、单实例保护与窗口调度
 ```

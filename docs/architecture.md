@@ -8,32 +8,49 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
 
 系统采用 **Go 内核 + React 19 前端单页** 架构。前端静态资源通过 Go 1.16+ 的 `//go:embed` 直接内嵌至最终二进制中，整体可执行文件约 12MB（压缩包约 5.5MB），无任何 Electron 运行时依赖。
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                       桌面展示层                             │
-│  - macOS: Swift 原生 WebKit 独立窗口 (hpic.app)             │
-│  - Windows: Edge / Chrome 独立应用模式 (--app=URL)          │
-│  - Linux: Chromium / Chrome 独立应用模式 (--app=URL)        │
-└──────────────────────────────▲──────────────────────────────┘
-                               │ HTTP / JSON API (127.0.0.1:38120)
-┌──────────────────────────────▼──────────────────────────────┐
-│                       Go 服务内核                            │
-│                                                             │
-│  ┌────────────────┐  ┌────────────────┐  ┌───────────────┐  │
-│  │ 博文与草稿扫描 │  │ 图床搜索与代理 │  │ Git 部署编排  │  │
-│  │ (Posts/Drafts) │  │ (Unsplash/404) │  │ (Status/Push) │  │
-│  └────────────────┘  └────────────────┘  └───────────────┘  │
-│  ┌────────────────┐  ┌────────────────┐  ┌───────────────┐  │
-│  │  Frontmatter   │  │   灵感收藏夹   │  │ 404 健康体检  │  │
-│  │   幂等防抖写入 │  │ (规范化去重Key)│  │ (并发 HEAD)   │  │
-│  └────────────────┘  └────────────────┘  └───────────────┘  │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │ SQLite 事务审计引擎 (WAL 模式 / 严格单连接池 / 历史快照)│  │
-│  └───────────────────────────────────────────────────────┘  │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │      静态资源内嵌文件系统 (embed.FS: index.html/assets) │  │
-│  └───────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Clients["展示层与客户端 (Clients & Presentation)"]
+        direction LR
+        MacOS["🍎 macOS 原生窗口<br/>(Swift + WebKit hpic.app)"]
+        WinLin["🪟 🐧 Windows / Linux 独立应用<br/>(Edge / Chrome --app=URL)"]
+        AI["🤖 AI 智能体客户端<br/>(Claude Desktop / Cursor)"]
+    end
+
+    subgraph Transport["协议传输层 (Transport)"]
+        direction LR
+        HTTP["HTTP / JSON REST API<br/>(127.0.0.1:38120)"]
+        MCPIF["MCP 协议服务端<br/>(JSON-RPC 2.0 via Stdio / SSE)"]
+    end
+
+    subgraph Kernel["Go 服务内核 (Go Service Kernel)"]
+        direction TB
+        subgraph CoreServices["核心领域服务与引擎"]
+            direction LR
+            Posts["博文与草稿管理<br/>(深度递归扫描 / Frontmatter 防抖写入)"]
+            Gallery["图床搜索与防盗链代理<br/>(Unsplash / Wallhaven / SSRF 防护)"]
+            Doctor["图床健康体检<br/>(并发 HEAD 零流量探测)"]
+            Favorites["灵感壁纸收藏夹<br/>(规范化去重 Key / 标签统计)"]
+            HexoEngine["Hexo 进程编排<br/>(服务生命周期 / 构建 / 清理)"]
+            Deploy["Git 部署编排<br/>(变更增量暂存 / 原子推送)"]
+        end
+
+        subgraph StorageLayer["数据持久化与静态资产"]
+            direction LR
+            SQLite[("SQLite 审计引擎 (WAL 模式)<br/>操作历史快照 / 一键撤销")]
+            SSOT[("单一事实源 (SSOT)<br/>~/.config/hpic/config.json")]
+            EmbedFS["内嵌前端资产 (embed.FS)<br/>React 19 SPA / 纯静态产物"]
+        end
+    end
+
+    MacOS --> HTTP
+    WinLin --> HTTP
+    AI --> MCPIF
+
+    HTTP --> CoreServices
+    MCPIF --> CoreServices
+    CoreServices --> StorageLayer
+    HTTP -.-> EmbedFS
 ```
 
 ---
@@ -118,6 +135,12 @@ hpic 是一个免 Electron 的轻量级 Hexo 博客配图桌面管理工具。�
 
 ### 2.14 外观预设系统 (Theme Presets)
 系统将皮肤抽象为可移植的预设对象（`Preset`: id/name/desc/theme/css），内置预设随程序嵌入；用户可在标准目录 `~/.config/hpic/themes/*.json` 放置自定义预设，同名 `id` 可覆盖内置预设的对应字段。`/api/theme/presets` 统一汇总下发（含 `themes_dir`），外观设置面板支持扫描刷新、一键应用与目录定位。
+
+### 2.15 Model Context Protocol (MCP) 架构与统一领域层抽象
+为了使现代 AI 客户端（如 Claude Desktop、Cursor 等）能够直接以结构化工具形式协同管理博客与图床，系统深度集成了符合 JSON-RPC 2.0 规范的 MCP 服务端：
+1. **统一领域服务 (`service.PostsService`)**：REST API 与 MCP Tool 共用同一套核心领域服务，确保在通过 AI 助手执行换封面、新增草稿或回滚时，严格复用 YAML Frontmatter 幂等解析、事务快照与并发防抖机制；
+2. **依赖注入与工具注册工厂 (`internal/mcp/registry.go`)**：通过 `RegisterTool` 模式将业务依赖（`Config`、`Runner`、`Database`、`PostsTracker`）注入到每个独立 Tool 实例中，实现关注点分离与清晰的单元测试隔离；
+3. **双传输通道**：支持 `hpic mcp` 基于标准输入输出（stdio）直接对接本地桌面 AI 客户端，亦支持挂载在 Web 服务的 `/api/mcp` 端点上。
 
 ---
 

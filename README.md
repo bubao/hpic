@@ -8,9 +8,13 @@
   <a href="https://github.com/bubao/hpic/releases"><img src="https://img.shields.io/github/v/release/bubao/hpic?style=flat-square&color=3b82f6&logo=github" alt="GitHub Release"></a>
   <a href="https://github.com/bubao/hpic/actions"><img src="https://img.shields.io/github/actions/workflow/status/bubao/hpic/release.yml?label=release%20build&style=flat-square&logo=githubactions" alt="Release Packaging"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/bubao/hpic?style=flat-square&logo=go&logoColor=white" alt="Go Version"></a>
-  <a href="#安装与卸载"><img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platform"></a>
+  <a href="#安装与卸载"><img src="https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black" alt="Linux"></a>
+  <a href="安装与卸载"><img src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=F0F0F0" alt="MacOS"></a>
+  <a href="安装与卸载"><img src="https://custom-icon-badges.demolab.com/badge/Windows-0078D6?logo=windows11&logoColor=white" alt="windows"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License: MIT"></a>
+  <a href="#"><img src="https://img.shields.io/badge/Hexo-0E83CD?logo=hexo&logoColor=fff" alt="Hexo"></a>
 </p>
+
 
 <p align="center">
   <img src="assets/screenshots/01-main-dashboard.png" width="95%" alt="hpic 桌面主界面全景" />

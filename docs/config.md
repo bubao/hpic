@@ -28,7 +28,9 @@ hpic 首次启动时会在集中配置目录下自动生成默认配置文件 `~
   "socialify_theme": "Dark",
   "auto_search": false,
   "infinite_scroll": false,
-  "git_commit_template": "chore(cover): update cover for {title}"
+  "git_commit_template": "chore(cover): update cover for {title}",
+  "theme": "dark",
+  "custom_css": ""
 }
 ```
 
@@ -56,6 +58,8 @@ hpic 首次启动时会在集中配置目录下自动生成默认配置文件 `~
 | `auto_search` | boolean | `false` | 切换选定文章时，是否自动以文章标题为关键词触发网络搜图。 |
 | `infinite_scroll` | boolean | `false` | 图片搜索瀑布流是否开启触底自动加载下一页。 |
 | `git_commit_template` | string | `"chore(cover): update cover for {title}"` | Git 部署时使用的默认提交信息模板。支持动态占位符：`{title}`（文章标题）、`{filename}`（文章文件名）、`{date}`（当前日期 YYYY-MM-DD）。 |
+| `theme` | string | `"dark"` | 界面主题外观模式：`"dark"`（暗色黑夜）、`"light"`（亮色清爽）或 `"auto"`（跟随系统偏好）。 |
+| `custom_css` | string | `""` | 用户自定义 CSS 代码。保存后热重载注入全局 DOM 树，并实时同步持久化至 `~/.config/hpic/custom.css`。 |
 
 ---
 
