@@ -34,6 +34,18 @@ describe('imageMeta utility tests', () => {
       expect(isSvgUrl('https://www.skillicons.dev/icons?i=go')).toBe(true);
       expect(isSvgUrl('https://cdn.ray.so/a/b.svg')).toBe(true);
     });
+
+    it('should recognize SVG hosts added for keyless generators', () => {
+      expect(isSvgUrl('https://img.shields.io/badge/build-passing-brightgreen')).toBe(true);
+      expect(isSvgUrl('https://api.dicebear.com/9.x/adventurer/svg?seed=hpic')).toBe(true);
+      expect(isSvgUrl('https://github-readme-stats.vercel.app/api?username=bubao&theme=dark')).toBe(true);
+    });
+
+    it('should not treat lookalike hosts or bitmap urls as SVG', () => {
+      expect(isSvgUrl('https://notshields.io/badge/a-b-green.png')).toBe(false);
+      expect(isSvgUrl('https://example.com/api.dicebear.com/x.png')).toBe(false);
+      expect(isSvgUrl('https://github-readme-stats.vercel.app.evil.com/x')).toBe(false);
+    });
   });
   describe('extractImageFilename', () => {
     it('should handle empty or whitespace URLs', () => {
@@ -55,6 +67,21 @@ describe('imageMeta utility tests', () => {
 
     it('should handle SkillIcons generator URLs', () => {
       expect(extractImageFilename('https://skillicons.dev/icons?i=go,docker,linux')).toBe('skill-icons.svg');
+    });
+
+    it('should derive filenames for keyless generator hosts', () => {
+      expect(extractImageFilename('https://picsum.photos/seed/mountain/1920/1080')).toBe('mountain-picsum.jpg');
+      expect(extractImageFilename('https://picsum.photos/seed/my%20photo/800/600?grayscale')).toBe('my photo-picsum.jpg');
+expect(extractImageFilename('https://loremflickr.com/1920/1080/mountain')).toBe('mountain-loremflickr.jpg');
+expect(extractImageFilename('https://loremflickr.com/g/800/600/dog,cat/3')).toBe('dog,cat-loremflickr.jpg');
+expect(extractImageFilename('https://loremflickr.com/1920/1080/all')).toBe('all-loremflickr.jpg');
+      expect(extractImageFilename('https://img.shields.io/badge/build-passing-brightgreen')).toBe('shields-badge.svg');
+      expect(extractImageFilename('https://github-readme-stats.vercel.app/api?username=bubao&theme=dark')).toBe('github-stats-card.svg');
+      expect(extractImageFilename('https://quickchart.io/chart?c=%7B%7D&w=800&h=500')).toBe('quickchart.png');
+      expect(extractImageFilename('https://placehold.co/1920x1080/EEEEEE/31343C?text=hpic')).toBe('placeholder.png');
+      expect(extractImageFilename('https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=abc')).toBe('qrcode.png');
+      expect(extractImageFilename('https://api.dicebear.com/9.x/adventurer/svg?seed=hpic')).toBe('dicebear-avatar.svg');
+      expect(extractImageFilename('https://image.pollinations.ai/prompt/a%20city?width=1920')).toBe('pollinations-cover.png');
     });
 
     it('should extract IDs from Unsplash URLs', () => {

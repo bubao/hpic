@@ -32,7 +32,14 @@ const escapeHtmlAttr = (value: string): string =>
 const sanitizeLinkHref = (href: string): string => {
   const raw = (href || '').trim();
   if (!raw) return '#';
-  const compact = raw.replace(/[\u0000-\u0020\u007f]+/g, '').toLowerCase();
+  // 逐字符剔除控制字符与空白，避免在正则中直接书写控制字符字面量
+  const compact = Array.from(raw)
+    .filter(ch => {
+      const code = ch.charCodeAt(0);
+      return code > 0x20 && code !== 0x7f;
+    })
+    .join('')
+    .toLowerCase();
   // 无 scheme 的相对地址（#anchor、/path、./、../、foo/bar、//host）直接放行
   if (!/^[a-z][a-z0-9+.-]*:/.test(compact)) return raw;
   return /^(https?:|mailto:)/.test(compact) ? raw : '#';

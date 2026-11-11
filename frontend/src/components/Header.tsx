@@ -77,8 +77,10 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="app-header">
       <div className="header-brand">
-        <span className="brand-logo"><Icon name="image" size="lg" variant="primary" /></span>
-        <div>
+        <span className="brand-logo-badge">
+          <Icon name="image" size="md" className="brand-logo-icon" />
+        </span>
+        <div className="brand-text">
           <h1 className="brand-title">hpic</h1>
           <span className="brand-badge">Hexo</span>
         </div>

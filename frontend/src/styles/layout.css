@@ -30,11 +30,32 @@
   gap: 10px;
 }
 
-.brand-logo {
-  font-size: 22px;
+.brand-logo-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--accent-color, #6366f1) 0%, #8b5cf6 100%);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+  flex-shrink: 0;
+}
+
+.brand-logo-icon {
+  color: #fff;
+}
+
+.brand-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .brand-title {
+  margin: 0;
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.3px;
@@ -43,8 +64,14 @@
 
 .brand-badge {
   font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
   color: var(--text-muted);
-  font-weight: 500;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
 }
 
 .header-controls {
@@ -310,6 +337,9 @@
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.2s;
+  /* 作为 flex 子项时保持自身宽度，文字不换行，超出由容器横向滚动 */
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .filter-pill.active {

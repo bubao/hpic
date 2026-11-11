@@ -20,6 +20,25 @@
   justify-content: space-between;
 }
 
+/* 区块标题（此前未定义，h3 会退回浏览器默认大字号） */
+.section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.section-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .current-post-title {
   font-size: 18px;
   font-weight: 700;

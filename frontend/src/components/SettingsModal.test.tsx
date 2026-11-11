@@ -65,7 +65,7 @@ describe('SettingsModal full-coverage tests', () => {
     expect(screen.getAllByText('博客与路径').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('图库与尺寸')).toBeDefined();
     expect(screen.getByText('外观与样式')).toBeDefined();
-    expect(screen.getByText('卡片生成器')).toBeDefined();
+    expect(screen.queryByText('卡片生成器')).toBeNull();
     expect(screen.getByText('网络与部署')).toBeDefined();
     expect(screen.getByText('关于与更新')).toBeDefined();
 
@@ -89,10 +89,11 @@ describe('SettingsModal full-coverage tests', () => {
     // 初始处于 "博客与路径"（懒加载 chunk 就绪后渲染）
     expect(await screen.findByText('Hexo 博客根目录 (hexo_dir):')).toBeDefined();
 
-    // 切换到 "图库与尺寸"
+    // 切换到 "图库与尺寸"（已并入生成器默认值）
     fireEvent.click(screen.getByText('图库与尺寸'));
     expect(await screen.findByText('默认构图比例 (orientation):')).toBeDefined();
     expect(screen.getByText('外部图片压缩宽度 (image_width):')).toBeDefined();
+    expect(screen.getByText('GitHub 用户名或组织名 (github_owner):')).toBeDefined();
 
     // 切换到 "网络与部署"
     fireEvent.click(screen.getByText('网络与部署'));

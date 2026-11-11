@@ -239,7 +239,7 @@ export const PostHistoryModal: React.FC<PostHistoryModalProps> = ({
           </div>
         ) : (
           <div className="history-timeline-list">
-            {history.map((item, idx) => {
+            {history.map(item => {
               const isUndoable = !item.is_undone;
               const isCoverOp = item.operation_type === 'update_cover';
               const isClearOp = item.operation_type === 'clear_cover';

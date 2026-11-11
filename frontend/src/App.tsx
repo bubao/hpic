@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { Config } from './types';
 import { api } from './api';
 import { Header } from './components/Header';
@@ -75,7 +75,7 @@ export const App: React.FC = () => {
   // 旧版配置检测：原状态与迁移入口已确认为死代码（全库无消费点），随 A1 一并移除
 
   // 404 失效封面报告（见 useBrokenImageRegistry）
-  const { brokenReports, setBrokenReports, mergeBrokenReports, brokenUrls, setBrokenUrls, handleMarkBroken } = useBrokenImageRegistry();
+  const { brokenReports, setBrokenReports, mergeBrokenReports, brokenUrls, handleMarkBroken } = useBrokenImageRegistry();
 
   // 主题与自定义 CSS 动态挂载（外观控制逻辑见 useAppearanceController）
   const { currentTheme, handleSelectTheme, handleToggleTheme, handleAppearanceChange } = useAppearanceController({ config, setConfig });
@@ -277,7 +277,7 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleOpenManualModal = (field?: string) => {
+  const handleOpenManualModal = () => {
     if (!selectedPost) {
       toast.info('请先选择一篇文章');
       return;

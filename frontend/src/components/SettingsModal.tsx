@@ -3,28 +3,40 @@ import { Config, createDefaultConfig } from '../types';
 import { api } from '../api';
 import { useToast } from '../context/ToastContext';
 import { AppTheme, applyTheme, applyCustomCSS, getCurrentCustomCSS, triggerThemeTransition } from '../utils/useTheme';
-import { FolderGit2, Image, Palette, Languages, Sparkles, Globe, Stethoscope, Info, ArrowLeft, Check, AlertTriangle } from 'lucide-react';
+import { FolderGit2, Image, Palette, Languages, Globe, Stethoscope, Info, ArrowLeft, Check, AlertTriangle } from 'lucide-react';
 import { SettingsTabProps } from './settings/types';
 import { buildConfigUpdate } from './settings/configDiff';
 import { ErrorBoundary } from './ErrorBoundary';
 import { SectionErrorFallback } from './common/SectionErrorFallback';
 
-export type SettingsCategory = 'blog' | 'gallery' | 'appearance' | 'i18n' | 'socialify' | 'network' | 'doctor' | 'about';
+export type SettingsCategory = 'blog' | 'gallery' | 'appearance' | 'i18n' | 'network' | 'doctor' | 'about';
 
 /** 通过 React.lazy 按需分包加载的 Tab 组件（注册表统一契约） */
 type LazySettingsTab = React.LazyExoticComponent<React.ComponentType<SettingsTabProps>>;
+
+type SettingsGroup = 'content' | 'appearance' | 'system';
+
+const GROUP_META: Record<SettingsGroup, string> = {
+  content: '内容',
+  appearance: '外观',
+  system: '系统',
+};
+
+const CATEGORY_GROUPS: SettingsGroup[] = ['content', 'appearance', 'system'];
 
 interface CategoryItem {
   id: SettingsCategory;
   label: string;
   description: string;
   icon: React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
+  group: SettingsGroup;
   tab: LazySettingsTab;
 }
 
 export const CATEGORIES: CategoryItem[] = [
   {
     id: 'blog',
+    group: 'content',
     label: '博客与路径',
     description: '配置 Hexo 博客根目录、博文 Frontmatter 封面字段及时间元数据映射',
     icon: FolderGit2,
@@ -32,13 +44,15 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'gallery',
+    group: 'content',
     label: '图库与尺寸',
-    description: '设置 Unsplash / Wallhaven 壁纸尺寸阈值、构图比例与压缩参数',
+    description: '设置 Unsplash / Wallhaven 壁纸尺寸阈值、构图比例、压缩参数与生成器默认值',
     icon: Image,
     tab: React.lazy(() => import('./settings/GalleryTab').then(m => ({ default: m.GalleryTab }))),
   },
   {
     id: 'appearance',
+    group: 'appearance',
     label: '外观与样式',
     description: '深浅色视觉风格切换、预设皮肤注入与自定义 CSS 样式设计',
     icon: Palette,
@@ -46,20 +60,15 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'i18n',
+    group: 'appearance',
     label: '语言与国际化',
     description: '界面语言切换、本地语言包自定义覆盖与自主扩展多国语言',
     icon: Languages,
     tab: React.lazy(() => import('./settings/I18nTab').then(m => ({ default: m.I18nTab }))),
   },
   {
-    id: 'socialify',
-    label: '卡片生成器',
-    description: 'GitHub 仓库分享卡片 (Socialify)、技术栈图标 (SkillIcons) 生成配置',
-    icon: Sparkles,
-    tab: React.lazy(() => import('./settings/SocialifyTab').then(m => ({ default: m.SocialifyTab }))),
-  },
-  {
     id: 'network',
+    group: 'system',
     label: '网络与部署',
     description: '配置 HTTP/SOCKS5 代理加速、网络连通性检测与 Git 部署规则',
     icon: Globe,
@@ -67,6 +76,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'doctor',
+    group: 'system',
     label: '诊断与自检',
     description: '只读检查运行时、Node/Hexo 环境、配置存储与网络连通性，并导出诊断包',
     icon: Stethoscope,
@@ -74,6 +84,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'about',
+    group: 'system',
     label: '关于与更新',
     description: '查看当前应用版本、更新检测、Release Notes 及系统底层配置清单',
     icon: Info,
@@ -319,24 +330,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="settings-main-layout">
           <aside className="settings-sidebar-nav">
             <div className="settings-nav-list">
-              {CATEGORIES.map(cat => {
-                const IconComponent = cat.icon;
-                const isActive = activeCategory === cat.id;
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    className={`settings-nav-item ${isActive ? 'active' : ''}`}
-                    onClick={() => handleRequestSwitchCategory(cat.id)}
-                  >
-                    <IconComponent size={18} className="settings-nav-icon" />
-                    <div className="settings-nav-info">
-                      <div className="settings-nav-label">{cat.label}</div>
-                      <div className="settings-nav-desc">{cat.description}</div>
-                    </div>
-                  </button>
-                );
-              })}
+              {CATEGORY_GROUPS.map(group => (
+                <div key={group} className="settings-nav-group">
+                  <div className="settings-nav-group-title">{GROUP_META[group]}</div>
+                  {CATEGORIES.filter(cat => cat.group === group).map(cat => {
+                    const IconComponent = cat.icon;
+                    const isActive = activeCategory === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        className={`settings-nav-item ${isActive ? 'active' : ''}`}
+                        onClick={() => handleRequestSwitchCategory(cat.id)}
+                      >
+                        <IconComponent size={18} className="settings-nav-icon" />
+                        <div className="settings-nav-info">
+                          <div className="settings-nav-label">{cat.label}</div>
+                          <div className="settings-nav-desc">{cat.description}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </aside>
 

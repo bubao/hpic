@@ -55,7 +55,7 @@ describe('CoverArea Component SVG & Fit Mode tests', () => {
       complete = true;
       set src(val: string) {
         setTimeout(() => {
-          this.onload && this.onload();
+          if (this.onload) this.onload();
         }, 10);
       }
     }

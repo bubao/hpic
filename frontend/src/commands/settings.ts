@@ -28,11 +28,11 @@ export function settingsCommands(deps: CommandDeps): CommandItem[] {
       run: () => onOpenSettings('gallery'),
     },
     {
-      id: 'settings.socialify',
+      id: 'settings.generators',
       group: 'settings',
-      title: '卡片生成器与 Socialify 样式设置',
-      keywords: ['socialify', 'github', 'kapian', 'kp', 'shengcheng'],
-      run: () => onOpenSettings('socialify'),
+      title: '生成器默认值设置 (GitHub / Socialify)',
+      keywords: ['socialify', 'github', 'kapian', 'kp', 'shengcheng', 'generator'],
+      run: () => onOpenSettings('gallery'),
     },
     {
       id: 'settings.network',

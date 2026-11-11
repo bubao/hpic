@@ -24,7 +24,10 @@ export function isSvgUrl(url?: string | null): boolean {
     const isSvgHost =
       /(^|\.)skillicons\.dev$/.test(host) ||
       /(^|\.)carbon\.now\.sh$/.test(host) ||
-      /(^|\.)ray\.so$/.test(host);
+      /(^|\.)ray\.so$/.test(host) ||
+      /(^|\.)img\.shields\.io$/.test(host) ||
+      /(^|\.)api\.dicebear\.com$/.test(host) ||
+      /(^|\.)github-readme-stats\.vercel\.app$/.test(host);
     return isSvgHost || clean.includes('.svg');
   } catch {
     return clean.includes('.svg');
@@ -54,6 +57,39 @@ export function extractImageFilename(url: string, fallbackTitle = ''): string {
   // 3. SkillIcons 生成器
   if (clean.includes('skillicons.dev')) {
     return 'skill-icons.svg';
+  }
+
+  // 3.1 新增免 Key 图源
+  if (clean.includes('picsum.photos/seed/')) {
+    const m = clean.match(/picsum\.photos\/seed\/([^/]+)\//);
+    const seed = m ? decodeURIComponent(m[1]) : 'picsum';
+    return `${seed}-picsum.jpg`;
+  }
+  if (clean.includes('loremflickr.com/')) {
+    const m = clean.match(/loremflickr\.com\/(?:g\/)?\d+\/\d+\/([^/]+)/);
+    const keyword = m ? decodeURIComponent(m[1]) : 'all';
+    return `${keyword}-loremflickr.jpg`;
+  }
+  if (clean.includes('img.shields.io/badge/')) {
+    return 'shields-badge.svg';
+  }
+  if (clean.includes('github-readme-stats.vercel.app')) {
+    return 'github-stats-card.svg';
+  }
+  if (clean.includes('quickchart.io/chart')) {
+    return 'quickchart.png';
+  }
+  if (clean.includes('placehold.co/')) {
+    return 'placeholder.png';
+  }
+  if (clean.includes('api.qrserver.com/')) {
+    return 'qrcode.png';
+  }
+  if (clean.includes('api.dicebear.com/')) {
+    return 'dicebear-avatar.svg';
+  }
+  if (clean.includes('image.pollinations.ai/')) {
+    return 'pollinations-cover.png';
   }
 
   // 4. 解析标准 URL

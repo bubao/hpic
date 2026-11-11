@@ -263,6 +263,21 @@
   gap: 6px;
 }
 
+/* 分类分组（内容 / 外观 / 系统） */
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-nav-group-title {
+  padding: 6px 14px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
 .settings-sidebar-nav .settings-nav-item,
 .settings-nav-item {
   display: flex;

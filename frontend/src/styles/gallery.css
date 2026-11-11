@@ -13,35 +13,135 @@
   box-shadow: var(--shadow-sm);
 }
 
-.filter-controls-bar {
+/* 顶部工具条：标题 + 模式切换 + 常驻搜索 + 手动外链 */
+.gallery-topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: 12px;
-  margin-top: -6px;
+  flex-wrap: wrap;
 }
 
-.filter-item-group {
+/* 模式切换分段控件 */
+.gallery-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.gallery-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.gallery-mode-btn:hover {
+  color: var(--text-primary);
+}
+
+.gallery-mode-btn.active {
+  background: var(--accent-color);
+  color: #fff;
+  font-weight: 500;
+}
+
+/* 顶部常驻搜索框：占满剩余宽度 */
+.gallery-topbar-search {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1 1 260px;
+  min-width: 200px;
+}
+
+.gallery-topbar-search .search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 10px;
+}
+
+/* 次级工具条：来源 + 构图 + 尺寸 + 推荐联想 */
+.gallery-subbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+.gallery-subbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gallery-source-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.gallery-source-select-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.gallery-source-select {
+  height: 28px;
+  max-width: 170px;
+  padding: 0 8px 0 26px;
+  font-size: 12px;
+}
+
+.gallery-recommend-btn {
+  margin-left: auto;
+  color: var(--text-secondary);
 }
 
 .ctrl-label {
   font-size: 11.5px;
   color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* 非服务端筛选来源的提示（独占一行） */
+.filter-hint {
+  width: 100%;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* 收藏模式次级工具条 */
+.gallery-subbar-fav {
+  width: 100%;
+}
+
+.fav-tags-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
 }
 
 .fav-tags-filter-bar {
   display: flex;
+  align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-}
-
-.gallery-search-form {
-  display: flex;
-  gap: 10px;
 }
 
 /* 瀑布流容器 */

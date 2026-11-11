@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { FavoriteItem, GalleryProvider, Photo, PostInfo, getCanonicalImageKey } from '../types';
 import { api } from '../api';
-import { Search, Star, Tag, ChevronDown, ChevronUp, Sparkles, Camera, Monitor, Wand2, Link2, Loader2, Lightbulb, X, Check } from 'lucide-react';
+import { Search, Star, Tag, ChevronDown, ChevronUp, Sparkles, Wand2, Link2, Loader2, Lightbulb, X, Check, Image as ImageIcon } from 'lucide-react';
+import { getGalleryProviderIcon } from './galleryProviderIcons';
 import { Generators } from './Generators';
 import { TagEditorModal } from './TagEditorModal';
 import { useFavorites } from '../context/FavoritesContext';
@@ -13,12 +14,24 @@ import { extractTargetDimensions } from '../utils/imageMeta';
 const DEFAULT_SEARCH_PROVIDERS: GalleryProvider[] = [
   { id: 'unsplash', display_name: 'Unsplash 摄影', kind: 'search' },
   { id: 'wallhaven', display_name: 'Wallhaven 壁纸', kind: 'search' },
+  { id: 'openverse', display_name: 'Openverse 图库', kind: 'search' },
+  { id: 'commons', display_name: 'Wikimedia 共享资源', kind: 'search' },
 ];
 
 /** 旧版 /api/unsplash/search 端点已实现的来源 ID（保留兼容路径）。 */
 const LEGACY_SEARCH_SOURCES: readonly string[] = ['unsplash', 'wallhaven'];
 const isLegacySearchSource = (s: string) => LEGACY_SEARCH_SOURCES.includes(s);
 const isImageSearchSource = (s: string) => s !== 'generators' && s !== 'favorites';
+
+/** 来源图标（按 ID 从注册表解析，避免在 render 中创建组件） */
+const SourceIcon: React.FC<{ id: string; size?: number; className?: string }> = ({ id, size = 13, className }) =>
+  React.createElement(getGalleryProviderIcon(id), { size, className });
+
+/**
+ * 支持服务端构图 / 尺寸筛选的来源。
+ * 其余来源（Openverse / Commons）为返回结果后本地过滤，需在筛选栏提示。
+ */
+const SERVER_FILTER_PROVIDERS: ReadonlySet<string> = new Set(LEGACY_SEARCH_SOURCES);
 
 interface PhotoGalleryProps {
   post: PostInfo;
@@ -89,6 +102,8 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
   const [editingFavItem, setEditingFavItem] = useState<FavoriteItem | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  // 记录最近一次使用的图片搜索来源，供顶部「配图」模式一键切回
+  const lastImageSourceRef = useRef('unsplash');
 
   // 切换选中单个标签 (多选模式)
   const handleToggleFavTag = (tagName: string) => {
@@ -110,14 +125,19 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
   }, [favTags, tagSearchQuery]);
 
   // 当前博文使用的所有封面 URL 与规范化 Key 集合 (用于收藏夹双向联动高亮)
-  const currentPostCoverUrls = new Set(
-    Object.values(post.images || {}).map(u => (u || '').trim()).filter(Boolean)
+  const currentPostCoverUrls = useMemo(
+    () => new Set(Object.values(post.images || {}).map(u => (u || '').trim()).filter(Boolean)),
+    [post.images],
   );
-  const currentPostCoverKeys = new Set(
-    Object.values(post.images || {})
-      .map(u => (u || '').trim())
-      .filter(Boolean)
-      .map(getCanonicalImageKey)
+  const currentPostCoverKeys = useMemo(
+    () =>
+      new Set(
+        Object.values(post.images || {})
+          .map(u => (u || '').trim())
+          .filter(Boolean)
+          .map(getCanonicalImageKey),
+      ),
+    [post.images],
   );
 
   // 根据当前标签和搜索关键词过滤收藏夹列表，并根据图片特征自动去重
@@ -253,16 +273,32 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
     doSearch(post.title, 1, false, source, orientation, imageSize);
   };
 
-  // 切换图库数据源 Tab (注册表来源 / 极客生成器 / 收藏夹) 时自动清空旧图，若有搜索词则重新检索
+  // 切换图库数据源 (注册表来源 / 极客生成器 / 收藏夹)
   const handleSwitchSource = (newSource: string) => {
     if (source === newSource) return;
+    const fromImage = isImageSearchSource(source);
+    const toImage = isImageSearchSource(newSource);
+    if (fromImage) lastImageSourceRef.current = source;
     setSource(newSource);
-    setPhotos([]);
-    setPage(1);
-    setHasMore(true);
-    if (isImageSearchSource(newSource) && searchKeyword.trim()) {
+    // 仅在同为图片搜索来源之间切换时清空旧图并重新检索；
+    // 跨模式（配图 ⇄ 生成 / 收藏）切换保留已加载结果，避免来回切换后丢失
+    if (fromImage && toImage) {
+      setPhotos([]);
+      setPage(1);
+      setHasMore(true);
+      if (searchKeyword.trim()) {
+        doSearch(searchKeyword, 1, false, newSource, orientation, imageSize);
+      }
+    } else if (!fromImage && toImage && photos.length === 0 && searchKeyword.trim()) {
+      // 从生成 / 收藏切回配图且当前无结果时，补一次检索
       doSearch(searchKeyword, 1, false, newSource, orientation, imageSize);
     }
+  };
+
+  // 顶部「配图」模式入口：回到最近使用的图片搜索来源
+  const handleSwitchToImageMode = () => {
+    if (isImageSearchSource(source)) return;
+    handleSwitchSource(lastImageSourceRef.current);
   };
 
   // 切换构图比例时自动刷新
@@ -345,42 +381,61 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
 
   return (
     <section className="gallery-section">
-      <div className="section-head-bar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h3 className="section-title"><Sparkles size={16} /> 灵感配图与创作</h3>
-          <div className="filter-pill-tabs">
-            {/* 搜索类来源 Tab 由 /api/gallery/providers 动态渲染 */}
-            {galleryProviders.map(p => (
-              <button
-                key={p.id}
-                type="button"
-                className={`filter-pill ${source === p.id ? 'active' : ''}`}
-                onClick={() => handleSwitchSource(p.id)}
-                title={`来源: ${p.display_name}`}
-              >
-                {p.id === 'unsplash' && <Camera size={12} style={{ marginRight: 4 }} />}
-                {p.id === 'wallhaven' && <Monitor size={12} style={{ marginRight: 4 }} />}
-                {p.display_name}
-              </button>
-            ))}
-            <button
-              type="button"
-              className={`filter-pill ${source === 'generators' ? 'active' : ''}`}
-              onClick={() => handleSwitchSource('generators')}
-            >
-              <Wand2 size={12} style={{ marginRight: 4 }} />
-              极客生成器
-            </button>
-            <button
-              type="button"
-              className={`filter-pill ${source === 'favorites' ? 'active' : ''}`}
-              onClick={() => handleSwitchSource('favorites')}
-            >
-              <Star size={12} style={{ marginRight: 4 }} />
-              灵感收藏夹
-            </button>
-          </div>
+      {/* 顶部工具条：标题 + 模式切换 + 常驻搜索 + 手动外链 */}
+      <div className="gallery-topbar">
+        <h3 className="section-title"><Sparkles size={16} /> 灵感配图与创作</h3>
+
+        <div className="gallery-mode-switch" role="tablist" aria-label="配图模式">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isImageSearchSource(source)}
+            className={`gallery-mode-btn ${isImageSearchSource(source) ? 'active' : ''}`}
+            onClick={handleSwitchToImageMode}
+            title="搜索 Unsplash / Wallhaven 等图片素材"
+          >
+            <ImageIcon size={13} style={{ marginRight: 4 }} />
+            配图
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={source === 'generators'}
+            className={`gallery-mode-btn ${source === 'generators' ? 'active' : ''}`}
+            onClick={() => handleSwitchSource('generators')}
+            title="Socialify / 技能横幅 / 海报等在线生成器"
+          >
+            <Wand2 size={13} style={{ marginRight: 4 }} />
+            动态生成
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={source === 'favorites'}
+            className={`gallery-mode-btn ${source === 'favorites' ? 'active' : ''}`}
+            onClick={() => handleSwitchSource('favorites')}
+            title="查看已收藏的图片"
+          >
+            <Star size={13} style={{ marginRight: 4 }} />
+            我的收藏
+          </button>
         </div>
+
+        {source !== 'generators' && (
+          <form onSubmit={handleSearchSubmit} className="gallery-topbar-search">
+            <input
+              type="text"
+              className="search-input"
+              placeholder={source === 'favorites' ? '在我的收藏中搜索...' : '输入关键词 (如 coding, minimalist, mountain) 按回车搜索...'}
+              value={searchKeyword}
+              onChange={e => setSearchKeyword(e.target.value)}
+            />
+            <button type="submit" className="btn btn-primary" disabled={isLoading}>
+              {isLoading ? <Loader2 size={14} className="spin-icon" /> : <Search size={14} />}
+              <span>{isLoading ? '检索中...' : '搜索图片'}</span>
+            </button>
+          </form>
+        )}
 
         <button className="btn btn-sm btn-ghost" onClick={onOpenManualModal}>
           <Link2 size={13} style={{ marginRight: 4 }} />
@@ -388,31 +443,34 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
         </button>
       </div>
 
-      {/* 1. 当处于极客生成器 Tab 时：渲染 Generators 组件 */}
-      {source === 'generators' && (
-        <div style={{ marginTop: 14 }}>
-          <Generators
-            post={post}
-            coverFields={coverFields}
-            defaultOwner={defaultOwner}
-            defaultPattern={defaultPattern}
-            defaultTheme={defaultTheme}
-            embedded={true}
-            onApplyImage={onApplyImage}
-            onOpenLightbox={onOpenLightbox}
-          />
-        </div>
-      )}
-
-      {/* 2. 当非极客生成器模式时：显示构图比例与画幅过滤栏 */}
+      {/* 次级工具条：配图模式 = 来源 + 构图 + 尺寸 + 推荐联想 */}
       {source !== 'generators' && source !== 'favorites' && (
-        <div className="filter-controls-bar">
-          <div className="filter-item-group">
-            <span className="ctrl-label">构图比例:</span>
+        <div className="gallery-subbar">
+          <div className="gallery-subbar-group">
+            <span className="ctrl-label">来源:</span>
+            <div className="gallery-source-select-wrap">
+              <SourceIcon id={source} size={13} className="gallery-source-select-icon" />
+              <select
+                className="form-input gallery-source-select"
+                value={source}
+                onChange={e => handleSwitchSource(e.target.value)}
+                aria-label="图片搜索来源"
+              >
+                {galleryProviders.map(p => (
+                  <option key={p.id} value={p.id}>{p.display_name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="gallery-subbar-group">
+            <span className="ctrl-label">构图:</span>
             <div className="filter-pill-tabs">
               {(['landscape', 'ultrawide', 'all'] as const).map(o => (
                 <button
                   key={o}
+                  type="button"
+                  aria-pressed={orientation === o}
                   className={`filter-pill ${orientation === o ? 'active' : ''}`}
                   onClick={() => handleSwitchOrientation(o)}
                 >
@@ -424,12 +482,14 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
             </div>
           </div>
 
-          <div className="filter-item-group">
-            <span className="ctrl-label">尺寸范围:</span>
+          <div className="gallery-subbar-group">
+            <span className="ctrl-label">尺寸:</span>
             <div className="filter-pill-tabs">
               {(['large', 'wallpaper', 'all'] as const).map(s => (
                 <button
                   key={s}
+                  type="button"
+                  aria-pressed={imageSize === s}
                   className={`filter-pill ${imageSize === s ? 'active' : ''}`}
                   onClick={() => handleSwitchSize(s)}
                 >
@@ -440,15 +500,48 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
               ))}
             </div>
           </div>
+
+          {post.title && (
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost gallery-recommend-btn"
+              onClick={handleApplyPostTitleSearch}
+              title="点击将当前博文标题填入搜索框并立即检索"
+            >
+              <Lightbulb size={12} color="#f59e0b" />
+              <span>《{post.title}》</span>
+            </button>
+          )}
+
+          {!SERVER_FILTER_PROVIDERS.has(source) && (
+            <div className="filter-hint">
+              该来源不支持服务端筛选，构图 / 尺寸仅过滤其返回结果，数量可能偏少
+            </div>
+          )}
         </div>
       )}
 
-      {/* 收藏夹标签栏与展开面板 */}
+      {/* 极客生成器（紧凑嵌入模式） */}
+      {source === 'generators' && (
+        <Generators
+          post={post}
+          coverFields={coverFields}
+          defaultOwner={defaultOwner}
+          defaultPattern={defaultPattern}
+          defaultTheme={defaultTheme}
+          embedded={true}
+          onApplyImage={onApplyImage}
+          onOpenLightbox={onOpenLightbox}
+        />
+      )}
+
+      {/* 次级工具条：收藏模式 = 标签筛选 */}
       {source === 'favorites' && (
-        <div className="fav-tags-section" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div className="fav-tags-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <div className="fav-tags-section gallery-subbar-fav">
+          <div className="fav-tags-filter-bar">
             <button
               type="button"
+              aria-pressed={selectedFavTags.length === 0}
               className={`filter-pill ${selectedFavTags.length === 0 ? 'active' : ''}`}
               onClick={handleClearFavTags}
             >
@@ -461,6 +554,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                 <button
                   key={t.name}
                   type="button"
+                  aria-pressed={isSelected}
                   className={`filter-pill ${isSelected ? 'active' : ''}`}
                   onClick={() => handleToggleFavTag(t.name)}
                   title={`点击${isSelected ? '取消' : '添加'}标签筛选`}
@@ -476,6 +570,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
               <button
                 key={st}
                 type="button"
+                aria-pressed={true}
                 className="filter-pill active"
                 onClick={() => handleToggleFavTag(st)}
                 title="点击取消选中"
@@ -499,6 +594,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                   alignItems: 'center',
                   gap: 4,
                 }}
+                aria-expanded={isTagPanelExpanded}
                 onClick={() => setIsTagPanelExpanded(prev => !prev)}
                 title={isTagPanelExpanded ? "点击折叠标签多选面板" : "点击展开标签多选搜索面板"}
               >
@@ -668,42 +764,9 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
         </div>
       )}
 
-      {/* 搜索行与瀑布流卡片 (仅非生成器模式下显示) */}
+      {/* 瀑布流卡片网格 (仅非生成器模式下显示) */}
       {source !== 'generators' && (
         <>
-          <form onSubmit={handleSearchSubmit} className="gallery-search-form">
-            <input
-              type="text"
-              className="search-input"
-              placeholder={source === 'favorites' ? '在我的收藏中搜索...' : '输入关键词 (如 coding, minimalist, mountain) 按回车搜索...'}
-              value={searchKeyword}
-              onChange={e => setSearchKeyword(e.target.value)}
-            />
-            <button type="submit" className="btn btn-primary" disabled={isLoading}>
-              {isLoading ? <Loader2 size={14} className="spin-icon" /> : <Search size={14} />}
-              <span>{isLoading ? '检索中...' : '搜索图片'}</span>
-            </button>
-          </form>
-
-          {/* 可选的博文标题一键填入建议胶囊 (非强制自动填写，只提供便利建议) */}
-          {source !== 'favorites' && post.title && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 14px 2px', fontSize: 12 }}>
-              <span style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <Lightbulb size={12} color="#f59e0b" />
-                推荐联想:
-              </span>
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                style={{ padding: '2px 8px', fontSize: 12, height: 24, borderRadius: 12, border: '1px dashed var(--border-color)' }}
-                onClick={handleApplyPostTitleSearch}
-                title="点击将当前博文标题填入搜索框并立即检索"
-              >
-                《{post.title}》
-              </button>
-            </div>
-          )}
-
           {/* 瀑布流自适应卡片网格 */}
           <div className="masonry-grid-container">
             {source === 'favorites' ? (

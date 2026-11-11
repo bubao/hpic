@@ -35,6 +35,9 @@ func TestBuiltinProvidersRegistered(t *testing.T) {
 		"wallhaven":  "search",
 		"socialify":  "generator",
 		"skillicons": "generator",
+		"openverse":  "search",
+		"commons":    "search",
+		"opengraph":  "generator",
 	}
 	for id, wantKind := range cases {
 		p, ok := LookupProvider(id)
