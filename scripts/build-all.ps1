@@ -14,19 +14,21 @@ try {
     Write-Host "  hpic Windows 本地全平台打包向导" -ForegroundColor Cyan
     Write-Host "======================================================" -ForegroundColor Cyan
 
-    # 1. 动态确定版本号 (多级回退: 环境变量 -> Git Tag -> CHANGELOG -> package.json)
+    # 1. 动态确定版本号 (多级回退: 环境变量 -> VERSION 文件 -> Git Tag -> CHANGELOG -> package.json)
     $AppVersion = if ($env:VERSION) { $env:VERSION } else {
         $ver = $null
-        # 优先读取仓库根目录单一真相源 VERSION 文件，避免版本号漂移
+        # 优先读取仓库根目录单一真相源 VERSION 文件（与 release.sh 一致），避免版本号漂移
         $VersionFile = Join-Path $RootDir "VERSION"
         if (Test-Path $VersionFile) {
             $fileVer = (Get-Content $VersionFile -Raw).Trim().TrimStart('v')
             if ($fileVer) { $ver = $fileVer }
         }
-        try {
-            $GitTag = (git describe --tags --abbrev=0 2>$null)
-            if ($GitTag) { $ver = $GitTag.TrimStart('v').Trim() }
-        } catch {}
+        if (-not $ver) {
+            try {
+                $GitTag = (git describe --tags --abbrev=0 2>$null)
+                if ($GitTag) { $ver = $GitTag.TrimStart('v').Trim() }
+            } catch {}
+        }
 
         if (-not $ver -and (Test-Path (Join-Path $RootDir "CHANGELOG.md"))) {
             $ChangelogFirst = Get-Content (Join-Path $RootDir "CHANGELOG.md") | Where-Object { $_ -match '^##\s+\[v?([0-9.]+)\]' } | Select-Object -First 1
