@@ -17,6 +17,12 @@ try {
     # 1. 动态确定版本号 (多级回退: 环境变量 -> Git Tag -> CHANGELOG -> package.json)
     $AppVersion = if ($env:VERSION) { $env:VERSION } else {
         $ver = $null
+        # 优先读取仓库根目录单一真相源 VERSION 文件，避免版本号漂移
+        $VersionFile = Join-Path $RootDir "VERSION"
+        if (Test-Path $VersionFile) {
+            $fileVer = (Get-Content $VersionFile -Raw).Trim().TrimStart('v')
+            if ($fileVer) { $ver = $fileVer }
+        }
         try {
             $GitTag = (git describe --tags --abbrev=0 2>$null)
             if ($GitTag) { $ver = $GitTag.TrimStart('v').Trim() }

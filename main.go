@@ -53,6 +53,27 @@ func killDesktopUIProcess() {
 	}
 }
 
+// 主进程持有的服务实例，供窗口关闭监听等退出路径复用统一的清理流程。
+var (
+	mainServer     *api.Server
+	mainHTTPServer *http.Server
+)
+
+// shutdownAndExit 是统一的退出流程：先清理桌面 UI 子进程，再关闭 API 服务（含 hexo 子进程）
+// 与 HTTP 服务，最后退出进程。窗口关闭等路径都应复用，避免绕过清理遗留子进程。
+func shutdownAndExit() {
+	killDesktopUIProcess()
+	if mainServer != nil {
+		_ = mainServer.Close()
+	}
+	if mainHTTPServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = mainHTTPServer.Shutdown(ctx)
+		cancel()
+	}
+	os.Exit(0)
+}
+
 //go:embed VERSION
 var embeddedVersion string
 
@@ -209,6 +230,7 @@ func main() {
 	}
 
 	server := api.NewServer(cfg, webSubFS)
+	mainServer = server
 	server.SetVersion(Version)
 	server.SetChangelog(embeddedChangelog)
 	defer func() {
@@ -238,6 +260,7 @@ func main() {
 	httpServer := &http.Server{
 		Handler: server,
 	}
+	mainHTTPServer = httpServer
 
 	// 启动 HTTP 服务
 	go func() {
@@ -373,7 +396,7 @@ func launchDesktopWindow(url string) {
 					// 监控原生窗口：当用户关闭窗口时，后台主守护服务优雅退出
 					go func() {
 						_ = cmd.Wait()
-						os.Exit(0)
+						shutdownAndExit()
 					}()
 					return
 				}
@@ -405,7 +428,7 @@ func launchDesktopWindow(url string) {
 						setDesktopUIProcess(cmd.Process)
 						go func() {
 							_ = cmd.Wait()
-							os.Exit(0)
+							shutdownAndExit()
 						}()
 						return
 					}
@@ -452,7 +475,7 @@ func launchDesktopWindow(url string) {
 					// 监听 --app 独立窗口：用户关闭窗口后主服务进程随之退出，形成完整的生命周期闭环
 					go func() {
 						_ = cmd.Wait()
-						os.Exit(0)
+						shutdownAndExit()
 					}()
 					return
 				}
@@ -481,7 +504,7 @@ func launchDesktopWindow(url string) {
 					// 监听 --app 独立窗口：用户关闭窗口后主服务进程随之退出，形成完整的生命周期闭环
 					go func() {
 						_ = cmd.Wait()
-						os.Exit(0)
+						shutdownAndExit()
 					}()
 					return
 				}
@@ -500,6 +523,12 @@ func launchDesktopWindow(url string) {
 			for _, appID := range flatpakApps {
 				cmd := exec.Command("flatpak", "run", appID, appArg)
 				if err := cmd.Start(); err == nil {
+					// 与其他分支保持一致：记录启动器进程并监听其退出，窗口关闭后主服务随之退出
+					setDesktopUIProcess(cmd.Process)
+					go func() {
+						_ = cmd.Wait()
+						shutdownAndExit()
+					}()
 					return
 				}
 			}

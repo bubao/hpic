@@ -67,8 +67,8 @@ describe('MarkdownView SVG 升级', () => {
       new Response(RAW_SVG, { status: 200, headers: { 'Content-Type': 'image/svg+xml' } })
     );
 
-    // marked 不会解析嵌套在链接语法中的图片，此处用原生 HTML 模拟正文内链式图片
-    const markdown = `<a href="https://example.com/target"><img src="${url}" alt="卡片"></a>`;
+    // 用 markdown 链接语法包裹图片（原始 HTML 会被安全转义，不再透传）
+    const markdown = `[![卡片](${url})](https://example.com/target)`;
     const { container } = render(<MarkdownView content={markdown} />);
 
     await waitFor(() => {
@@ -118,5 +118,68 @@ describe('MarkdownView SVG 升级', () => {
     // 无升级发生，img 仍为原节点
     expect(container.querySelector('.markdown-body img')).not.toBeNull();
     expect(container.querySelector('.markdown-body object')).toBeNull();
+  });
+});
+
+describe('MarkdownView XSS 消毒', () => {
+  it('javascript: / data: / vbscript: 链接被降级为 #', () => {
+    for (const payload of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)']) {
+      const { container, unmount } = render(<MarkdownView content={`[点击](${payload})`} />);
+      const anchor = container.querySelector('.markdown-body a');
+      expect(anchor).not.toBeNull();
+      expect(anchor?.getAttribute('href')).toBe('#');
+      unmount();
+    }
+  });
+
+  it('http/https/mailto 与相对路径链接保持可用', () => {
+    const markdown = [
+      '[a](https://example.com)',
+      '[b](http://example.com)',
+      '[c](mailto:a@example.com)',
+      '[d](./relative)',
+      '[e](#anchor)',
+    ].join('\n\n');
+    const { container } = render(<MarkdownView content={markdown} />);
+    const hrefs = Array.from(container.querySelectorAll('.markdown-body a')).map(a => a.getAttribute('href'));
+    expect(hrefs).toEqual(['https://example.com', 'http://example.com', 'mailto:a@example.com', './relative', '#anchor']);
+  });
+
+  it('链接文本与 title 中的标签/引号被转义', () => {
+    const { container } = render(
+      <MarkdownView content='[<script>alert(1)</script>](https://example.com "t\" onmouseover=\"alert(1)")' />
+    );
+    expect(container.querySelector('.markdown-body script')).toBeNull();
+    const anchor = container.querySelector('.markdown-body a');
+    expect(anchor?.getAttribute('href')).toBe('https://example.com');
+    expect(anchor?.textContent).toBe('<script>alert(1)</script>');
+    // 原始 HTML 中 title 的引号必须已转义，不能闭合属性造成注入
+    const bodyHtml = container.querySelector('.markdown-body')?.innerHTML ?? '';
+    expect(bodyHtml).toContain('&quot;');
+    expect(bodyHtml).not.toContain('title="t" onmouseover="');
+  });
+
+  it('原始 HTML 不再透传，被转义为文本', () => {
+    const { container } = render(<MarkdownView content={'<img src=x onerror="alert(1)">'} />);
+    expect(container.querySelector('.markdown-body img')).toBeNull();
+    expect(container.querySelector('.markdown-body')?.textContent).toContain('<img');
+  });
+
+  it('changelog 折叠结构中的版本号被转义，无法注入 HTML', () => {
+    const malicious = [
+      '## [1.0.0](https://example.com) 最新',
+      '',
+      '## [<img src=x onerror="alert(1)>](https://example.com) 历史',
+      '',
+      '历史内容',
+    ].join('\n');
+    const { container } = render(<MarkdownView content={malicious} />);
+
+    expect(container.querySelector('.markdown-body img')).toBeNull();
+    const details = container.querySelector('.markdown-body details');
+    expect(details).not.toBeNull();
+    expect(details?.querySelector('summary')?.textContent).toContain('<img');
+    // 历史段正文同样不再透传原始 HTML
+    expect(details?.querySelector('script')).toBeNull();
   });
 });

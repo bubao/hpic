@@ -68,6 +68,18 @@ func NewServer(cfg *config.Config, webFS fs.FS) *Server {
 	return s
 }
 
+// configSnapshot 在持读锁的前提下复制当前配置，供各 handler 安全读取。
+// CoverFields 为切片，必须深拷贝，避免调用方与后续写路径共享底层数组。
+func (s *Server) configSnapshot() config.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	snapshot := *s.cfg
+	if s.cfg.CoverFields != nil {
+		snapshot.CoverFields = append([]string(nil), s.cfg.CoverFields...)
+	}
+	return snapshot
+}
+
 // attachVersionHeader 统一在 HTTP 响应中附加 X-Hpic-Version 头
 func (s *Server) attachVersionHeader(w http.ResponseWriter) {
 	ver := version.Version
@@ -215,43 +227,11 @@ func isLocalRequest(r *http.Request) bool {
 	return h == "127.0.0.1" || h == "localhost" || h == "::1"
 }
 
-// validatePathInBlogDir 严格限制只能操作 blog (Hexo 根目录或 posts 目录) 下的 markdown 文件，防御路径遍历
+// validatePathInBlogDir 严格限制只能操作 blog (Hexo 根目录或 posts 目录) 下的 markdown 文件，防御路径遍历。
+// 直接委托 service.PostsConfig.ValidatePath（与 MCP / REST 共用同一份判定），消除两处实现的语义分叉。
 func (s *Server) validatePathInBlogDir(filePath string) error {
-	if filePath == "" {
-		return fmt.Errorf("file path cannot be empty")
-	}
-	cleanPath := filepath.Clean(filePath)
-
-	s.cfgMu.RLock()
-	hexoDir := s.cfg.HexoDir
-	postsDir := s.cfg.PostsDir
-	s.cfgMu.RUnlock()
-
-	allowed := false
-	if hexoDir != "" {
-		cleanHexoDir := filepath.Clean(hexoDir)
-		rel, err := filepath.Rel(cleanHexoDir, cleanPath)
-		if err == nil && !strings.HasPrefix(rel, "..") && rel != "." {
-			allowed = true
-		}
-	}
-	if !allowed && postsDir != "" {
-		cleanPostsDir := filepath.Clean(postsDir)
-		rel, err := filepath.Rel(cleanPostsDir, cleanPath)
-		if err == nil && !strings.HasPrefix(rel, "..") && rel != "." {
-			allowed = true
-		}
-	}
-
-	if (hexoDir != "" || postsDir != "") && !allowed {
-		return fmt.Errorf("access denied: target file must reside inside blog directory")
-	}
-
-	ext := strings.ToLower(filepath.Ext(cleanPath))
-	if ext != ".md" && ext != ".markdown" {
-		return fmt.Errorf("access denied: only markdown files (.md, .markdown) can be accessed")
-	}
-	return nil
+	cfg := s.configSnapshot()
+	return service.NewPostsConfig(&cfg).ValidatePath(filePath)
 }
 
 func (s *Server) routes() {

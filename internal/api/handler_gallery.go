@@ -32,9 +32,7 @@ func (s *Server) handleGalleryProviderSearch() http.HandlerFunc {
 		}
 
 		q := r.URL.Query()
-		s.cfgMu.RLock()
-		cfg := s.cfg
-		s.cfgMu.RUnlock()
+		cfg := s.configSnapshot()
 
 		// page 允许从零/非法值回落到 1；perline 允许为 0（表示源站默认）
 		page, _ := strconv.Atoi(q.Get("page"))

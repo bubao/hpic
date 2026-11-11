@@ -147,11 +147,17 @@ export function checkHealthStream(
       duration: '0s',
     };
 
+    const handleAbort = () => {
+      cleanup();
+      eventSource.close();
+      reject(new Error('体检已取消'));
+    };
+    // 无论以何种方式结束，都移除 abort 监听，避免控制器复用时监听器泄漏
+    const cleanup = () => {
+      if (signal) signal.removeEventListener('abort', handleAbort);
+    };
     if (signal) {
-      signal.addEventListener('abort', () => {
-        eventSource.close();
-        reject(new Error('体检已取消'));
-      });
+      signal.addEventListener('abort', handleAbort);
     }
 
     eventSource.onmessage = (e) => {
@@ -165,6 +171,7 @@ export function checkHealthStream(
           finalResult.broken_count = data.broken_count;
         } else if (data.type === 'done') {
           isCompleted = true;
+          cleanup();
           eventSource.close();
           finalResult = {
             total_posts: data.total_posts,
@@ -177,6 +184,7 @@ export function checkHealthStream(
           resolve(finalResult);
         } else if (data.type === 'error') {
           isCompleted = true;
+          cleanup();
           eventSource.close();
           reject(new Error(data.error || '体检异常'));
         }
@@ -186,6 +194,7 @@ export function checkHealthStream(
     };
 
     eventSource.onerror = () => {
+      cleanup();
       eventSource.close();
       if (!isCompleted) {
         reject(new Error('体检连接中断'));

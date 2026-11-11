@@ -81,6 +81,11 @@ build: check-env build-frontend
 	fi
 
 app: build
+	@if [ "$$(uname -s)" != "Darwin" ]; then \
+		echo "[ERROR] 'make app' 仅支持 macOS（当前平台: $$(uname -s)）。"; \
+		echo "        原生 .app 打包依赖 lipo / codesign / .icns，请在 macOS 上执行。"; \
+		exit 1; \
+	fi
 	@if [ ! -f native_macos/AppIcon.icns ] && which node > /dev/null 2>&1; then \
 		echo "[INFO] 正在由 assets/icon.svg 自动生成 native_macos/AppIcon.icns..."; \
 		node scripts/build-icons.mjs > /dev/null 2>&1 || true; \
@@ -105,6 +110,11 @@ app: build
 # 制作按架构拆分的双份 DMG：dist/hpic-v${VERSION}-macOS-{arm64,amd64}.dmg
 # 说明: 单架构包约 6MB，较此前 lipo 通用二进制包 (~12MB) 下载体积减半
 dmg: build
+	@if [ "$$(uname -s)" != "Darwin" ]; then \
+		echo "[ERROR] 'make dmg' 仅支持 macOS（当前平台: $$(uname -s)）。"; \
+		echo "        DMG 制作依赖 hdiutil，请在 macOS 上执行。"; \
+		exit 1; \
+	fi
 	@LDFLAGS="$(LDFLAGS)" bash scripts/package-macos-arch-dmgs.sh $(VERSION)
 
 dist:

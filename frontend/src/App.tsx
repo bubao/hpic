@@ -57,6 +57,14 @@ export const App: React.FC = () => {
     loadPostHistory,
   } = postList;
 
+  // 侧边栏搜索变更：useCallback 固定引用。
+  // 否则 App 每次重渲染（如 useHexoRunner 每 3s 轮询）都会生成新回调，
+  // 触发 Sidebar 的防抖 effect 重建计时器，导致输入迟滞。
+  const handleSearchChange = useCallback((q: string) => {
+    setSearchQuery(q);
+    loadPostsList(q, sortBy);
+  }, [setSearchQuery, loadPostsList, sortBy]);
+
   // 博文本地状态单一同步入口（见 usePostMutator）
   const { applyLocalPost } = usePostMutator({
     setSelectedPost,
@@ -67,7 +75,7 @@ export const App: React.FC = () => {
   // 旧版配置检测：原状态与迁移入口已确认为死代码（全库无消费点），随 A1 一并移除
 
   // 404 失效封面报告（见 useBrokenImageRegistry）
-  const { brokenReports, setBrokenReports, brokenUrls, setBrokenUrls, handleMarkBroken } = useBrokenImageRegistry();
+  const { brokenReports, setBrokenReports, mergeBrokenReports, brokenUrls, setBrokenUrls, handleMarkBroken } = useBrokenImageRegistry();
 
   // 主题与自定义 CSS 动态挂载（外观控制逻辑见 useAppearanceController）
   const { currentTheme, handleSelectTheme, handleToggleTheme, handleAppearanceChange } = useAppearanceController({ config, setConfig });
@@ -360,10 +368,7 @@ export const App: React.FC = () => {
             selectedPost={selectedPost}
             onSelectPost={setSelectedPost}
             searchQuery={searchQuery}
-            onSearchChange={q => {
-              setSearchQuery(q);
-              loadPostsList(q, sortBy);
-            }}
+            onSearchChange={handleSearchChange}
             sortBy={sortBy}
             onSortChange={s => {
               setSortBy(s);
@@ -458,7 +463,7 @@ export const App: React.FC = () => {
         updateInfo={updateInfo}
         setUpdateInfo={setUpdateInfo}
         setConfig={setConfig}
-        setBrokenReports={setBrokenReports}
+        mergeBrokenReports={mergeBrokenReports}
         setIsHealthChecking={setIsHealthChecking}
         loadPostsList={loadPostsList}
         setSelectedPost={setSelectedPost}

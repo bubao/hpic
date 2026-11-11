@@ -42,12 +42,9 @@ type SearchResponse struct {
 	Errors     []string `json:"errors,omitempty"`
 }
 
-var client = &http.Client{
-	Timeout: 15 * time.Second,
-}
-
 // SearchPhotos 全面采用免 Key 模式获取高清横屏资源，并在异常时平滑降级 Wallhaven
-func SearchPhotos(query string, page int, perPage int, orientation string, size string, proxyStr string) (*SearchResponse, error) {
+// （perPage 由底层 ScrapeUnsplashWeb 固定逻辑决定，故不再作为参数暴露）
+func SearchPhotos(query string, page int, orientation string, size string, proxyStr string) (*SearchResponse, error) {
 	res, err := ScrapeUnsplashWeb(query, page, orientation, size, proxyStr)
 	if err == nil && len(res.Results) > 0 {
 		return res, nil

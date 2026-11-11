@@ -3,19 +3,28 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"hpic/internal/config"
 	"hpic/internal/favorites"
+	"hpic/internal/httputil"
 )
 
 func setupTestBlogDir(t *testing.T) (string, *Server, func()) {
+	// 隔离配置目录：让 AppConfigDir() 指向临时目录，避免测试写入真实用户目录
+	// （~/.config/hpic）并在只读环境 / 固定 ID 场景下产生伪失败。
+	configDir := t.TempDir()
+	t.Setenv("HPIC_CONFIG_DIR", configDir)
+
 	tmpDir, err := os.MkdirTemp("", "hpic_api_test_*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -61,6 +70,10 @@ index_img: https://example.com/initial.jpg
 		GitCommitTemplate: "chore: update {title}",
 		DeployMode:        "git",
 	}
+
+	// 重置全局收藏 Store 的单例状态，避免上一个测试的 DB/导入标记污染本次测试。
+	favorites.GetStore().SetDatabase(nil)
+	favorites.GetStore().SetFilePath(filepath.Join(configDir, "favorites.json"))
 
 	s := NewServer(cfg, fstest.MapFS{})
 
@@ -245,7 +258,7 @@ func TestSearchAndFavoritesHandlers(t *testing.T) {
 
 	// 4. Favorites 接口测试
 	favBody, _ := json.Marshal(favorites.FavoriteItem{
-		ID:       "fav_test_1",
+		ID:       fmt.Sprintf("fav_test_%d", time.Now().UnixNano()),
 		URL:      "https://images.unsplash.com/photo-1",
 		ThumbURL: "https://images.unsplash.com/photo-1-thumb",
 		Title:    "Mountain Landscape",
@@ -315,8 +328,8 @@ func TestHexoAndProxyHandlers(t *testing.T) {
 		t.Fatalf("Expected 400 for empty proxy, got %d", wProxy.Code)
 	}
 
-	// 4. handleImageCheck (缺参拦截)
-	reqImgCheck := httptest.NewRequest("GET", "/api/image/check?url=", nil)
+	// 4. handleImageCheck (缺参拦截)：本地请求才进入业务校验，非本地请求会被 403 拦截
+	reqImgCheck := newLocalRequest("GET", "/api/image/check?url=", nil)
 	wImgCheck := httptest.NewRecorder()
 	s.Mux.ServeHTTP(wImgCheck, reqImgCheck)
 	if wImgCheck.Code != http.StatusBadRequest {
@@ -424,14 +437,14 @@ func TestSSRFAndSecurityGuards(t *testing.T) {
 	_, s, cleanup := setupTestBlogDir(t)
 	defer cleanup()
 
-	// 1. isPrivateOrLocalHost
+	// 1. httputil.IsPrivateOrLocalHost
 	privateHosts := []string{"127.0.0.1", "localhost", "10.0.0.1", "192.168.1.1", "172.16.0.1", "::1"}
 	for _, h := range privateHosts {
-		if !isPrivateOrLocalHost(h) {
+		if !httputil.IsPrivateOrLocalHost(h) {
 			t.Errorf("Expected %s to be recognized as private/local host", h)
 		}
 	}
-	if isPrivateOrLocalHost("8.8.8.8") {
+	if httputil.IsPrivateOrLocalHost("8.8.8.8") {
 		t.Errorf("8.8.8.8 should not be recognized as private/local host")
 	}
 
@@ -441,6 +454,14 @@ func TestSSRFAndSecurityGuards(t *testing.T) {
 	s.Mux.ServeHTTP(wSSRF, reqSSRF)
 	if wSSRF.Code != http.StatusForbidden {
 		t.Fatalf("Expected 403 Forbidden for SSRF attempt, got %d", wSSRF.Code)
+	}
+
+	// 2b. handleImageCheck 同样必须拦截私网/回环探测（SSRF 防护不能只覆盖图片代理）
+	reqCheckSSRF := newLocalRequest("GET", "/api/image/check?url=http://169.254.169.254/latest/meta-data", nil)
+	wCheckSSRF := httptest.NewRecorder()
+	s.Mux.ServeHTTP(wCheckSSRF, reqCheckSSRF)
+	if wCheckSSRF.Code != http.StatusForbidden {
+		t.Fatalf("Expected 403 Forbidden for image-check SSRF attempt, got %d", wCheckSSRF.Code)
 	}
 
 	// 3. 跨目录遍历防御测试 (路径不在 blog 目录应被拦截为 403 Forbidden)
@@ -479,4 +500,56 @@ func TestHealthCheckAndFavoriteTags(t *testing.T) {
 	if wTags.Code != http.StatusOK {
 		t.Fatalf("handleFavoriteTags failed: code=%d", wTags.Code)
 	}
+}
+
+// TestConfigConcurrentReadWrite 验证配置读写在并发下无数据竞争（配合 -race 使用）。
+// 一个 goroutine 循环 POST 修改配置，另一个循环 GET 读取配置与派生接口。
+func TestConfigConcurrentReadWrite(t *testing.T) {
+	_, s, cleanup := setupTestBlogDir(t)
+	defer cleanup()
+
+	const iterations = 60
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			body, _ := json.Marshal(map[string]interface{}{
+				"proxy": fmt.Sprintf("http://127.0.0.1:%d", 10000+i),
+			})
+			req := newLocalRequest("POST", "/api/config", bytes.NewReader(body))
+			w := httptest.NewRecorder()
+			s.Mux.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Errorf("concurrent POST /api/config failed: code=%d body=%s", w.Code, w.Body.String())
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			// GET /api/config 直接序列化 cfg
+			req := newLocalRequest("GET", "/api/config", nil)
+			w := httptest.NewRecorder()
+			s.Mux.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Errorf("concurrent GET /api/config failed: code=%d", w.Code)
+				return
+			}
+			// socialify 预览读取 cfg 的 owner/pattern/theme
+			reqPreview := newLocalRequest("GET", "/api/socialify/preview?repo=demo", nil)
+			wPreview := httptest.NewRecorder()
+			s.Mux.ServeHTTP(wPreview, reqPreview)
+			if wPreview.Code != http.StatusOK {
+				t.Errorf("concurrent socialify preview failed: code=%d", wPreview.Code)
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
 }

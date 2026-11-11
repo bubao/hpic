@@ -9,7 +9,17 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"hpic/internal/httputil"
 )
+
+func init() {
+	// 体检单测使用本地 httptest 服务（127.0.0.1），需绕过仅生产启用的 SSRF 私网拦截。
+	newHealthCheckClient = func(proxyStr string, timeout time.Duration) *http.Client {
+		return httputil.NewClient(proxyStr, timeout, true)
+	}
+}
 
 func TestCheckImageHealthAndPing(t *testing.T) {
 	// 启动 mock HTTP 服务器模拟正常图片与 404 挂掉的图片

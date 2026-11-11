@@ -561,13 +561,17 @@ func (d *Database) GetOperationsByBatch(batchID int64) ([]OperationRecord, error
 		if err := rows.Scan(
 			&op.ID, &bid, &op.FilePath, &op.PostTitle, &op.OperationType, &op.Field,
 			&op.OldValue, &op.NewValue, &op.CreatedAt, &isUndoneInt,
-		); err == nil {
-			if bid.Valid {
-				op.BatchID = bid.Int64
-			}
-			op.IsUndone = isUndoneInt == 1
-			records = append(records, op)
+		); err != nil {
+			return nil, fmt.Errorf("scan operation log (batch_id=%d): %w", batchID, err)
 		}
+		if bid.Valid {
+			op.BatchID = bid.Int64
+		}
+		op.IsUndone = isUndoneInt == 1
+		records = append(records, op)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate operation logs (batch_id=%d): %w", batchID, err)
 	}
 	return records, nil
 }
@@ -625,13 +629,17 @@ func (d *Database) GetBatchOperations(filePath string, createdAt time.Time, opTy
 		if err := rows.Scan(
 			&op.ID, &bid, &op.FilePath, &op.PostTitle, &op.OperationType, &op.Field,
 			&op.OldValue, &op.NewValue, &op.CreatedAt, &isUndoneInt,
-		); err == nil {
-			if bid.Valid {
-				op.BatchID = bid.Int64
-			}
-			op.IsUndone = isUndoneInt == 1
-			records = append(records, op)
+		); err != nil {
+			return nil, fmt.Errorf("scan batch operation log (file=%s): %w", filePath, err)
 		}
+		if bid.Valid {
+			op.BatchID = bid.Int64
+		}
+		op.IsUndone = isUndoneInt == 1
+		records = append(records, op)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate batch operation logs (file=%s): %w", filePath, err)
 	}
 	return records, nil
 }

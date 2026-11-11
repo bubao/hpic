@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { marked } from 'marked';
+import { marked, type RendererObject } from 'marked';
 import { isSvgUrl } from '../utils/imageMeta';
 import { resolveSafeSvgUrl } from '../utils/svgFixer';
 
@@ -11,12 +11,46 @@ interface MarkdownViewProps {
   collapseOlderVersions?: boolean;
 }
 
+/** 文本内容转义：保留已有实体（&amp; / &#39; 等），仅转义 & < > */
+const escapeHtmlText = (value: string): string =>
+  value
+    .replace(/&(?!#?\w+;)/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+/** 属性值转义：在文本转义基础上再处理引号 */
+const escapeHtmlAttr = (value: string): string =>
+  escapeHtmlText(value)
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+/**
+ * 链接协议白名单：仅放行 http/https/mailto 与无协议的相对路径。
+ * 浏览器会忽略 URL 中的空白/控制字符，因此先剔除再做 scheme 判定，
+ * 防止 `java\tscript:`、`&#14;javascript:` 之类绕过。
+ */
+const sanitizeLinkHref = (href: string): string => {
+  const raw = (href || '').trim();
+  if (!raw) return '#';
+  const compact = raw.replace(/[\u0000-\u0020\u007f]+/g, '').toLowerCase();
+  // 无 scheme 的相对地址（#anchor、/path、./、../、foo/bar、//host）直接放行
+  if (!/^[a-z][a-z0-9+.-]*:/.test(compact)) return raw;
+  return /^(https?:|mailto:)/.test(compact) ? raw : '#';
+};
+
 // 配置 marked 解析规则：支持 GFM 表格/删除线、自动换行、外部链接安全跳转
-const customRenderer = {
-  link({ href, title, text }: { href: string; title?: string | null; text: string }) {
-    const titleAttr = title ? ` title="${title}"` : '';
-    // 强制在新标签页安全打开所有外部链接
-    return `<a href="${href}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`;
+const customRenderer: RendererObject = {
+  link({ href, title, tokens }) {
+    const safeHref = sanitizeLinkHref(href);
+    const titleAttr = title ? ` title="${escapeHtmlAttr(title)}"` : '';
+    // 链接文本按 inline token 渲染（保留粗体/图片等），其中原始 HTML token 已在 html 渲染器统一转义；
+    // href/title 做实体转义，未知协议降级为 #
+    const textHtml = this.parser.parseInline(tokens);
+    return `<a href="${escapeHtmlAttr(safeHref)}" target="_blank" rel="noopener noreferrer"${titleAttr}>${textHtml}</a>`;
+  },
+  // 禁止 marked 透传原始 HTML：统一转义为文本，从源头切断 HTML 注入
+  html({ text }) {
+    return escapeHtmlText(text);
   },
 };
 
@@ -26,11 +60,20 @@ marked.use({
   renderer: customRenderer,
 });
 
+/** Changelog 版本拆分结果：最新一段 + 可折叠的历史段 */
+interface ChangelogSplit {
+  latest: string;
+  older: string | null;
+  olderCount: number;
+  firstOlderVersion: string;
+}
+
 /**
- * 智能折叠历史版本：仅默认展开当前最新版本，将历史版本收敛在原生 <details> 折叠栏中
+ * 智能折叠历史版本：仅默认展开当前最新版本，将历史版本收敛在原生 <details> 折叠栏中。
+ * 返回拆分结果而非拼接 HTML —— 折叠结构由 React 渲染，避免向 markdown 源注入原始 HTML。
  */
-export function foldChangelogVersions(rawContent: string): string {
-  if (!rawContent) return rawContent;
+export function splitChangelogVersions(rawContent: string): ChangelogSplit {
+  if (!rawContent) return { latest: rawContent, older: null, olderCount: 0, firstOlderVersion: '' };
 
   const versionRegex = /(?:^|\n)(## \[[^\]]+\][^\n]*)/g;
   const matches: { index: number; header: string }[] = [];
@@ -43,24 +86,19 @@ export function foldChangelogVersions(rawContent: string): string {
   }
 
   // 少于 2 个版本节点时无需折叠
-  if (matches.length < 2) return rawContent;
+  if (matches.length < 2) {
+    return { latest: rawContent, older: null, olderCount: 0, firstOlderVersion: '' };
+  }
 
   const secondVersionIdx = matches[1].index;
-  const latestPart = rawContent.slice(0, secondVersionIdx).trim();
-  const olderPart = rawContent.slice(secondVersionIdx).trim();
-  const olderCount = matches.length - 1;
   const firstOlderMatch = matches[1].header.match(/\[([^\]]+)\]/);
-  const firstOlderVersion = firstOlderMatch ? firstOlderMatch[1] : '';
 
-  return `${latestPart}
-
-<details class="changelog-older-versions">
-<summary>展开查看历史版本记录（共 ${olderCount} 个历史版本${firstOlderVersion ? `，如 ${firstOlderVersion}` : ''}）</summary>
-
-${olderPart}
-
-</details>
-`;
+  return {
+    latest: rawContent.slice(0, secondVersionIdx).trim(),
+    older: rawContent.slice(secondVersionIdx).trim(),
+    olderCount: matches.length - 1,
+    firstOlderVersion: firstOlderMatch ? firstOlderMatch[1] : '',
+  };
 }
 
 /**
@@ -122,6 +160,17 @@ function upgradeSvgImagesToObjects(root: HTMLElement, onCancelled: () => boolean
   }
 }
 
+/** 渲染单段 markdown 为已消毒的 HTML（原始 HTML 会被转义为文本） */
+function renderMarkdown(content: string): string {
+  if (!content) return '';
+  try {
+    return marked.parse(content) as string;
+  } catch (err) {
+    console.error('Failed to parse markdown:', err);
+    return `<pre>${escapeHtmlText(content)}</pre>`;
+  }
+}
+
 export const MarkdownView: React.FC<MarkdownViewProps> = ({
   content,
   className = '',
@@ -130,20 +179,26 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  const processedContent = useMemo(() => {
-    if (!collapseOlderVersions) return content;
-    return foldChangelogVersions(content);
-  }, [content, collapseOlderVersions]);
-
   const html = useMemo(() => {
-    if (!processedContent) return '';
-    try {
-      return marked.parse(processedContent) as string;
-    } catch (err) {
-      console.error('Failed to parse markdown:', err);
-      return `<pre>${processedContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+    if (!content) return '';
+
+    const { latest, older, olderCount, firstOlderVersion } = collapseOlderVersions
+      ? splitChangelogVersions(content)
+      : { latest: content, older: null, olderCount: 0, firstOlderVersion: '' };
+
+    const parts: string[] = [renderMarkdown(latest)];
+    if (older !== null) {
+      // <details> 结构由组件自身生成（可信 HTML）；版本号文本做实体转义
+      const versionHint = firstOlderVersion ? `，如 ${escapeHtmlText(firstOlderVersion)}` : '';
+      parts.push(
+        `<details class="changelog-older-versions">\n` +
+          `<summary>展开查看历史版本记录（共 ${olderCount} 个历史版本${versionHint}）</summary>\n\n` +
+          `${renderMarkdown(older)}\n\n` +
+          `</details>`
+      );
     }
-  }, [processedContent]);
+    return parts.join('\n\n');
+  }, [content, collapseOlderVersions]);
 
   // 正文 HTML 是命令式注入的，SVG 安全升级只能在渲染后递归处理
   useEffect(() => {

@@ -2,6 +2,8 @@ package i18n
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -149,5 +151,44 @@ func TestLocalesLifecycle(t *testing.T) {
 	// 8. 非法语言代码防御校验
 	if err := SaveCustomLocale("../bad", []byte("{}")); err == nil {
 		t.Fatalf("expected error for path traversal language code")
+	}
+}
+
+// TestGetBundleRejectsTraversal 验证 GetBundle 对路径穿越/非法语言代码回退默认词典，
+// 不会读取 locales/ 之外的本地文件（如 config.json）。
+func TestGetBundleRejectsTraversal(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HPIC_CONFIG_DIR", tempDir)
+
+	// 在配置根目录放置一个伪装成语言包的敏感文件，内容含可识别标记
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(`{"header":{"title":"PWNED"}}`), 0644); err != nil {
+		t.Fatalf("write decoy file: %v", err)
+	}
+
+	bundle, err := GetBundle("../config")
+	if err != nil {
+		t.Fatalf("GetBundle should not error on invalid lang, got: %v", err)
+	}
+	header, ok := bundle["header"].(map[string]any)
+	if !ok {
+		t.Fatalf("bundle missing header map")
+	}
+	if header["title"] == "PWNED" {
+		t.Fatalf("path traversal read leaked local file content")
+	}
+	if header["title"] != "hpic" {
+		t.Fatalf("expected fallback default title 'hpic', got %v", header["title"])
+	}
+
+	// 其它非法形态同样回退默认词典
+	for _, bad := range []string{"", "zh/../../etc/passwd", "a.b", "zh CN", ".."} {
+		b, err := GetBundle(bad)
+		if err != nil {
+			t.Fatalf("GetBundle(%q) unexpected error: %v", bad, err)
+		}
+		h := b["header"].(map[string]any)
+		if h["title"] != "hpic" {
+			t.Fatalf("GetBundle(%q) should fall back to default, got title=%v", bad, h["title"])
+		}
 	}
 }

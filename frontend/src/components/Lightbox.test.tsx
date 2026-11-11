@@ -127,3 +127,97 @@ describe('Lightbox — Esc 键关闭功能', () => {
     expect(objElement?.getAttribute('data')).toBe(svgUrl);
   });
 });
+
+describe('Lightbox — 破图标记仅在源站确证 404 时触发', () => {
+  const defaultProps = {
+    isOpen: true,
+    url: 'https://example.com/test.jpg',
+    fallbackUrl: 'https://example.com/fallback.jpg',
+    title: '测试图片',
+    onClose: vi.fn(),
+  };
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <ToastProvider>
+      <FavoritesProvider>{children}</FavoritesProvider>
+    </ToastProvider>
+  );
+
+  const healthResult = (overrides: Record<string, unknown>) => ({
+    url: defaultProps.url,
+    ok: false,
+    status_code: 404,
+    need_proxy: false,
+    is_broken: true,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    (api.getFavorites as any).mockResolvedValue({ items: [], tags: [], total: 0 });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('源站返回 404 时标记破图', async () => {
+    const onMarkBroken = vi.fn();
+    (api.checkImageHealth as any).mockResolvedValue(healthResult({ status_code: 404 }));
+
+    render(<Lightbox {...defaultProps} onMarkBroken={onMarkBroken} />, { wrapper });
+    await act(async () => {});
+
+    expect(onMarkBroken).toHaveBeenCalledWith(defaultProps.url);
+  });
+
+  it('非 404 的失效（如 500）只展示失效态，不写入破图标记', async () => {
+    const onMarkBroken = vi.fn();
+    (api.checkImageHealth as any).mockResolvedValue(healthResult({ status_code: 500 }));
+
+    render(<Lightbox {...defaultProps} onMarkBroken={onMarkBroken} />, { wrapper });
+    await act(async () => {});
+
+    expect(onMarkBroken).not.toHaveBeenCalled();
+  });
+
+  it('网络层错误不标记破图', async () => {
+    const onMarkBroken = vi.fn();
+    (api.checkImageHealth as any).mockResolvedValue(
+      healthResult({ is_broken: false, network_error: true, status_code: 0 })
+    );
+
+    render(<Lightbox {...defaultProps} onMarkBroken={onMarkBroken} />, { wrapper });
+    await act(async () => {});
+
+    expect(onMarkBroken).not.toHaveBeenCalled();
+  });
+
+  it('过期的探测响应不会覆盖最新一次结果', async () => {
+    const onMarkBroken = vi.fn();
+    let resolveFirst: (v: unknown) => void = () => {};
+    let resolveSecond: (v: unknown) => void = () => {};
+    (api.checkImageHealth as any)
+      .mockImplementationOnce(() => new Promise(res => { resolveFirst = res; }))
+      .mockImplementationOnce(() => new Promise(res => { resolveSecond = res; }));
+
+    const { rerender } = render(
+      <Lightbox {...defaultProps} url="https://example.com/a.jpg" onMarkBroken={onMarkBroken} />,
+      { wrapper }
+    );
+    rerender(
+      <Lightbox {...defaultProps} url="https://example.com/b.jpg" onMarkBroken={onMarkBroken} />
+    );
+
+    // 旧请求（a.jpg，404）后返回，应被丢弃
+    await act(async () => { resolveFirst(healthResult({ status_code: 404 })); });
+    expect(onMarkBroken).not.toHaveBeenCalled();
+
+    // 新请求（b.jpg，正常）先返回，状态应被接受
+    await act(async () => {
+      resolveSecond(healthResult({ is_broken: false, ok: true, status_code: 200 }));
+    });
+    expect(onMarkBroken).not.toHaveBeenCalled();
+  });
+});

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FavoriteItem, TagStat, getCanonicalImageKey } from '../types';
 import { api } from '../api';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -153,19 +153,20 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return false;
   }, [refreshFavorites]);
 
+  // useMemo 固定 value 引用：否则任一状态变化都会生成新对象，导致所有消费者重渲染
+  const contextValue = useMemo<FavoritesContextType>(() => ({
+    favorites,
+    favoritedUrls,
+    favTags,
+    isLoading,
+    isFavorited,
+    toggleFavorite,
+    refreshFavorites,
+    updateTags,
+  }), [favorites, favoritedUrls, favTags, isLoading, isFavorited, toggleFavorite, refreshFavorites, updateTags]);
+
   return (
-    <FavoritesContext.Provider
-      value={{
-        favorites,
-        favoritedUrls,
-        favTags,
-        isLoading,
-        isFavorited,
-        toggleFavorite,
-        refreshFavorites,
-        updateTags,
-      }}
-    >
+    <FavoritesContext.Provider value={contextValue}>
       {children}
 
       {/* 全局取消收藏安全拦截确认弹窗 */}

@@ -93,12 +93,24 @@ Section "MainSection" SEC01
   WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\uninstall-setup.exe"
   WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "InstallLocation" "$INSTDIR"
 
-  ; 将安装目录加入用户 PATH 环境变量
+  ; 将安装目录加入用户 PATH 环境变量（追加前查重，避免重复安装导致 PATH 不断增长）
   ReadRegStr $0 HKCU "Environment" "Path"
-  ${If} $0 != ""
-    WriteRegExpandStr HKCU "Environment" "Path" "$0;$INSTDIR"
-  ${Else}
+  StrLen $2 $INSTDIR
+  StrLen $3 $0
+  IntOp $4 $3 - $2
+  ${If} $4 < 0
+    StrCpy $4 0
+  ${EndIf}
+  StrCpy $5 $0 $2 $4   ; PATH 末尾 len($INSTDIR) 个字符
+  StrCpy $6 $0 $2       ; PATH 开头 len($INSTDIR) 个字符
+  ${If} $3 == 0
     WriteRegExpandStr HKCU "Environment" "Path" "$INSTDIR"
+  ${ElseIf} $6 == "$INSTDIR"
+    ; 已作为前缀存在，无需重复追加
+  ${ElseIf} $5 == "$INSTDIR"
+    ; 已作为后缀存在（安装默认追加在末尾），无需重复追加
+  ${Else}
+    WriteRegExpandStr HKCU "Environment" "Path" "$0;$INSTDIR"
   ${EndIf}
   SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
 SectionEnd
@@ -116,6 +128,29 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\hpic\hpic.lnk"
   Delete "$SMPROGRAMS\hpic\卸载 hpic.lnk"
   RMDir "$SMPROGRAMS\hpic"
+
+  ; 还原用户 PATH：移除安装时追加的 $INSTDIR 条目（前缀 / 精确 / 后缀三种形式）
+  ReadRegStr $0 HKCU "Environment" "Path"
+  StrLen $2 $INSTDIR
+  StrLen $3 $0
+  IntOp $4 $3 - $2
+  ${If} $4 < 0
+    StrCpy $4 0
+  ${EndIf}
+  StrCpy $5 $0 $2 $4   ; PATH 末尾 len($INSTDIR) 个字符
+  StrCpy $6 $0 $2       ; PATH 开头 len($INSTDIR) 个字符
+  ${If} $3 == $2
+    ${If} $0 == "$INSTDIR"
+      WriteRegExpandStr HKCU "Environment" "Path" ""
+    ${EndIf}
+  ${ElseIf} $6 == "$INSTDIR"
+    IntOp $7 $2 + 1
+    StrCpy $0 $0 $3 $7
+    WriteRegExpandStr HKCU "Environment" "Path" "$0"
+  ${ElseIf} $5 == "$INSTDIR"
+    StrCpy $0 $0 $2
+    WriteRegExpandStr HKCU "Environment" "Path" "$0"
+  ${EndIf}
 
   ; 删除注册表项
   DeleteRegKey HKCU "${PRODUCT_UNINST_KEY}"

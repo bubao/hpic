@@ -13,10 +13,11 @@ import (
 
 func (s *Server) handleSocialifyPreview() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.configSnapshot()
 		repo := r.URL.Query().Get("repo")
 		owner := r.URL.Query().Get("owner")
 		if owner == "" {
-			owner = s.cfg.GitHubOwner
+			owner = cfg.GitHubOwner
 		}
 		if repo == "" {
 			writeError(w, http.StatusBadRequest, "repo parameter is required")
@@ -25,11 +26,11 @@ func (s *Server) handleSocialifyPreview() http.HandlerFunc {
 
 		pattern := r.URL.Query().Get("pattern")
 		if pattern == "" {
-			pattern = s.cfg.SocialifyPattern
+			pattern = cfg.SocialifyPattern
 		}
 		theme := r.URL.Query().Get("theme")
 		if theme == "" {
-			theme = s.cfg.SocialifyTheme
+			theme = cfg.SocialifyTheme
 		}
 
 		generatedURL := post.BuildSocialifyURL(owner, repo, pattern, theme)
@@ -70,6 +71,7 @@ func (s *Server) handleSkillIconsPreview() http.HandlerFunc {
 
 func (s *Server) handleUnsplashSearch() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.configSnapshot()
 		query := r.URL.Query().Get("q")
 		if query == "" {
 			writeError(w, http.StatusBadRequest, "query parameter is required")
@@ -83,16 +85,16 @@ func (s *Server) handleUnsplashSearch() http.HandlerFunc {
 
 		orientation := r.URL.Query().Get("orientation")
 		if orientation == "" {
-			orientation = s.cfg.Orientation
+			orientation = cfg.Orientation
 		}
 		size := r.URL.Query().Get("size")
 		if size == "" {
-			size = s.cfg.ImageSize
+			size = cfg.ImageSize
 		}
 
 		source := r.URL.Query().Get("source")
 		if source == "wallhaven" {
-			resp, err := unsplash.SearchWallhaven(query, page, orientation, size, s.cfg.Proxy)
+			resp, err := unsplash.SearchWallhaven(query, page, orientation, size, cfg.Proxy)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -102,7 +104,7 @@ func (s *Server) handleUnsplashSearch() http.HandlerFunc {
 		}
 
 		// 免 Key 高清横屏网络搜图
-		resp, err := unsplash.SearchPhotos(query, page, 35, orientation, size, s.cfg.Proxy)
+		resp, err := unsplash.SearchPhotos(query, page, orientation, size, cfg.Proxy)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

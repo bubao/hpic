@@ -32,7 +32,8 @@ export interface ModalsLayerProps {
   updateInfo: VersionInfo | null;
   setUpdateInfo: (info: VersionInfo | null) => void;
   setConfig: (cfg: Config) => void;
-  setBrokenReports: React.Dispatch<React.SetStateAction<BrokenReport[]>>;
+  /** 合并式注入体检报告（按 file_path + field 去重），避免覆盖运行时已标记的破图。 */
+  mergeBrokenReports: (reports: BrokenReport[]) => void;
   setIsHealthChecking: React.Dispatch<React.SetStateAction<boolean>>;
   loadPostsList: () => void | Promise<void>;
   setSelectedPost: (post: PostInfo) => void;
@@ -56,7 +57,7 @@ export const ModalsLayer: React.FC<ModalsLayerProps> = ({
   updateInfo,
   setUpdateInfo,
   setConfig,
-  setBrokenReports,
+  mergeBrokenReports,
   setIsHealthChecking,
   loadPostsList,
   setSelectedPost,
@@ -116,7 +117,7 @@ export const ModalsLayer: React.FC<ModalsLayerProps> = ({
           if (match) setSelectedPost(match);
         }}
         posts={posts}
-        onUpdateReports={setBrokenReports}
+        onUpdateReports={mergeBrokenReports}
         onRunningChange={setIsHealthChecking}
       />
 

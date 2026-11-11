@@ -137,9 +137,35 @@ func ListLocales() (LocalesListResponse, error) {
 	}, nil
 }
 
+// validateLangCode 校验语言代码：仅允许 [A-Za-z0-9_-]，且不含路径分隔符/穿越。
+// 统一供 GetBundle / SaveCustomLocale / ResetLocale 复用，避免各入口校验强度不一致。
+func validateLangCode(lang string) (string, error) {
+	clean := strings.TrimSpace(lang)
+	if clean == "" {
+		return "", fmt.Errorf("language code cannot be empty")
+	}
+	if clean != lang || strings.Contains(clean, "..") || strings.ContainsAny(clean, "/\\") {
+		return "", fmt.Errorf("invalid language code: %s", lang)
+	}
+	for _, r := range clean {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return "", fmt.Errorf("invalid language code: %s", lang)
+	}
+	return clean, nil
+}
+
 // GetBundle 获取指定语言的最终合并字典
 // 逻辑：以内置词典（若为新增自定义语言则以 zh-CN）为基准，递归深度合并用户本地 locales/<lang>.json
 func GetBundle(lang string) (map[string]any, error) {
+	// 安全校验：非法语言代码（含路径穿越）一律回退默认词典，避免读取本地任意文件
+	if clean, err := validateLangCode(lang); err == nil {
+		lang = clean
+	} else {
+		lang = "zh-CN"
+	}
+
 	_ = EnsureLocalesDir()
 
 	baseJSON := DefaultZhCNJSON
@@ -166,13 +192,10 @@ func GetBundle(lang string) (map[string]any, error) {
 
 // SaveCustomLocale 保存用户自定义语言覆盖到本地 JSON 文件
 func SaveCustomLocale(lang string, rawJSON []byte) error {
-	if strings.TrimSpace(lang) == "" {
-		return fmt.Errorf("language code cannot be empty")
-	}
-	// 安全校验：防止路径穿越
-	cleanLang := filepath.Base(strings.TrimSpace(lang))
-	if cleanLang != lang || strings.Contains(lang, "..") || strings.Contains(lang, "/") || strings.Contains(lang, "\\") {
-		return fmt.Errorf("invalid language code: %s", lang)
+	// 安全校验：仅允许 [A-Za-z0-9_-]，防止路径穿越与非法字符
+	cleanLang, err := validateLangCode(lang)
+	if err != nil {
+		return err
 	}
 
 	var parsed map[string]any
@@ -194,9 +217,9 @@ func SaveCustomLocale(lang string, rawJSON []byte) error {
 
 // ResetLocale 移除用户的自定义覆盖文件，恢复系统默认
 func ResetLocale(lang string) error {
-	cleanLang := filepath.Base(strings.TrimSpace(lang))
-	if cleanLang != lang {
-		return fmt.Errorf("invalid language code: %s", lang)
+	cleanLang, err := validateLangCode(lang)
+	if err != nil {
+		return err
 	}
 
 	targetPath := filepath.Join(LocalesDir(), cleanLang+".json")

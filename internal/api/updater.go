@@ -18,7 +18,48 @@ import (
 	"hpic/internal/httputil"
 )
 
-// ExtractBinaryFromArchive 从下载的 zip 或 tar.gz 数据中提取名为 hpic 或 hpic.exe 的可执行文件二进制
+const (
+	// maxUpdateDownloadSize 是单次自升级下载体的硬上限，防止超大响应撑爆内存。
+	maxUpdateDownloadSize int64 = 200 << 20
+	// maxUpdateBinarySize 是归档内可执行文件解压后的硬上限，防御 zip/tar 炸弹。
+	maxUpdateBinarySize int64 = 200 << 20
+	// minUpdateBinarySize 是可信二进制的最小体积，低于此体积几乎必然是损坏或伪造产物。
+	minUpdateBinarySize = 100 << 10
+)
+
+// validateExecutableBinary 校验负载是否为可识别的可执行格式（Windows PE / ELF / Mach-O），
+// 拒绝把无法识别的垃圾数据当作新版二进制写入磁盘。
+func validateExecutableBinary(data []byte) error {
+	if len(data) < 4 {
+		return fmt.Errorf("extracted payload is too small to be a valid executable (%d bytes)", len(data))
+	}
+	switch {
+	case bytes.HasPrefix(data, []byte("MZ")), // Windows PE
+		bytes.HasPrefix(data, []byte{'\x7f', 'E', 'L', 'F'}),          // ELF
+		bytes.HasPrefix(data, []byte{'\xfe', '\xed', '\xfa', '\xce'}), // Mach-O 32-bit BE
+		bytes.HasPrefix(data, []byte{'\xfe', '\xed', '\xfa', '\xcf'}), // Mach-O 64-bit BE
+		bytes.HasPrefix(data, []byte{'\xce', '\xfa', '\xed', '\xfe'}), // Mach-O 32-bit LE
+		bytes.HasPrefix(data, []byte{'\xcf', '\xfa', '\xed', '\xfe'}), // Mach-O 64-bit LE
+		bytes.HasPrefix(data, []byte{'\xca', '\xfe', '\xba', '\xbe'}): // Mach-O fat / Java class
+		return nil
+	}
+	return fmt.Errorf("extracted payload has no recognizable executable magic header, update aborted")
+}
+
+// readArchiveEntryBounded 读取单个归档条目，并以硬上限截断，防止解压后体积失控。
+func readArchiveEntryBounded(r io.Reader, name string) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxUpdateBinarySize+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxUpdateBinarySize {
+		return nil, fmt.Errorf("archive entry %q exceeds the %d MB size limit after decompression, update aborted", name, maxUpdateBinarySize>>20)
+	}
+	return data, nil
+}
+
+// ExtractBinaryFromArchive 从下载的 zip 或 tar.gz 数据中提取名为 hpic 或 hpic.exe 的可执行文件二进制。
+// 提取结果保证在体积上受限且头部为可识别的可执行格式，否则返回错误。
 func ExtractBinaryFromArchive(archiveData []byte, isZip bool) ([]byte, error) {
 	if isZip {
 		zipReader, err := zip.NewReader(bytes.NewReader(archiveData), int64(len(archiveData)))
@@ -27,14 +68,26 @@ func ExtractBinaryFromArchive(archiveData []byte, isZip bool) ([]byte, error) {
 		}
 		for _, file := range zipReader.File {
 			baseName := strings.ToLower(filepath.Base(file.Name))
-			if baseName == "hpic.exe" || baseName == "hpic" || baseName == "hpic-desktop" {
-				rc, err := file.Open()
-				if err != nil {
-					return nil, err
-				}
-				defer rc.Close()
-				return io.ReadAll(rc)
+			if baseName != "hpic.exe" && baseName != "hpic" && baseName != "hpic-desktop" {
+				continue
 			}
+			// 防御 zip 炸弹：先看声明体积，再对实际解压结果做硬截断
+			if file.UncompressedSize64 > uint64(maxUpdateBinarySize) {
+				return nil, fmt.Errorf("archive entry %q declares %d bytes, exceeding the %d MB size limit, update aborted", file.Name, file.UncompressedSize64, maxUpdateBinarySize>>20)
+			}
+			rc, err := file.Open()
+			if err != nil {
+				return nil, err
+			}
+			data, readErr := readArchiveEntryBounded(rc, file.Name)
+			_ = rc.Close()
+			if readErr != nil {
+				return nil, readErr
+			}
+			if err := validateExecutableBinary(data); err != nil {
+				return nil, err
+			}
+			return data, nil
 		}
 		return nil, fmt.Errorf("executable binary not found in zip archive")
 	}
@@ -56,9 +109,20 @@ func ExtractBinaryFromArchive(archiveData []byte, isZip bool) ([]byte, error) {
 			return nil, err
 		}
 		baseName := strings.ToLower(filepath.Base(header.Name))
-		if baseName == "hpic" || baseName == "hpic-desktop" || baseName == "hpic.exe" {
-			return io.ReadAll(tr)
+		if baseName != "hpic" && baseName != "hpic-desktop" && baseName != "hpic.exe" {
+			continue
 		}
+		if header.Size > maxUpdateBinarySize {
+			return nil, fmt.Errorf("archive entry %q declares %d bytes, exceeding the %d MB size limit, update aborted", header.Name, header.Size, maxUpdateBinarySize>>20)
+		}
+		data, err := readArchiveEntryBounded(tr, header.Name)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateExecutableBinary(data); err != nil {
+			return nil, err
+		}
+		return data, nil
 	}
 	return nil, fmt.Errorf("executable binary not found in tar.gz archive")
 }
@@ -103,9 +167,13 @@ func DownloadAndInstallUpdate(downloadURL string, newVersion string, proxy strin
 		return "", fmt.Errorf("download server returned HTTP %d", resp.StatusCode)
 	}
 
-	archiveData, err := io.ReadAll(resp.Body)
+	// 限制下载体积：多读 1 字节用于检测“恰好超限”
+	archiveData, err := io.ReadAll(io.LimitReader(resp.Body, maxUpdateDownloadSize+1))
 	if err != nil {
 		return "", fmt.Errorf("failed to read update payload: %w", err)
+	}
+	if int64(len(archiveData)) > maxUpdateDownloadSize {
+		return "", fmt.Errorf("update package exceeds the %d MB download limit (%d bytes), update aborted", maxUpdateDownloadSize>>20, len(archiveData))
 	}
 
 	// 判断格式
@@ -121,9 +189,12 @@ func DownloadAndInstallUpdate(downloadURL string, newVersion string, proxy strin
 	} else {
 		// 直接是二进制文件
 		newBinData = archiveData
+		if err := validateExecutableBinary(newBinData); err != nil {
+			return "", err
+		}
 	}
 
-	if len(newBinData) < 100*1024 {
+	if len(newBinData) < minUpdateBinarySize {
 		return "", fmt.Errorf("extracted binary is abnormally small (%d bytes), update aborted", len(newBinData))
 	}
 

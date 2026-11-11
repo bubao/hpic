@@ -103,14 +103,16 @@ export async function fetchImageText(url: string): Promise<string | null> {
 }
 
 // 单张图片健康连通性与防盗链预检
+// 仅在确证失效（后端返回 is_broken）时判定破图；网络层异常一律归为 network_error，
+// 避免断网/超时把可用图片误标为永久失效。
 export async function checkImageHealth(url: string): Promise<ImageCheckResult> {
   try {
     const res = await apiFetch(`/api/image/check?url=${encodeURIComponent(url)}`);
     if (!res.ok) {
-      return { url, ok: false, status_code: res.status, need_proxy: false, is_broken: true };
+      return { url, ok: false, status_code: res.status, need_proxy: false, is_broken: false, network_error: true };
     }
     return res.json();
   } catch (e: any) {
-    return { url, ok: false, status_code: 0, need_proxy: false, is_broken: true, error: e?.message };
+    return { url, ok: false, status_code: 0, need_proxy: false, is_broken: false, network_error: true, error: e?.message };
   }
 }

@@ -10,6 +10,20 @@ export function useBrokenImageRegistry() {
   // 经实时探测确认已失效的原图 URL 集合
   const [brokenUrls, setBrokenUrls] = useState<Set<string>>(new Set());
 
+  // 合并式注入体检报告：按 file_path + field 去重合并，
+  // 保留运行时已实时标记的破图记录，避免整组替换造成丢失。
+  const mergeBrokenReports = useCallback((incoming: BrokenReport[]) => {
+    if (!Array.isArray(incoming) || incoming.length === 0) return;
+    setBrokenReports(prev => {
+      const merged = [...prev];
+      for (const report of incoming) {
+        const exist = merged.some(r => r.file_path === report.file_path && r.field === report.field);
+        if (!exist) merged.push(report);
+      }
+      return merged;
+    });
+  }, []);
+
   // 登记原图失效并同步注入博文体检报告与全局状态
   const handleMarkBroken = useCallback((brokenUrl: string, filePath?: string, field?: string, postTitle?: string) => {
     if (!brokenUrl) return;
@@ -44,6 +58,7 @@ export function useBrokenImageRegistry() {
   return {
     brokenReports,
     setBrokenReports,
+    mergeBrokenReports,
     brokenUrls,
     setBrokenUrls,
     handleMarkBroken,

@@ -225,6 +225,8 @@ export interface ImageCheckResult {
   status_code: number;
   need_proxy: boolean;
   is_broken: boolean;
+  /** 连接层失败（断网/超时/DNS），非确证失效，不应被当作永久破图。 */
+  network_error?: boolean;
   error?: string;
 }
 

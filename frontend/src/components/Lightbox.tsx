@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ExternalLink, Copy, X, Star, AlertTriangle, RefreshCw, Loader2, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { api } from '../api';
 import { useFavorites } from '../context/FavoritesContext';
@@ -37,6 +37,8 @@ export const Lightbox: React.FC<LightboxProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [healthStatus, setHealthStatus] = useState<'checking' | 'direct_ok' | 'hotlink_blocked' | 'broken' | null>(null);
+  // 探测请求序号：仅接受最新一次 checkImageHealth 的结果，避免快速切换图片时旧响应覆盖新状态
+  const healthRequestSeq = useRef(0);
 
   const isSvg = isSvgUrl(activeUrl);
   const { safeUrl: safeSvgUrl, dimensions: svgDims } = useSafeSvgUrl(isSvg ? activeUrl : null, 'contain');
@@ -65,18 +67,25 @@ export const Lightbox: React.FC<LightboxProps> = ({
 
       // 预览时直接检测资源自身原图地址在源站的可用性
       if (url.startsWith('http')) {
+        const seq = ++healthRequestSeq.current;
         api.checkImageHealth(url).then(res => {
+          if (seq !== healthRequestSeq.current) return;
           if (res.is_broken) {
             setHealthStatus('broken');
             setIsError(true);
             setIsLoading(false);
-            onMarkBroken?.(url);
+            // 仅 404（源站确证删除）才写入永久破图标记；
+            // 网络层失败（断网/超时）与防盗链拦截都不算永久失效。
+            if (res.status_code === 404) {
+              onMarkBroken?.(url);
+            }
           } else if (res.need_proxy) {
             setHealthStatus('hotlink_blocked');
           } else {
             setHealthStatus('direct_ok');
           }
         }).catch(() => {
+          if (seq !== healthRequestSeq.current) return;
           setHealthStatus(null);
         });
       } else {

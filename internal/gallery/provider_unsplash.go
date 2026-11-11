@@ -18,11 +18,7 @@ func (p *unsplashProvider) DisplayName() string { return "Unsplash 摄影" }
 func (p *unsplashProvider) Kind() string        { return "search" }
 
 func (p *unsplashProvider) Search(_ context.Context, opts SearchOptions) ([]CoverCandidate, error) {
-	perPage := opts.PerPage
-	if perPage <= 0 {
-		perPage = 35
-	}
-	resp, err := unsplash.SearchPhotos(opts.Query, opts.Page, perPage, opts.Orientation, opts.Size, opts.Proxy)
+	resp, err := unsplash.SearchPhotos(opts.Query, opts.Page, opts.Orientation, opts.Size, opts.Proxy)
 	if err != nil {
 		return nil, err
 	}

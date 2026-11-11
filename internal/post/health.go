@@ -48,6 +48,10 @@ type HealthProgressEvent struct {
 // HealthProgressCallback 体检进度回调
 type HealthProgressCallback func(event HealthProgressEvent)
 
+// newHealthCheckClient 构造体检用的 HTTP 客户端。
+// 抽为包级变量以便单测注入指向本地 httptest 服务的客户端（生产恒为防 SSRF 客户端）。
+var newHealthCheckClient = httputil.NewSSRFProtectedClient
+
 // CheckImageHealthStream 并发检查所有文章封面图片的可用性，并实时回调进度
 func CheckImageHealthStream(postsDir string, coverFields []string, proxyStr string, onProgress HealthProgressCallback) (*HealthCheckResult, error) {
 	start := time.Now()
@@ -56,7 +60,8 @@ func CheckImageHealthStream(postsDir string, coverFields []string, proxyStr stri
 		return nil, err
 	}
 
-	client := httputil.NewClient(proxyStr, 8*time.Second, true)
+	// 体检链路同样需要防 SSRF：文章 frontmatter 中的图片 URL 可能指向内网/回环地址。
+	client := newHealthCheckClient(proxyStr, 8*time.Second)
 
 	type checkTask struct {
 		post  PostInfo
@@ -246,7 +251,7 @@ func PingSingleImage(urlStr string, proxyStr string) (statusCode int, needProxy 
 		return 0, false, fmt.Errorf("unsupported url scheme or malformed url (only http/https or local path): %s", urlStr)
 	}
 
-	client := httputil.NewClient(proxyStr, 5*time.Second, true)
+	client := newHealthCheckClient(proxyStr, 5*time.Second)
 	code, pingErr := pingImageURL(client, urlStr)
 	if pingErr != nil {
 		return code, false, pingErr

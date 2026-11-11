@@ -16,6 +16,7 @@ import (
 	"hpic/internal/atomicfile"
 	"hpic/internal/config"
 	"hpic/internal/db"
+	"hpic/internal/post"
 )
 
 // FavoriteItem 为对外契约结构（前端 / MCP 共用），字段不可随意变更。
@@ -219,7 +220,6 @@ func (s *Store) migrateLegacyJSON() {
 }
 
 var (
-	unsplashRe  = regexp.MustCompile(`https?://[a-zA-Z0-9\.\-_]*unsplash\.com/([a-zA-Z0-9\-_]+)`)
 	wallhavenRe = regexp.MustCompile(`(wallhaven-[a-zA-Z0-9]+)`)
 )
 
@@ -233,9 +233,9 @@ func NormalizeImageKey(rawURL string) string {
 		return HashURL(rawURL)
 	}
 
-	// 1. Unsplash 图片唯一识别码
-	if m := unsplashRe.FindStringSubmatch(rawURL); len(m) > 1 {
-		return "unsplash::" + m[1]
+	// 1. Unsplash 图片唯一识别码（与 post.ExtractUnsplashPhoto 共用同一份正则）
+	if id, ok := post.ExtractUnsplashPhotoID(rawURL); ok {
+		return "unsplash::" + id
 	}
 
 	// 2. Wallhaven 图片唯一识别码

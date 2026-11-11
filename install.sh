@@ -3,7 +3,6 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${HOME}/.local/bin"
-APP_TARGET_DIR="/Applications"
 
 stop_running_processes() {
     # 终止正在运行的 hpic 相关进程，避免二进制文件锁死和新旧端口冲突
@@ -34,14 +33,12 @@ if [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
 
     # 2. macOS 应用包移除 (系统与用户目录全清理)
     if [ "$(uname -s)" = "Darwin" ]; then
-        if [ -d "/Applications/hpic.app" ]; then
-            rm -rf "/Applications/hpic.app" 2>/dev/null || true
-            echo "   [OK] 移除 /Applications/hpic.app"
-        fi
-        if [ -d "${APP_TARGET_DIR}/hpic.app" ]; then
-            rm -rf "${APP_TARGET_DIR}/hpic.app" 2>/dev/null || true
-            echo "   [OK] 移除 ${APP_TARGET_DIR}/hpic.app"
-        fi
+        for appDir in "/Applications/hpic.app" "${HOME}/Applications/hpic.app"; do
+            if [ -d "$appDir" ]; then
+                rm -rf "$appDir" 2>/dev/null || true
+                echo "   [OK] 移除 ${appDir}"
+            fi
+        done
     fi
 
     # 3. Linux 桌面快捷方式与图标移除
@@ -97,7 +94,7 @@ echo "[1/4] 系统环境检测: $PLATFORM_DESC"
 # 1.1 检查 Go 编译环境
 if ! command -v go >/dev/null 2>&1; then
     echo "[ERROR] 未检测到 Go 开发环境！"
-    echo "   hpic 需要 Go 1.20 或更高版本进行编译安装。"
+    echo "   hpic 需要 Go 1.27 或更高版本进行编译安装。"
     echo "   请先从 https://golang.google.cn/dl/ 或 https://go.dev/dl/ 下载并安装 Go。"
     exit 1
 fi
@@ -106,8 +103,8 @@ GO_VERSION_STR=$(go version | awk '{print $3}' | sed 's/go//')
 GO_MAJOR=$(echo "$GO_VERSION_STR" | cut -d. -f1)
 GO_MINOR=$(echo "$GO_VERSION_STR" | cut -d. -f2)
 
-if [ "$GO_MAJOR" -lt 1 ] || { [ "$GO_MAJOR" -eq 1 ] && [ "$GO_MINOR" -lt 20 ]; }; then
-    echo "[WARN] 当前 Go 版本为 go$GO_VERSION_STR，建议使用 Go 1.20 或以上版本。"
+if [ "$GO_MAJOR" -lt 1 ] || { [ "$GO_MAJOR" -eq 1 ] && [ "$GO_MINOR" -lt 27 ]; }; then
+    echo "[WARN] 当前 Go 版本为 go$GO_VERSION_STR，建议使用 Go 1.27 或以上版本。"
 else
     echo "   [OK] Go 语言环境就绪: go$GO_VERSION_STR"
 fi
@@ -137,7 +134,18 @@ if [ "$NEED_FRONTEND_BUILD" -eq 1 ]; then
         (cd "${SCRIPT_DIR}/frontend" && npm install)
     fi
     mkdir -p "${SCRIPT_DIR}/frontend/public"
-    cp -f "${SCRIPT_DIR}/assets/icon.svg" "${SCRIPT_DIR}/frontend/public/favicon.svg"
+    # assets/icon.svg 由 scripts/build-icons.mjs 生成且被 .gitignore 排除，全新克隆时可能缺失
+    if [ ! -f "${SCRIPT_DIR}/assets/icon.svg" ]; then
+        echo "   [INFO] 未找到 assets/icon.svg，尝试自动生成..."
+        if (cd "${SCRIPT_DIR}" && node scripts/build-icons.mjs >/dev/null 2>&1); then
+            echo "   [OK] 图标资源生成完成"
+        else
+            echo "   [WARN] 图标资源生成失败，跳过 favicon 拷贝（不影响主程序运行）"
+        fi
+    fi
+    if [ -f "${SCRIPT_DIR}/assets/icon.svg" ]; then
+        cp -f "${SCRIPT_DIR}/assets/icon.svg" "${SCRIPT_DIR}/frontend/public/favicon.svg"
+    fi
     (cd "${SCRIPT_DIR}/frontend" && npm run build)
     echo "   [OK] 前端构建完成 -> web/"
 else
@@ -190,8 +198,6 @@ TMP_BIN=$(mktemp "${TMPDIR:-/tmp}/hpic_build.XXXXXX")
 echo "[4/4] 配置系统桌面集成..."
 
 if [[ "$OS_NAME" == "Darwin" ]]; then
-    mkdir -p "$APP_TARGET_DIR"
-
     # 3.1 检查 macOS 编译工具 (swiftc 与 Command Line Tools)
     if command -v swiftc >/dev/null 2>&1; then
         echo "   [INFO] 编译 macOS Swift 原生独立 WebKit 窗口组件..."
@@ -254,21 +260,31 @@ EOF
     fi
 
     INSTALLED_APPS=()
-    # 统一安装到标准系统应用目录 /Applications/hpic.app
-    echo "   [INFO] 安装 hpic.app 到系统应用目录 (/Applications/hpic.app)..."
-    rm -rf "/Applications/hpic.app"
-    cp -R "${LOCAL_APP}" "/Applications/"
+    # 优先安装到系统应用目录；标准用户无写权限时回退到用户目录（与 activateExistingWindow 双候选一致）。
+    # 用真实写探测而非 [ -w ]：后者只按主组判定，对「主组非 admin 但属于 admin 组」的 macOS 用户会误判。
+    APP_INSTALL_DIR="/Applications"
+    if ! (touch "/Applications/.hpic_write_probe.$$" 2>/dev/null && rm -f "/Applications/.hpic_write_probe.$$"); then
+        APP_INSTALL_DIR="${HOME}/Applications"
+        echo "   [WARN] 当前用户无权限写入 /Applications，回退安装到用户目录 (${APP_INSTALL_DIR}/hpic.app)..."
+    else
+        echo "   [INFO] 安装 hpic.app 到系统应用目录 (${APP_INSTALL_DIR}/hpic.app)..."
+    fi
+    mkdir -p "$APP_INSTALL_DIR"
+    rm -rf "${APP_INSTALL_DIR}/hpic.app"
+    cp -R "${LOCAL_APP}" "${APP_INSTALL_DIR}/"
     if command -v codesign >/dev/null 2>&1; then
-        codesign --force --deep --options runtime --sign - "/Applications/hpic.app" 2>/dev/null || true
+        codesign --force --deep --options runtime --sign - "${APP_INSTALL_DIR}/hpic.app" 2>/dev/null || true
     fi
-    touch "/Applications/hpic.app"
-    INSTALLED_APPS+=("/Applications/hpic.app")
+    touch "${APP_INSTALL_DIR}/hpic.app"
+    INSTALLED_APPS+=("${APP_INSTALL_DIR}/hpic.app")
 
-    # 清理历史可能遗留在用户目录 ~/Applications 中的旧副本，避免冗余和版本混淆
-    if [ -d "${HOME}/Applications/hpic.app" ]; then
-        rm -rf "${HOME}/Applications/hpic.app" 2>/dev/null || true
-        echo "   [INFO] 已自动清理历史残留的用户目录副本 (${HOME}/Applications/hpic.app)"
-    fi
+    # 清理另一目录下可能残留的旧副本，避免冗余和版本混淆
+    for legacyDir in "/Applications" "${HOME}/Applications"; do
+        if [ "$legacyDir" != "$APP_INSTALL_DIR" ] && [ -d "${legacyDir}/hpic.app" ]; then
+            rm -rf "${legacyDir}/hpic.app" 2>/dev/null || true
+            echo "   [INFO] 已自动清理历史残留副本 (${legacyDir}/hpic.app)"
+        fi
+    done
 
     if [ -f "${SCRIPT_DIR}/native_macos/hpic-mac-ui" ]; then
         cp -f "${SCRIPT_DIR}/native_macos/hpic-mac-ui" "${TARGET_DIR}/hpic-mac-ui"

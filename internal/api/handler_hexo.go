@@ -156,9 +156,10 @@ func (s *Server) handleHexoDeploy() http.HandlerFunc {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
+		cfg := s.configSnapshot()
 		mode := req.Mode
 		if mode == "" {
-			mode = s.cfg.DeployMode
+			mode = cfg.DeployMode
 		}
 		if mode == "" {
 			mode = "git"
@@ -170,7 +171,7 @@ func (s *Server) handleHexoDeploy() http.HandlerFunc {
 		if mode == "git" {
 			commitMsg := req.CommitMessage
 			if commitMsg == "" {
-				commitMsg = s.cfg.GitCommitTemplate
+				commitMsg = cfg.GitCommitTemplate
 			}
 			if commitMsg == "" {
 				commitMsg = "chore(blog): update articles and covers"

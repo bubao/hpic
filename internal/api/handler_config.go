@@ -21,11 +21,10 @@ type OpenRequest struct {
 func (s *Server) handleConfig() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			s.cfgMu.RLock()
-			cfgBytes, err := json.Marshal(s.cfg) // 浅拷贝序列化，避免并发修改
+			cfg := s.configSnapshot()
+			cfgBytes, err := json.Marshal(&cfg) // 使用快照序列化，避免并发修改
 			version := s.version
-			hexoDir := s.cfg.HexoDir
-			s.cfgMu.RUnlock()
+			hexoDir := cfg.HexoDir
 
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to marshal config")
@@ -149,8 +148,9 @@ func (s *Server) handleConfig() http.HandlerFunc {
 				s.cfg.GitCommitTemplate = strings.TrimSpace(req.GitCommitTemplate)
 			}
 
-			// 创建浅拷贝用于返回（避免 JSON 序列化期间 cfg 被其他 goroutine 修改）
+			// 创建快照用于返回（持写锁期间复制，避免 JSON 序列化期间 cfg 被其他 goroutine 修改）
 			cfgCopy := *s.cfg
+			cfgCopy.CoverFields = append([]string(nil), s.cfg.CoverFields...)
 
 			if err := s.cfg.Save(); err != nil {
 				s.cfgMu.Unlock()
@@ -215,7 +215,7 @@ func (s *Server) handleConfigMigrateLegacy() http.HandlerFunc {
 			"success":        true,
 			"migrated_files": res.MigratedFiles,
 			"error":          res.Error,
-			"config":         s.cfg,
+			"config":         s.configSnapshot(),
 		})
 	}
 }
@@ -246,7 +246,7 @@ func (s *Server) handleSelectDirectory() http.HandlerFunc {
 			selected = req.Path
 		} else {
 			if req.InitialDir == "" {
-				req.InitialDir = s.cfg.HexoDir
+				req.InitialDir = s.configSnapshot().HexoDir
 			}
 			selected, canceled, err = httputil.SelectDirectoryDialog(req.Prompt, req.InitialDir)
 		}
@@ -309,11 +309,12 @@ func (s *Server) handleSystemOpen() http.HandlerFunc {
 
 func (s *Server) handleVersionCheck() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.configSnapshot()
 		customRepo := ""
-		if s.cfg.GitHubOwner != "" {
-			customRepo = s.cfg.GitHubOwner + "/hpic"
+		if cfg.GitHubOwner != "" {
+			customRepo = cfg.GitHubOwner + "/hpic"
 		}
-		info, err := CheckUpdateFromGitHub(s.version, customRepo, s.cfg.Proxy)
+		info, err := CheckUpdateFromGitHub(s.version, customRepo, cfg.Proxy)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "检查更新失败: "+err.Error())
 			return
@@ -329,11 +330,12 @@ func (s *Server) handleVersionUpgrade() http.HandlerFunc {
 			return
 		}
 
+		cfg := s.configSnapshot()
 		customRepo := ""
-		if s.cfg.GitHubOwner != "" {
-			customRepo = s.cfg.GitHubOwner + "/hpic"
+		if cfg.GitHubOwner != "" {
+			customRepo = cfg.GitHubOwner + "/hpic"
 		}
-		info, err := CheckUpdateFromGitHub(s.version, customRepo, s.cfg.Proxy)
+		info, err := CheckUpdateFromGitHub(s.version, customRepo, cfg.Proxy)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "检查更新失败: "+err.Error())
 			return
@@ -367,11 +369,12 @@ func (s *Server) handleVersionInstall() http.HandlerFunc {
 			return
 		}
 
+		cfg := s.configSnapshot()
 		customRepo := ""
-		if s.cfg.GitHubOwner != "" {
-			customRepo = s.cfg.GitHubOwner + "/hpic"
+		if cfg.GitHubOwner != "" {
+			customRepo = cfg.GitHubOwner + "/hpic"
 		}
-		info, err := CheckUpdateFromGitHub(s.version, customRepo, s.cfg.Proxy)
+		info, err := CheckUpdateFromGitHub(s.version, customRepo, cfg.Proxy)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "获取最新版本信息失败: "+err.Error())
 			return
@@ -407,7 +410,7 @@ func (s *Server) handleVersionInstall() http.HandlerFunc {
 			return
 		}
 
-		msg, err := DownloadAndInstallUpdate(installTargetURL, info.LatestVersion, s.cfg.Proxy)
+		msg, err := DownloadAndInstallUpdate(installTargetURL, info.LatestVersion, cfg.Proxy)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "自动下载安装失败: "+err.Error())
 			return

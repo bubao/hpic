@@ -166,14 +166,17 @@ echo -e "本次发布目标版本: ${GREEN}${TARGET_TAG}${NC}"
 echo "$TARGET_RAW_VER" > VERSION
 echo -e "   [OK] 写入根目录单一真相源 VERSION -> ${TARGET_RAW_VER}"
 
-# 2. 同步 frontend/package.json
+# 2. 同步 frontend/package.json（单一真相源 VERSION 必须与 package.json 一致，失败即中止）
 if [ -f "frontend/package.json" ]; then
-    node -e "
+    if ! node -e "
         const fs = require('fs');
         const p = JSON.parse(fs.readFileSync('frontend/package.json', 'utf8'));
         p.version = '${TARGET_RAW_VER}';
         fs.writeFileSync('frontend/package.json', JSON.stringify(p, null, 2) + '\n');
-    " 2>/dev/null || true
+    "; then
+        echo -e "   ${RED}[ERROR] 同步 frontend/package.json version 失败，发布中止（请检查 Node 环境与文件写入权限）${NC}" >&2
+        exit 1
+    fi
     echo -e "   [OK] 同步 frontend/package.json version -> ${TARGET_RAW_VER}"
 fi
 

@@ -53,10 +53,8 @@ func (s *Server) handleDoctorExport() http.HandlerFunc {
 
 // doctorDeps 快照服务端状态并构造诊断依赖；仅读取，绝不修改配置或数据库。
 func (s *Server) doctorDeps() doctor.Deps {
-	s.cfgMu.RLock()
-	cfg := *s.cfg
+	cfg := s.configSnapshot()
 	ver := s.version
-	s.cfgMu.RUnlock()
 
 	var database doctor.Database
 	if s.database != nil {

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 
@@ -205,7 +206,15 @@ func (s *Server) handleUpdatePost() http.HandlerFunc {
 			return
 		}
 
-		// 写入数据库审计日志并提供撤销支撑（同一批次的多次更新共享同一 batch_id）
+		// 先改文件，成功后再写审计：避免文件写入失败时残留幽灵撤销记录。
+		// 与 MCP tool_posts.go 的顺序保持一致。
+		if err := post.UpdateDynamicFields(req.FilePath, finalUpdates); err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to update frontmatter: "+err.Error())
+			return
+		}
+
+		// 写入数据库审计日志并提供撤销支撑（同一批次的多次更新共享同一 batch_id）。
+		// 审计失败不回滚已落盘的文件修改，仅记录日志。
 		currentPost, _ := post.ParsePost(req.FilePath, coverFields, dateField, updatedField)
 		postTitle := ""
 		if currentPost != nil {
@@ -221,13 +230,10 @@ func (s *Server) handleUpdatePost() http.HandlerFunc {
 					opType = "clear_cover"
 					newVal = "CLEAR" // 审计日志沿用既有的清空展示语义
 				}
-				_, _ = s.database.RecordOperationWithBatch(batchID, req.FilePath, postTitle, opType, f, oldVal, newVal)
+				if _, err := s.database.RecordOperationWithBatch(batchID, req.FilePath, postTitle, opType, f, oldVal, newVal); err != nil {
+					log.Printf("[audit] failed to record operation for %s (%s): %v", req.FilePath, opType, err)
+				}
 			}
-		}
-
-		if err := post.UpdateDynamicFields(req.FilePath, finalUpdates); err != nil {
-			writeError(w, http.StatusInternalServerError, "Failed to update frontmatter: "+err.Error())
-			return
 		}
 		s.recordPostsChange()
 

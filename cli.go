@@ -236,7 +236,12 @@ func runCLIMCP() {
 	}
 	runner := hexo.NewRunner(baseDir, "")
 	dbPath := filepath.Join(config.AppConfigDir(), "hpic.db")
-	database, _ := db.Init(dbPath)
+	database, err := db.Init(dbPath)
+	if err != nil {
+		// 显式降级：数据库不可用时仍提供 MCP 服务，但审计与撤销不可用。
+		fmt.Fprintf(os.Stderr, "[warn] 初始化数据库失败 (%s)，审计与撤销功能将不可用: %v\n", dbPath, err)
+		database = nil
+	}
 	tracker := post.NewPostsTracker(baseDir)
 
 	// 收藏夹以 SQLite 为唯一真相源；MCP 独占进程同样需要接入并导入历史 JSON。
