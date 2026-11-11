@@ -149,7 +149,8 @@ Section "Uninstall"
     WriteRegExpandStr HKCU "Environment" "Path" "$0"
   ${ElseIf} $5 == "$INSTDIR"
     ; 后缀形式：PATH = "<原有内容>;$INSTDIR"，保留到分号之前即可
-    IntOp $7 $3 - $2 - 1
+    IntOp $7 $3 - $2
+    IntOp $7 $7 - 1
     StrCpy $0 $0 $7
     WriteRegExpandStr HKCU "Environment" "Path" "$0"
   ${EndIf}
