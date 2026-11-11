@@ -91,6 +91,9 @@ mkdir -p "$STAGE_DIR"
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
 LDFLAGS="-w -s -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT} -X main.BuildDate=${BUILD_DATE} -X hpic/internal/version.Version=${VERSION} -X hpic/internal/version.GitCommit=${GIT_COMMIT} -X hpic/internal/version.BuildDate=${BUILD_DATE}"
+# Windows 桌面构建额外注入 -H windowsgui：消除启动时的控制台黑框
+# （CLI 子命令的终端输出由 attachParentConsole 重新附加父控制台补救）
+WINDOWS_LDFLAGS="${LDFLAGS} -H windowsgui"
 
 echo ""
 echo -e "${CYAN}[3/5] 开始跨平台交叉编译二进制产物...${NC}"
@@ -132,7 +135,14 @@ fi
 echo -e "   * ${YELLOW}打包 Windows (amd64)...${NC}"
 WIN_AMD64_DIR="${STAGE_DIR}/hpic-windows-amd64"
 mkdir -p "$WIN_AMD64_DIR"
-GOOS=windows GOARCH=amd64 go build -ldflags="$LDFLAGS" -o "${WIN_AMD64_DIR}/hpic.exe" .
+# 生成内嵌图标与版本信息的 COFF 资源对象：go build 按 _windows_<arch> 后缀自动链接
+SYSO_FILE="hpic_windows_amd64.syso"
+if [ -f "assets/app.ico" ]; then
+    echo -e "   [INFO] 生成 Windows 内嵌图标/版本资源 (syso)...${NC}"
+    go run ./scripts/gen-syso -arch amd64 -ico assets/app.ico -version "$VERSION" -out "$SYSO_FILE"
+fi
+GOOS=windows GOARCH=amd64 go build -ldflags="$WINDOWS_LDFLAGS" -o "${WIN_AMD64_DIR}/hpic.exe" .
+rm -f "$SYSO_FILE"
 cp "${WIN_AMD64_DIR}/hpic.exe" "${WIN_AMD64_DIR}/hpic-desktop.exe"
 [ -f "install.ps1" ] && cp "install.ps1" "${WIN_AMD64_DIR}/"
 [ -f "uninstall.ps1" ] && cp "uninstall.ps1" "${WIN_AMD64_DIR}/"

@@ -99,11 +99,19 @@ if (-not (Test-Path $InstallDir)) {
 $OutputBin = Join-Path $InstallDir "hpic.exe"
 $OutputDesktopBin = Join-Path $InstallDir "hpic-desktop.exe"
 
+$SysoPath = Join-Path $ScriptDir "hpic_windows_amd64.syso"
 Push-Location $ScriptDir
 try {
-    go build -ldflags="-w -s -X main.Version=$AppVersion -X hpic/internal/version.Version=$AppVersion" -o $OutputBin .
+    # 生成内嵌图标与版本信息的 COFF 资源对象：go build 按 _windows_<arch> 后缀自动链接；
+    # -H windowsgui 消除桌面启动时的控制台黑框（CLI 子命令输出由 attachParentConsole 补救）
+    if (Test-Path (Join-Path $ScriptDir "assets\app.ico")) {
+        Write-Host "   [INFO] 生成 Windows 内嵌图标/版本资源 (syso)..." -ForegroundColor Cyan
+        go run ./scripts/gen-syso -arch amd64 -ico assets/app.ico -version $AppVersion -out $SysoPath
+    }
+    go build -ldflags="-w -s -H windowsgui -X main.Version=$AppVersion -X hpic/internal/version.Version=$AppVersion" -o $OutputBin .
     Copy-Item -Path $OutputBin -Destination $OutputDesktopBin -Force
 } finally {
+    if (Test-Path $SysoPath) { Remove-Item $SysoPath -Force }
     Pop-Location
 }
 Write-Host "   [OK] 主程序编译成功: $OutputBin" -ForegroundColor Green

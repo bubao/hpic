@@ -103,6 +103,10 @@ func printVersion() {
 }
 
 func main() {
+	// Windows GUI 子系统（-H=windowsgui）下，先把进程附加到父控制台，
+	// 保证 CLI 子命令与启动日志的终端输出可见（无父控制台时静默跳过）。
+	attachParentConsole()
+
 	// 优先拦截子命令 (支持: hpic version, hpic changelog, hpic update, hpic uninstall, hpic help)
 	if len(os.Args) > 1 {
 		firstArg := strings.ToLower(strings.TrimSpace(os.Args[1]))
@@ -397,6 +401,12 @@ func launchDesktopWindow(url string) {
 				if fileExists(bin) {
 					cmd := exec.Command(bin, appArg, "--user-data-dir="+profileDir)
 					if err := cmd.Start(); err == nil {
+						// 记录 UI 子进程，并在 --app 窗口关闭后让主服务进程随之退出（生命周期闭环）
+						setDesktopUIProcess(cmd.Process)
+						go func() {
+							_ = cmd.Wait()
+							os.Exit(0)
+						}()
 						return
 					}
 				}
@@ -432,8 +442,18 @@ func launchDesktopWindow(url string) {
 		}
 		for _, bin := range candidates {
 			if bin != "" && fileExists(bin) {
-				cmd := exec.Command(bin, appArg)
+				// 专用 Profile：保证 --app 启动独立浏览器进程，避免系统浏览器已运行时
+				// 命令被既有进程接管后立即返回，导致下方 Wait 监听误杀主服务进程。
+				// --no-first-run / --no-default-browser-check：跳过全新 Profile 的欢迎页与默认浏览器提示。
+				cmd := exec.Command(bin, appArg,
+					"--user-data-dir="+browserProfileDir(),
+					"--no-first-run", "--no-default-browser-check")
 				if err := cmd.Start(); err == nil {
+					// 监听 --app 独立窗口：用户关闭窗口后主服务进程随之退出，形成完整的生命周期闭环
+					go func() {
+						_ = cmd.Wait()
+						os.Exit(0)
+					}()
 					return
 				}
 			}
@@ -452,8 +472,17 @@ func launchDesktopWindow(url string) {
 		}
 		for _, bin := range bins {
 			if path, err := exec.LookPath(bin); err == nil {
-				cmd := exec.Command(path, appArg)
+				// 专用 Profile + 关闭首次运行向导：保证 --app 启动独立浏览器进程，
+				// 避免系统浏览器已运行时命令被接管后立即返回，导致下方 Wait 监听误杀主服务进程。
+				cmd := exec.Command(path, appArg,
+					"--user-data-dir="+browserProfileDir(),
+					"--no-first-run", "--no-default-browser-check")
 				if err := cmd.Start(); err == nil {
+					// 监听 --app 独立窗口：用户关闭窗口后主服务进程随之退出，形成完整的生命周期闭环
+					go func() {
+						_ = cmd.Wait()
+						os.Exit(0)
+					}()
 					return
 				}
 			}
@@ -478,6 +507,19 @@ func launchDesktopWindow(url string) {
 
 		_ = exec.Command("xdg-open", url).Start()
 	}
+}
+
+// browserProfileDir 返回浏览器 --app 独立窗口使用的专用 Profile 目录。
+//
+// 固定路径（而非每次随机临时目录）保证应用数据在多次启动之间持久；
+// 独立 Profile 保证 --app 启动的是独立浏览器进程——若复用系统浏览器正在使用的
+// Profile，命令会被既有进程接管后立即返回，配合 Wait 监听会误杀主服务进程。
+func browserProfileDir() string {
+	dir, err := os.UserCacheDir()
+	if err != nil || dir == "" {
+		dir = os.TempDir()
+	}
+	return filepath.Join(dir, "hpic", "browser-profile")
 }
 
 func fileExists(path string) bool {

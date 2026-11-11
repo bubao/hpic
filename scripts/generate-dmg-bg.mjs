@@ -9,10 +9,17 @@ const rootDir = path.resolve(__dirname, '..');
 
 const outSvg = path.join(rootDir, 'assets', 'dmg-background.svg');
 const outPng = path.join(rootDir, 'assets', 'dmg-background.png');
+// dmgbuild (lookForHiDPI) 会自动寻找同目录下的 name@2x.png，
+// 再用 tiffutil -cathidpicheck 合成多分辨率 TIFF 作为 Retina 背景
+const outPng2x = path.join(rootDir, 'assets', 'dmg-background@2x.png');
+
+const WIDTH = 600;
+const HEIGHT = 420;
+const SCALE_2X = 2;
 
 export function generateDmgBackgroundSvg() {
-  const width = 600;
-  const height = 420;
+  const width = WIDTH;
+  const height = HEIGHT;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
   <defs>
@@ -72,38 +79,55 @@ export function generateDmgBackgroundSvg() {
 `;
 }
 
+/**
+ * 将 SVG 母版光栅化为指定物理尺寸的 PNG。
+ * 同一矢量源分别按 1x / @2x 渲染，Retina 屏下背景才足够清晰。
+ */
+function renderPng(width, height, outFilePath) {
+  const renderers = [
+    // 1. 优先尝试 rsvg-convert (Linux/macOS 常见，完全支持 Alpha 透明背景)
+    (w, h, out) => execSync(`rsvg-convert -w ${w} -h ${h} "${outSvg}" -o "${out}"`, { stdio: 'ignore' }),
+    // 2. 尝试 inkscape (跨平台通用矢量工具)
+    (w, h, out) => execSync(`inkscape -w ${w} -h ${h} "${outSvg}" -o "${out}"`, { stdio: 'ignore' }),
+  ];
+
+  // 3. macOS AppKit 原生渲染 (零依赖、高保真)
+  if (process.platform === 'darwin') {
+    renderers.push((w, h, out) => {
+      const code = `import AppKit;let u=URL(fileURLWithPath:"${outSvg}");guard let i=NSImage(contentsOf:u) else{exit(1)};let r=NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:${w},pixelsHigh:${h},bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.calibratedRGB,bytesPerRow:0,bitsPerPixel:0)!;NSGraphicsContext.saveGraphicsState();NSGraphicsContext.current=NSGraphicsContext(bitmapImageRep:r);i.draw(in:NSRect(x:0,y:0,width:${w},height:${h}));NSGraphicsContext.restoreGraphicsState();if let d=r.representation(using:.png,properties:[:]){try? d.write(to:URL(fileURLWithPath:"${out}"))}`;
+      execSync(`swift -e '${code}'`, { stdio: 'ignore' });
+    });
+  }
+
+  for (const render of renderers) {
+    try {
+      render(width, height, outFilePath);
+      if (fs.existsSync(outFilePath) && fs.statSync(outFilePath).size > 0) return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
 export function buildDmgBackground() {
   const svg = generateDmgBackgroundSvg();
   fs.writeFileSync(outSvg, svg, 'utf8');
 
-  // 尝试使用 rsvg-convert 渲染高分辨率 Retina @2x (1200x840)
-  try {
-    execSync(`rsvg-convert -w 600 -h 420 "${outSvg}" -o "${outPng}"`, { stdio: 'ignore' });
-    return true;
-  } catch (_) {}
+  // 1x (600x420) 与 @2x (1200x840) 双分辨率输出
+  const ok1x = renderPng(WIDTH, HEIGHT, outPng);
+  const ok2x = renderPng(WIDTH * SCALE_2X, HEIGHT * SCALE_2X, outPng2x);
 
-  // 备用：inkscape
-  try {
-    execSync(`inkscape -w 600 -h 420 "${outSvg}" -o "${outPng}"`, { stdio: 'ignore' });
-    return true;
-  } catch (_) {}
-
-  // 备用：macOS AppKit 原生渲染 (零依赖、高保真)
-  if (process.platform === 'darwin') {
-    try {
-      const code = `import AppKit;let u=URL(fileURLWithPath:"${outSvg}");guard let i=NSImage(contentsOf:u) else{exit(1)};let r=NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:600,pixelsHigh:420,bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.calibratedRGB,bytesPerRow:0,bitsPerPixel:0)!;NSGraphicsContext.saveGraphicsState();NSGraphicsContext.current=NSGraphicsContext(bitmapImageRep:r);i.draw(in:NSRect(x:0,y:0,width:600,height:420));NSGraphicsContext.restoreGraphicsState();if let d=r.representation(using:.png,properties:[:]){try? d.write(to:URL(fileURLWithPath:"${outPng}"))}`;
-      execSync(`swift -e '${code}'`, { stdio: 'ignore' });
-      if (fs.existsSync(outPng)) return true;
-    } catch (_) {}
+  // @2x 未生成成功时清除残留文件：避免与新生成的 1x 背景尺寸不匹配，
+  // 被 dmgbuild 的 tiffutil -cathidpicheck 判定为非法而对账失败
+  if (!ok2x && fs.existsSync(outPng2x)) {
+    fs.unlinkSync(outPng2x);
   }
-
-  return false;
+  return ok1x;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const ok = buildDmgBackground();
   if (ok) {
-    console.log('[OK] 成功生成 assets/dmg-background.png');
+    console.log(`[OK] 成功生成 assets/dmg-background.png (${WIDTH}x${HEIGHT}) 与 assets/dmg-background@2x.png (${WIDTH * SCALE_2X}x${HEIGHT * SCALE_2X})`);
   } else {
     console.warn('[WARN] 未能生成 assets/dmg-background.png');
   }

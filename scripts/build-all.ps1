@@ -77,6 +77,9 @@ try {
     if (-not $GitCommit) { $GitCommit = "dev" }
     $BuildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     $LdFlags = "-w -s -X main.Version=$AppVersion -X main.GitCommit=$GitCommit -X main.BuildDate=$BuildDate"
+    # Windows 桌面构建额外注入 -H windowsgui：消除启动时的控制台黑框
+    # （CLI 子命令的终端输出由 attachParentConsole 重新附加父控制台补救）
+    $WindowsLdFlags = "$LdFlags -H windowsgui"
 
     # 4. 交叉编译跨平台二进制
     Write-Host ""
@@ -87,9 +90,17 @@ try {
     $WinStage = Join-Path $StageDir "hpic-windows-amd64"
     New-Item -ItemType Directory -Path $WinStage -Force | Out-Null
 
+    # 生成内嵌图标与版本信息的 COFF 资源对象：go build 按 _windows_<arch> 后缀自动链接
+    $SysoPath = Join-Path $RootDir "hpic_windows_amd64.syso"
+    if (Test-Path (Join-Path $RootDir "assets\app.ico")) {
+        Write-Host "   [INFO] 生成 Windows 内嵌图标/版本资源 (syso)..." -ForegroundColor Cyan
+        go run ./scripts/gen-syso -arch amd64 -ico assets/app.ico -version $AppVersion -out $SysoPath
+    }
+
     $env:GOOS = "windows"
     $env:GOARCH = "amd64"
-    go build -ldflags="$LdFlags" -o (Join-Path $WinStage "hpic.exe") .
+    go build -ldflags="$WindowsLdFlags" -o (Join-Path $WinStage "hpic.exe") .
+    if (Test-Path $SysoPath) { Remove-Item $SysoPath -Force }
     Copy-Item (Join-Path $WinStage "hpic.exe") (Join-Path $WinStage "hpic-desktop.exe") -Force
     if (Test-Path (Join-Path $RootDir "install.ps1")) { Copy-Item (Join-Path $RootDir "install.ps1") $WinStage -Force }
     if (Test-Path (Join-Path $RootDir "uninstall.ps1")) { Copy-Item (Join-Path $RootDir "uninstall.ps1") $WinStage -Force }
