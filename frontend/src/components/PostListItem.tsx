@@ -217,6 +217,7 @@ export const PostListItem: React.FC<PostListItemProps> = ({
     <div
       className={`post-list-item ${isSelected ? 'active selected' : ''} ${isBroken ? 'has-broken-cover' : ''}`}
       onClick={() => onSelect(post)}
+      data-testid="post-list-item"
     >
       <div className="post-list-item-body">
         <div className="item-row-header item-row-top">

@@ -62,12 +62,12 @@
 }
 
 .broken-icon {
-  color: #ef4444;
+  color: var(--danger-color);
   flex-shrink: 0;
 }
 
 .broken-field-tag {
-  background: #ef4444;
+  background: var(--danger-solid);
   color: #fff;
   font-size: 11px;
   padding: 2px 6px;
@@ -111,7 +111,7 @@
 
 .broken-badge {
   font-size: 10px;
-  background: #ef4444;
+  background: var(--danger-solid);
   color: #fff;
   padding: 1px 6px;
   border-radius: 4px;
@@ -303,7 +303,8 @@ object.cover-ambient-blur {
 
 .cover-placeholder-text {
   font-size: 12px;
-  opacity: 0.7;
+  /* 无障碍：不再叠加 opacity（会把 --text-muted 拉到 2.4:1），颜色由 token 保证 AA */
+  color: var(--text-muted);
 }
 
 .cover-loader-text {
@@ -316,7 +317,7 @@ object.cover-ambient-blur {
 .cover-error-title {
   font-size: 12px;
   font-weight: 600;
-  color: #ef4444;
+  color: var(--danger-color);
 }
 
 .cover-error-desc {
@@ -433,12 +434,14 @@ object.cover-ambient-blur {
 }
 
 .image-dimension-badge .quality-sub-badge.quality-2k {
-  background: #10b981;
+  /* 无障碍：白字在 #10b981 上仅 2.54:1，加深至 AA 以上 */
+  background: #047857;
   color: #ffffff;
 }
 
 .image-dimension-badge .quality-sub-badge.quality-1080p {
-  background: #0284c7;
+  /* 无障碍：白字在 #0284c7 上仅 4.10:1，加深至 AA 以上 */
+  background: #0369a1;
   color: #ffffff;
 }
 

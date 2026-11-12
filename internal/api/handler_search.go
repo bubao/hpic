@@ -131,6 +131,46 @@ func (s *Server) handleListFavorites() http.HandlerFunc {
 	}
 }
 
+// handleSearchHistory 处理最近检索关键词：
+// GET 返回关键词列表（新→旧，已去重），POST 记录一次检索。
+func (s *Server) handleSearchHistory() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			var req struct {
+				Source  string `json:"source"`
+				Keyword string `json:"keyword"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			keyword := strings.TrimSpace(req.Keyword)
+			if keyword == "" {
+				writeError(w, http.StatusBadRequest, "keyword is required")
+				return
+			}
+			if err := s.database.RecordSearch(req.Source, keyword); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+			return
+		}
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		keywords, err := s.database.ListSearchHistory(limit)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success":  true,
+			"keywords": keywords,
+		})
+	}
+}
+
 func (s *Server) handleAddFavorite() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

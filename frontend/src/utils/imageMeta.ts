@@ -134,6 +134,19 @@ export function extractImageFilename(url: string, fallbackTitle = ''): string {
 }
 
 /**
+ * 构造标准 Markdown 图片语法 `![alt](url)`。
+ * 标题中的 `]` 会提前闭合 alt、换行会破坏单行结构，统一替换为安全字符；
+ * 标题为空时退回「配图」，保证粘贴到博客正文永远是可用的整行语法。
+ */
+export function buildMarkdownImage(url: string, title?: string | null): string {
+  const alt = (title || '')
+    .replace(/\r?\n/g, ' ')
+    .replace(/\]/g, ')')
+    .trim() || '配图';
+  return `![${alt}](${url})`;
+}
+
+/**
  * 根据物理分辨率计算常见的摄影/显示比例字符串 (如 16:9, 21:9, 4:3, 1:1, 9:16)
  */
 export function getImageAspectRatio(width: number, height: number): string {

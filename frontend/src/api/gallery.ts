@@ -102,6 +102,27 @@ export async function fetchImageText(url: string): Promise<string | null> {
   return null;
 }
 
+/** 拉取最近检索关键词（新→旧，后端已去重）。 */
+export async function getSearchHistory(limit = 12): Promise<string[]> {
+  const res = await apiFetch(`/api/search/history?limit=${encodeURIComponent(limit)}`);
+  if (!res.ok) throw new Error(`获取最近搜索失败 (HTTP ${res.status})`);
+  const data = await res.json();
+  return data.keywords || [];
+}
+
+/** 记录一次检索关键词，用于「最近搜索」联想。 */
+export async function recordSearchHistory(
+  keyword: string,
+  source = ''
+): Promise<{ success: boolean }> {
+  const res = await apiFetch('/api/search/history', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, keyword }),
+  });
+  return res.json();
+}
+
 // 单张图片健康连通性与防盗链预检
 // 仅在确证失效（后端返回 is_broken）时判定破图；网络层异常一律归为 network_error，
 // 避免断网/超时把可用图片误标为永久失效。

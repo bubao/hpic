@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { FavoriteItem, GalleryProvider, Photo, PostInfo, getCanonicalImageKey } from '../types';
 import { api } from '../api';
-import { Search, Star, Tag, ChevronDown, ChevronUp, Sparkles, Wand2, Link2, Loader2, Lightbulb, X, Check, Image as ImageIcon } from 'lucide-react';
+import { Search, Star, Tag, ChevronDown, ChevronUp, Sparkles, Wand2, Link2, Loader2, Lightbulb, X, Check, History, Image as ImageIcon } from 'lucide-react';
 import { getGalleryProviderIcon } from './galleryProviderIcons';
 import { Generators } from './Generators';
 import { TagEditorModal } from './TagEditorModal';
+import { FavoritesToolbar } from './FavoritesToolbar';
+import { DuplicateFinderModal } from './DuplicateFinderModal';
+import { VirtualMasonryGrid } from './VirtualMasonryGrid';
 import { useFavorites } from '../context/FavoritesContext';
 import { useToast } from '../context/ToastContext';
 import { PhotoCard } from './PhotoCard';
-import { extractTargetDimensions } from '../utils/imageMeta';
+import { extractTargetDimensions, buildMarkdownImage } from '../utils/imageMeta';
 
 /** 未注册端点前端的默认搜索来源（接口失败时回落，保证 Tab 始终可用）。 */
 const DEFAULT_SEARCH_PROVIDERS: GalleryProvider[] = [
@@ -72,6 +75,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
     favoritedUrls,
     toggleFavorite,
     updateTags,
+    refreshFavorites,
   } = useFavorites();
   const toast = useToast();
 
@@ -100,6 +104,23 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
 
   // 标签编辑模态框状态
   const [editingFavItem, setEditingFavItem] = useState<FavoriteItem | null>(null);
+
+  // 最近搜索关键词（后端 search_history 持久化，跨会话可复用）
+  const [recentKeywords, setRecentKeywords] = useState<string[]>([]);
+  const [isDuplicateFinderOpen, setIsDuplicateFinderOpen] = useState(false);
+
+  const refreshRecentKeywords = useCallback(async () => {
+    try {
+      const list = await api.getSearchHistory(12);
+      setRecentKeywords(list);
+    } catch {
+      // 历史不可用时不打扰用户，静默保留已有列表
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshRecentKeywords();
+  }, [refreshRecentKeywords]);
 
   const abortRef = useRef<AbortController | null>(null);
   // 记录最近一次使用的图片搜索来源，供顶部「配图」模式一键切回
@@ -194,6 +215,8 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
       setIsLoading(true);
       // 只要开始全新搜索，立刻清空旧图片，绝不让上一次搜索的图片残留占位
       setPhotos([]);
+      // 记录检索关键词用于「最近搜索」，仅在全新检索时写入
+      void api.recordSearchHistory(kw.trim(), targetSource).then(refreshRecentKeywords).catch(() => {});
     }
 
     try {
@@ -393,6 +416,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
             className={`gallery-mode-btn ${isImageSearchSource(source) ? 'active' : ''}`}
             onClick={handleSwitchToImageMode}
             title="搜索 Unsplash / Wallhaven 等图片素材"
+            data-testid="gallery-mode-images"
           >
             <ImageIcon size={13} style={{ marginRight: 4 }} />
             配图
@@ -415,6 +439,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
             className={`gallery-mode-btn ${source === 'favorites' ? 'active' : ''}`}
             onClick={() => handleSwitchSource('favorites')}
             title="查看已收藏的图片"
+            data-testid="gallery-mode-favorites"
           >
             <Star size={13} style={{ marginRight: 4 }} />
             我的收藏
@@ -429,15 +454,16 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
               placeholder={source === 'favorites' ? '在我的收藏中搜索...' : '输入关键词 (如 coding, minimalist, mountain) 按回车搜索...'}
               value={searchKeyword}
               onChange={e => setSearchKeyword(e.target.value)}
+              data-testid="gallery-search-input"
             />
-            <button type="submit" className="btn btn-primary" disabled={isLoading}>
+            <button type="submit" className="btn btn-primary" disabled={isLoading} data-testid="gallery-search-submit">
               {isLoading ? <Loader2 size={14} className="spin-icon" /> : <Search size={14} />}
               <span>{isLoading ? '检索中...' : '搜索图片'}</span>
             </button>
           </form>
         )}
 
-        <button className="btn btn-sm btn-ghost" onClick={onOpenManualModal}>
+        <button className="btn btn-sm btn-ghost" onClick={onOpenManualModal} data-testid="manual-url-button">
           <Link2 size={13} style={{ marginRight: 4 }} />
           手动输入外链
         </button>
@@ -511,6 +537,30 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
               <Lightbulb size={12} color="#f59e0b" />
               <span>《{post.title}》</span>
             </button>
+          )}
+
+          {/* 最近搜索：点击关键词立即复用检索 */}
+          {recentKeywords.length > 0 && (
+            <div className="recent-search-bar">
+              <span className="ctrl-label">
+                <History size={12} />
+                最近搜索:
+              </span>
+              {recentKeywords.slice(0, 10).map(kw => (
+                <button
+                  key={kw}
+                  type="button"
+                  className={`filter-pill ${searchKeyword.trim() === kw ? 'active' : ''}`}
+                  onClick={() => {
+                    setSearchKeyword(kw);
+                    doSearch(kw, 1, false);
+                  }}
+                  title={`按「${kw}」重新检索`}
+                >
+                  {kw}
+                </button>
+              ))}
+            </div>
           )}
 
           {!SERVER_FILTER_PROVIDERS.has(source) && (
@@ -603,6 +653,13 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                 {isTagPanelExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
               </button>
             )}
+
+            {/* 导出 / 导入：JSON 备份跨设备同步，Markdown 服务博客写作 */}
+            <FavoritesToolbar
+              items={allFavorites}
+              onImported={refreshFavorites}
+              onFindDuplicates={() => setIsDuplicateFinderOpen(true)}
+            />
 
             {selectedFavTags.length > 0 && (
               <button
@@ -764,20 +821,23 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
         </div>
       )}
 
-      {/* 瀑布流卡片网格 (仅非生成器模式下显示) */}
+      {/* 瀑布流卡片网格 (仅非生成器模式下显示；长列表虚拟化，只渲染视口内卡片) */}
       {source !== 'generators' && (
         <>
-          {/* 瀑布流自适应卡片网格 */}
-          <div className="masonry-grid-container">
-            {source === 'favorites' ? (
-              displayedFavorites.length === 0 ? (
+          {source === 'favorites' ? (
+            displayedFavorites.length === 0 ? (
+              <div className="masonry-grid-container">
                 <div className="empty-hint">
                   {allFavorites.length === 0
                     ? '暂无收藏的图片。在任何地方（文章封面、海报生成器、Socialify、图库或全屏灯箱）点击星标即可一键加入收藏。'
                     : '没有找到匹配的收藏项，可尝试切换标签或清除搜索词'}
                 </div>
-              ) : (
-                displayedFavorites.map(it => {
+              </div>
+            ) : (
+              <VirtualMasonryGrid
+                items={displayedFavorites}
+                keyOf={it => it.id || it.url}
+                renderItem={it => {
                   const isUsedByCurrent =
                     currentPostCoverUrls.has(it.url.trim()) ||
                     currentPostCoverKeys.has(getCanonicalImageKey(it.url));
@@ -785,7 +845,6 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
 
                   return (
                     <PhotoCard
-                      key={it.id || it.url}
                       url={it.url}
                       thumbUrl={it.thumb_url}
                       title={it.title || '收藏图片'}
@@ -820,7 +879,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                         toast.success('图片链接已复制');
                       }}
                       onCopyMarkdown={() => {
-                        const md = `![${it.title || '配图'}](${it.url})`;
+                        const md = buildMarkdownImage(it.url, it.title);
                         navigator.clipboard.writeText(md);
                         toast.success('已复制 Markdown: ' + md);
                       }}
@@ -828,36 +887,42 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                       onOpenExternal={() => api.openSystemURL(it.url)}
                     />
                   );
-                })
-              )
-            ) : (
-              isLoading && photos.length === 0 ? (
-                /* 切换文章或新搜索时展示纯净的骨架屏占位，杜绝上一篇旧图残留 */
-                <>
-                  {[1, 2, 3, 4, 5, 6].map(i => (
-                    <div key={i} className="gallery-card-item skeleton-card">
-                      <div className="skeleton-thumb-box">
-                        <div className="skeleton-shine-sweep" />
-                      </div>
-                      <div className="card-detail-info" style={{ padding: '12px' }}>
-                        <div className="skeleton-bar" style={{ width: '60%', height: 12, marginBottom: 8 }} />
-                        <div className="skeleton-bar" style={{ width: '40%', height: 10 }} />
-                      </div>
+                }}
+              />
+            )
+          ) : (
+            isLoading && photos.length === 0 ? (
+              /* 切换文章或新搜索时展示纯净的骨架屏占位，杜绝上一篇旧图残留 */
+              <div className="masonry-grid-container">
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <div key={i} className="gallery-card-item skeleton-card">
+                    <div className="skeleton-thumb-box">
+                      <div className="skeleton-shine-sweep" />
                     </div>
-                  ))}
-                  <div className="empty-hint" style={{ gridColumn: '1 / -1', marginTop: -10 }}>
-                    <Loader2 size={16} className="spin-icon" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 8 }} />
-                    正在检索匹配的高清壁纸...
+                    <div className="card-detail-info" style={{ padding: '12px' }}>
+                      <div className="skeleton-bar" style={{ width: '60%', height: 12, marginBottom: 8 }} />
+                      <div className="skeleton-bar" style={{ width: '40%', height: 10 }} />
+                    </div>
                   </div>
-                </>
-              ) : photos.length === 0 ? (
+                ))}
+                <div className="empty-hint" style={{ gridColumn: '1 / -1', marginTop: -10 }}>
+                  <Loader2 size={16} className="spin-icon" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 8 }} />
+                  正在检索匹配的高清壁纸...
+                </div>
+              </div>
+            ) : photos.length === 0 ? (
+              <div className="masonry-grid-container">
                 <div className="empty-hint">
                   {searchKeyword.trim()
                     ? '未找到匹配图片，可尝试更换关键词或切换至 Wallhaven 搜索'
                     : '在上方输入关键词按回车搜索图片，或点击【推荐联想】按当前博文检索'}
                 </div>
-              ) : (
-                photos.map(p => {
+              </div>
+            ) : (
+              <VirtualMasonryGrid
+                items={photos}
+                keyOf={(p, i) => p.id + (p.urls.regular || p.urls.raw || String(i))}
+                renderItem={p => {
                   const fullUrl = p.urls.raw || p.urls.full || p.urls.regular;
                   const thumbUrl = p.urls.small || p.urls.thumb || p.urls.regular || fullUrl;
                   const targetDim = extractTargetDimensions(fullUrl, p.width, p.height);
@@ -876,7 +941,6 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
 
                   return (
                     <PhotoCard
-                      key={p.id + fullUrl}
                       url={fullUrl}
                       thumbUrl={thumbUrl}
                       title={photoTitle}
@@ -895,7 +959,7 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                         toast.success('图片链接已复制');
                       }}
                       onCopyMarkdown={() => {
-                        const md = `![${photoTitle || '配图'}](${fullUrl})`;
+                        const md = buildMarkdownImage(fullUrl, photoTitle);
                         navigator.clipboard.writeText(md);
                         toast.success('已复制 Markdown: ' + md);
                       }}
@@ -903,10 +967,10 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                       onOpenExternal={() => api.openSystemURL(fullUrl)}
                     />
                   );
-                })
-              )
-            )}
-          </div>
+                }}
+              />
+            )
+          )}
 
           {/* 底部加载更多 */}
           {source !== 'favorites' && photos.length > 0 && (
@@ -930,6 +994,13 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
         item={editingFavItem}
         onClose={() => setEditingFavItem(null)}
         onSaveTags={handleSaveTags}
+      />
+
+      {/* 重复图片检测面板 */}
+      <DuplicateFinderModal
+        isOpen={isDuplicateFinderOpen}
+        onClose={() => setIsDuplicateFinderOpen(false)}
+        onChanged={refreshFavorites}
       />
     </section>
   );

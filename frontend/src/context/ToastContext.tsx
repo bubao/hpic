@@ -60,6 +60,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {children}
       <div
         className="toast-viewport-container"
+        data-testid="toast-container"
         style={{
           position: 'fixed',
           bottom: 24,
@@ -106,7 +107,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               {t.type === 'success' && <CheckCircle2 size={16} color="#10b981" style={{ flexShrink: 0 }} />}
               {t.type === 'error' && <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0 }} />}
               {t.type === 'info' && <Info size={16} color="var(--accent-color)" style={{ flexShrink: 0 }} />}
-              <span style={{ wordBreak: 'break-word', lineHeight: 1.4, color: 'var(--text-primary)' }}>{t.message}</span>
+              <span data-testid="toast-message" style={{ wordBreak: 'break-word', lineHeight: 1.4, color: 'var(--text-primary)' }}>{t.message}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               {t.action && (

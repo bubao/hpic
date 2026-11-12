@@ -336,7 +336,7 @@ select.form-input:hover {
 }
 
 .back-to-top-btn:hover {
-  background: var(--accent-color);
+  background: var(--accent-solid);
   color: #fff;
   border-color: transparent;
   transform: translateY(-3px) scale(1.08);

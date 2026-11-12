@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractImageFilename, getImageAspectRatio, getImageQualityBadge, extractTargetDimensions, isSvgUrl } from './imageMeta';
+import { extractImageFilename, getImageAspectRatio, getImageQualityBadge, extractTargetDimensions, isSvgUrl, buildMarkdownImage } from './imageMeta';
 
 describe('imageMeta utility tests', () => {
   describe('isSvgUrl', () => {
@@ -179,6 +179,23 @@ expect(extractImageFilename('https://loremflickr.com/1920/1080/all')).toBe('all-
 
     it('should return null if dimensions cannot be determined', () => {
       expect(extractTargetDimensions('https://example.com/test.jpg')).toBeNull();
+    });
+  });
+
+  describe('buildMarkdownImage', () => {
+    it('should build inline image syntax from url and title', () => {
+      expect(buildMarkdownImage('https://example.com/a.jpg', '封面')).toBe('![封面](https://example.com/a.jpg)');
+    });
+
+    it('should fall back to 配图 when title is empty', () => {
+      expect(buildMarkdownImage('https://example.com/a.jpg', '')).toBe('![配图](https://example.com/a.jpg)');
+      expect(buildMarkdownImage('https://example.com/a.jpg', null)).toBe('![配图](https://example.com/a.jpg)');
+      expect(buildMarkdownImage('https://example.com/a.jpg')).toBe('![配图](https://example.com/a.jpg)');
+    });
+
+    it('should neutralize characters that break the syntax', () => {
+      expect(buildMarkdownImage('https://example.com/a.jpg', 'a]b')).toBe('![a)b](https://example.com/a.jpg)');
+      expect(buildMarkdownImage('https://example.com/a.jpg', 'line1\nline2')).toBe('![line1 line2](https://example.com/a.jpg)');
     });
   });
 });

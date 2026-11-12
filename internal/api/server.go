@@ -36,6 +36,10 @@ type Server struct {
 	postsSvc      *service.PostsService
 	Mux           *http.ServeMux
 	registeredAPI []string // 已注册的 /api/ 路由清单（契约镜像校验用）
+
+	// 重复图检测的进程内指纹缓存（URL → pHash），避免重复下载同一张图。
+	phashMu    sync.Mutex
+	phashCache map[string]uint64
 }
 
 func NewServer(cfg *config.Config, webFS fs.FS) *Server {
@@ -57,6 +61,7 @@ func NewServer(cfg *config.Config, webFS fs.FS) *Server {
 		changelog:    "",
 		postsTracker: post.NewPostsTracker(baseDir),
 		Mux:          http.NewServeMux(),
+		phashCache:   make(map[string]uint64),
 	}
 	// REST handler 与 MCP Tool 共用同一套 posts 领域逻辑（service 层）。
 	s.postsSvc = service.NewPostsService(database, s.postsTracker)
@@ -256,6 +261,7 @@ func (s *Server) routes() {
 		{Method: "POST", Pattern: "/api/post/update", Handler: s.handleUpdatePost()},
 		{Method: "POST", Pattern: "/api/post/insert-image", Handler: s.handleInsertImage()},
 		{Method: "POST", Pattern: "/api/post/undo", Handler: s.handleUndoPost()},
+		{Method: "GET", Pattern: "/api/history", Handler: s.handleGlobalHistory()},
 		{Method: "GET", Pattern: "/api/post/history", Handler: s.handlePostHistory()},
 		{Method: "POST", Pattern: "/api/post/history/delete", Handler: s.handleDeletePostHistory()},
 		{Method: "POST", Pattern: "/api/post/history/clear", Handler: s.handleClearPostHistory()},
@@ -268,6 +274,7 @@ func (s *Server) routes() {
 		// 保留一版的旧预览端点（兼容旧前端）
 		{Method: "GET", Pattern: "/api/unsplash/search", Handler: s.handleUnsplashSearch()},
 		{Method: "GET", Pattern: "/api/socialify/preview", Handler: s.handleSocialifyPreview()},
+		{Method: "GET", Pattern: "/api/search/history", Handler: s.handleSearchHistory()},
 		{Method: "GET", Pattern: "/api/skillicons/preview", Handler: s.handleSkillIconsPreview()},
 
 		// 收藏夹接口
@@ -276,6 +283,7 @@ func (s *Server) routes() {
 		{Method: "POST", Pattern: "/api/favorites/remove", Handler: s.handleRemoveFavorite()},
 		{Method: "POST", Pattern: "/api/favorites/tags", Handler: s.handleFavoriteTags()},
 		{Method: "GET", Pattern: "/api/favorites/check", Handler: s.handleFavoriteCheck()},
+		{Method: "GET", Pattern: "/api/favorites/duplicates", Handler: s.handleFavoriteDuplicates()},
 
 		// Hexo 操作与服务路由
 		{Method: "GET", Pattern: "/api/hexo/status", Handler: s.handleHexoStatus()},

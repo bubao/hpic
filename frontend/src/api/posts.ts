@@ -101,6 +101,17 @@ export async function getPostHistory(filePath: string): Promise<{
   return res.json();
 }
 
+/** 拉取全部文章的操作历史（全局操作历史面板，新→旧）。 */
+export async function getGlobalHistory(limit = 100): Promise<{
+  success: boolean;
+  history: OperationRecord[];
+  error?: string;
+}> {
+  const res = await apiFetch(`/api/history?limit=${encodeURIComponent(limit)}`);
+  if (!res.ok) throw new Error(`获取全局操作历史失败 (HTTP ${res.status})`);
+  return res.json();
+}
+
 export async function deletePostHistory(id: number): Promise<{ success: boolean; error?: string }> {
   const res = await apiFetch('/api/post/history/delete', {
     method: 'POST',

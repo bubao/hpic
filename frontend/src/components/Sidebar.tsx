@@ -159,6 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="text"
               className="search-input"
               placeholder="搜索标题、分类或标签..."
+              data-testid="sidebar-search-input"
               value={localSearchQuery}
               onChange={e => setLocalSearchQuery(e.target.value)}
             />
@@ -208,6 +209,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             value={selectedCategory}
             onChange={e => setSelectedCategory(e.target.value)}
             title="按博客分类筛选"
+            aria-label="按博客分类筛选"
           >
             <option value="">全部分类 ({posts.length})</option>
             {categoryStats.list.map(c => (
@@ -227,6 +229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             value={sortBy}
             onChange={e => onSortChange(e.target.value)}
             title="选择文章排序方式"
+            aria-label="选择文章排序方式"
           >
             <option value="date_desc">发布时间 (最新)</option>
             <option value="date_asc">发布时间 (最早)</option>
@@ -318,7 +321,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* 文章列表 / 图文卡片滚动容器 */}
-      <div className={`posts-list-scroll ${viewMode === 'gallery' ? 'gallery-mode' : 'list-mode'}`}>
+      <div className={`posts-list-scroll ${viewMode === 'gallery' ? 'gallery-mode' : 'list-mode'}`} data-testid="post-list">
         {filteredPosts.length === 0 ? (
           <div className="empty-hint" style={{ padding: '32px 16px', textAlign: 'center' }}>
             <Icon name="fileText" size="xl" variant="muted" style={{ marginBottom: 8 }} />

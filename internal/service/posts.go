@@ -182,20 +182,31 @@ type ListPostsResponse struct {
 }
 
 // ListPosts 扫描文章、解析并按需过滤排序，同时附带目录变动时间戳。
+//
+// 列表与状态由 post.ListPostsWithStatus 一次遍历产出，不再二次 WalkDir。
 func (s *PostsService) ListPosts(cfg PostsConfig, req ListPostsRequest) (ListPostsResponse, error) {
 	scanDir, err := cfg.ResolveScanDir(req.ScanDir)
 	if err != nil {
 		return ListPostsResponse{}, err
 	}
-	posts, err := post.ListPosts(scanDir, req.Keyword, cfg.fields(), req.SortBy, cfg.DateField, cfg.UpdatedField)
+	posts, status, err := post.ListPostsWithStatus(scanDir, req.Keyword, cfg.fields(), req.SortBy, cfg.DateField, cfg.UpdatedField)
 	if err != nil {
 		return ListPostsResponse{}, err
 	}
-	status := s.postsStatus(scanDir)
+
+	// 与 GetPostsStatus 保持同一口径：追踪器目录下的内部写入（RecordChange）
+	// 也要体现在 last_modified 上，前端据此判断是否需要刷新。
+	lastModified := status.LastModified
+	if s.Tracker != nil && scanDir == s.Tracker.BaseDir() {
+		if internalChange := s.Tracker.LastChange(); internalChange > lastModified {
+			lastModified = internalChange
+		}
+	}
+
 	return ListPostsResponse{
 		Total:        len(posts),
 		Posts:        posts,
-		LastModified: status.LastModified,
+		LastModified: lastModified,
 	}, nil
 }
 

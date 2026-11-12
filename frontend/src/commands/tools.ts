@@ -18,5 +18,12 @@ export function toolCommands(deps: CommandDeps): CommandItem[] {
       keywords: ['update', 'gengxin', 'upgrade', 'gx', 'version'],
       run: () => deps.onOpenUpdate(),
     },
+    {
+      id: 'tools.globalHistory',
+      group: 'tools',
+      title: '全部文章操作历史（按批次撤销）',
+      keywords: ['history', 'lishi', 'undo', 'cx', 'batch', 'pilci', 'global'],
+      run: () => deps.onOpenGlobalHistory(),
+    },
   ];
 }

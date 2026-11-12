@@ -1,4 +1,4 @@
-.PHONY: all check-env build build-frontend build-frontend-force clean run install app dmg dist test version
+.PHONY: all check-env build build-frontend build-frontend-force clean run install app dmg dist test e2e version
 
 BINARY_NAME=hpic-desktop
 APP_NAME=hpic.app
@@ -132,6 +132,23 @@ test: build-frontend
 	@if [ -d frontend/node_modules ]; then \
 		echo "[INFO] 正在执行前端 Vitest 自动化单元测试..."; \
 		(cd frontend && npm run test); \
+	fi
+	@$(MAKE) e2e
+
+# Playwright 端到端用例：真实后端（独立端口 + 独立 HPIC_CONFIG_DIR）+ 真实前端构建产物 + 真实磁盘读写。
+# 外部图源（Unsplash / Wallhaven）在浏览器层被 page.route 拦截为固定夹具，其余链路全部真实。
+# 未安装 @playwright/test 或缺少 Chromium 时自动跳过，避免阻断未配置浏览器依赖的环境。
+e2e:
+	@if [ ! -d frontend/node_modules/@playwright/test ]; then \
+		echo "[SKIP] 未安装 @playwright/test，跳过 E2E（可执行 cd frontend && npm install 后重试）"; \
+	else \
+		if ls $(HOME)/Library/Caches/ms-playwright/chromium-* >/dev/null 2>&1 \
+		   || ls $(HOME)/.cache/ms-playwright/chromium-* >/dev/null 2>&1; then \
+			echo "[INFO] 正在执行 Playwright 端到端用例（配图主流程）..."; \
+			(cd frontend && npm run e2e); \
+		else \
+			echo "[SKIP] 未检测到 Playwright Chromium，跳过 E2E（可执行 cd frontend && npx playwright install chromium）"; \
+		fi; \
 	fi
 
 clean:

@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { PostInfo } from '../../types';
-import { Star, Copy, Link2 } from 'lucide-react';
+import { Star, Copy, Link2, Code } from 'lucide-react';
 import { useFavorites } from '../../context/FavoritesContext';
 import { useToast } from '../../context/ToastContext';
+import { buildMarkdownImage } from '../../utils/imageMeta';
 import { SmoothImage } from '../SmoothImage';
 import { ImageFilenameTag } from '../ImageFilenameTag';
 import { ApplyCoverButtons } from '../ApplyCoverButtons';
@@ -141,6 +142,18 @@ const UrlBuilderGenerator: React.FC<UrlBuilderGeneratorProps & { config: UrlBuil
                 <span className="source-pill-badge">{config.sourceLabel}</span>
               </div>
               <div className="apply-btn-group">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => {
+                    navigator.clipboard.writeText(buildMarkdownImage(url, config.fallbackTitle));
+                    toast.success('Markdown 图片语法已复制到剪贴板');
+                  }}
+                  title="复制 Markdown 图片语法: ![标题](URL)"
+                >
+                  <Code size={12} />
+                  <span>Markdown</span>
+                </button>
                 <button
                   type="button"
                   className="btn btn-sm btn-ghost"

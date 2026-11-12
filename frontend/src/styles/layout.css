@@ -343,7 +343,7 @@
 }
 
 .filter-pill.active {
-  background: var(--accent-color);
+  background: var(--accent-solid);
   color: #fff;
   font-weight: 500;
 }
@@ -578,7 +578,8 @@
   white-space: nowrap;
   font-family: 'JetBrains Mono', Consolas, Monaco, monospace;
   font-size: 10.5px;
-  color: #64748b;
+  /* 无障碍：#64748b 在文章行背景与选中态叠色上仅 3.0~3.6:1，改用 --text-muted */
+  color: var(--text-muted);
 }
 
 .badge-complete {
@@ -1360,7 +1361,7 @@
 .mini-history-badge {
   font-size: 10px;
   font-weight: 600;
-  background: var(--accent-color);
+  background: var(--accent-solid);
   color: #fff;
   padding: 0 4px;
   border-radius: 6px;

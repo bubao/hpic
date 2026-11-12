@@ -161,6 +161,20 @@ export interface TagStat {
   count: number;
 }
 
+/** 一组感知哈希相似的收藏图片（重复图检测 wire 契约镜像）。 */
+export interface FavoriteDuplicateGroup {
+  hash: string;
+  items: FavoriteItem[];
+}
+
+/** 重复图检测响应（wire 契约镜像）。 */
+export interface FavoriteDuplicatesResponse {
+  success: boolean;
+  groups: FavoriteDuplicateGroup[];
+  scanned: number;
+  failed: number;
+}
+
 /**
  * 封面图片来源元数据（CoverProvider 注册表 wire 契约镜像）。
  * kind: search = 关键词检索来源；generator = 参数化生成来源。

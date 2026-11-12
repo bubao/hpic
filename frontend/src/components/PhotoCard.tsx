@@ -54,7 +54,10 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({
   const activeThumb = thumbUrl || url;
 
   return (
-    <div className={`gallery-card-item ${isUsedByCurrent ? 'card-highlight-active' : ''} ${isBroken ? 'card-broken' : ''}`}>
+    <div
+      className={`gallery-card-item ${isUsedByCurrent ? 'card-highlight-active' : ''} ${isBroken ? 'card-broken' : ''}`}
+      data-testid="gallery-card"
+    >
       {/* 1. 缩略图区域 */}
       <div className="thumb-container">
         {isBroken && (
@@ -80,6 +83,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({
             onToggleFavorite();
           }}
           title={isFavorited ? '已在灵感收藏夹 (点击取消)' : '收藏此图片'}
+          data-testid="card-favorite-button"
         >
           <Star size={14} fill={isFavorited ? '#f59e0b' : 'none'} color={isFavorited ? '#f59e0b' : '#94a3b8'} />
         </button>

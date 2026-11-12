@@ -306,6 +306,7 @@ export const App: React.FC = () => {
       if (selectedPost) handleUndoPost(selectedPost.file_path);
     },
     onOpenHistory: () => modals.setIsHistoryModalOpen(true),
+    onOpenGlobalHistory: () => modals.setIsGlobalHistoryOpen(true),
     onOpenManualUrl: () => handleOpenManualModal(),
     onClearAll: () => handleClearAll(),
     onToggleServer: () => hexo.handleToggleServer(),
@@ -346,6 +347,7 @@ export const App: React.FC = () => {
         onDeploy={handleOpenDeployModal}
         onOpenHealth={() => modals.setIsHealthOpen(true)}
         onOpenLogs={() => modals.setIsLogsOpen(true)}
+        onOpenGlobalHistory={() => modals.setIsGlobalHistoryOpen(true)}
         onOpenSettings={() => modals.openSettings('blog')}
         onOpenCommandPalette={() => modals.setIsCommandPaletteOpen(true)}
         isGenerating={hexo.isGenerating}

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ExternalLink, Copy, X, Star, AlertTriangle, RefreshCw, Loader2, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ExternalLink, Copy, X, Star, AlertTriangle, RefreshCw, Loader2, CheckCircle2, ShieldAlert, Code } from 'lucide-react';
 import { api } from '../api';
 import { useFavorites } from '../context/FavoritesContext';
 import { useToast } from '../context/ToastContext';
-import { getImageAspectRatio, isSvgUrl } from '../utils/imageMeta';
+import { getImageAspectRatio, isSvgUrl, buildMarkdownImage } from '../utils/imageMeta';
 import { useSafeSvgUrl } from '../utils/svgFixer';
 import { ImageFilenameTag } from './ImageFilenameTag';
 import { ApplyCoverButtons } from './ApplyCoverButtons';
@@ -114,6 +114,11 @@ export const Lightbox: React.FC<LightboxProps> = ({
   const handleCopy = () => {
     navigator.clipboard.writeText(activeUrl);
     toast.success('图片原始链接已复制到剪贴板');
+  };
+
+  const handleCopyMarkdown = () => {
+    navigator.clipboard.writeText(buildMarkdownImage(activeUrl, title));
+    toast.success('Markdown 图片语法已复制到剪贴板');
   };
 
   const handleOpenExternal = () => {
@@ -288,6 +293,10 @@ export const Lightbox: React.FC<LightboxProps> = ({
             <button className="btn btn-sm btn-ghost" onClick={handleCopy}>
               <Copy size={13} />
               <span>复制链接</span>
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={handleCopyMarkdown}>
+              <Code size={13} />
+              <span>复制 Markdown</span>
             </button>
             <button className="btn btn-sm btn-ghost" onClick={handleOpenExternal}>
               <ExternalLink size={13} />

@@ -18,6 +18,7 @@ import {
   insertPostImage,
   undoPostOperation,
   getPostHistory,
+  getGlobalHistory,
   deletePostHistory,
   clearPostHistory,
   checkHealth,
@@ -29,8 +30,10 @@ import {
   checkImageHealth,
   fetchGalleryProviders,
   searchGalleryProvider,
+  getSearchHistory,
+  recordSearchHistory,
 } from './gallery';
-import { getFavorites, addFavorite, removeFavorite, updateFavoriteTags } from './favorites';
+import { getFavorites, addFavorite, removeFavorite, updateFavoriteTags, getFavoriteDuplicates } from './favorites';
 import {
   getHexoStatus,
   startHexoServer,
@@ -90,6 +93,7 @@ export const api = {
   insertPostImage,
   undoPostOperation,
   getPostHistory,
+  getGlobalHistory,
   deletePostHistory,
   clearPostHistory,
 
@@ -101,6 +105,8 @@ export const api = {
   searchPhotos,
   fetchGalleryProviders,
   searchGalleryProvider,
+  getSearchHistory,
+  recordSearchHistory,
   fetchImageText,
   checkImageHealth,
 
@@ -109,6 +115,7 @@ export const api = {
   addFavorite,
   removeFavorite,
   updateFavoriteTags,
+  getFavoriteDuplicates,
 
   // Hexo 操作
   getHexoStatus,

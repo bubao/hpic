@@ -439,6 +439,7 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
             onClick={onUndo}
             disabled={!canUndo}
             title={canUndo ? `撤销上一操作: ${undoDesc || '恢复变更前封面'}` : '当前文章暂无可撤销操作'}
+            data-testid="cover-undo-button"
           >
             <Icon name="undo" size="xs" />
             <span>撤销</span>
@@ -500,6 +501,8 @@ export const CoverArea: React.FC<CoverAreaProps> = ({
               className={`cover-card ${isFieldBroken ? 'card-broken' : ''}`}
               onDragOver={handleDragOver}
               onDrop={e => handleDrop(e, [field])}
+              data-testid="cover-card"
+              data-field={field}
             >
               <div className="cover-card-header">
                 <span className="field-tag-name">{field}</span>

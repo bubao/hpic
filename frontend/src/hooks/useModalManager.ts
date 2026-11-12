@@ -30,6 +30,7 @@ export function useModalManager() {
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isGlobalHistoryOpen, setIsGlobalHistoryOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -91,6 +92,8 @@ export function useModalManager() {
     setIsCreatePostOpen,
     isHistoryModalOpen,
     setIsHistoryModalOpen,
+    isGlobalHistoryOpen,
+    setIsGlobalHistoryOpen,
     isManualOpen,
     setIsManualOpen,
     isUpdateModalOpen,

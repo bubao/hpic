@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"hpic/internal/db"
@@ -206,6 +207,11 @@ func (s *Server) handleUpdatePost() http.HandlerFunc {
 			return
 		}
 
+		// 写入前先解析一次，捕获各封面字段的旧值，供审计日志与撤销回滚使用。
+		// 必须在改文件之前解析：否则 old_value 会读到新写入的值，撤销就变成了「恢复成新值」，
+		// 等于没有撤销（E2E 主流程用例会命中这条路径）。
+		prevPost, _ := post.ParsePost(req.FilePath, coverFields, dateField, updatedField)
+
 		// 先改文件，成功后再写审计：避免文件写入失败时残留幽灵撤销记录。
 		// 与 MCP tool_posts.go 的顺序保持一致。
 		if err := post.UpdateDynamicFields(req.FilePath, finalUpdates); err != nil {
@@ -223,7 +229,10 @@ func (s *Server) handleUpdatePost() http.HandlerFunc {
 		if s.database != nil && currentPost != nil {
 			batchID := db.NextBatchID()
 			for f, op := range finalUpdates {
-				oldVal := currentPost.Images[f]
+				oldVal := ""
+				if prevPost != nil {
+					oldVal = prevPost.Images[f]
+				}
 				opType := "update_cover"
 				newVal := op.Value
 				if op.Clear {
@@ -403,6 +412,36 @@ func (s *Server) handlePostHistory() http.HandlerFunc {
 		}
 
 		records, err := s.database.GetPostHistory(filePath)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"history": records,
+		})
+	}
+}
+
+// handleGlobalHistory 查询全部文章的操作历史记录（全局操作历史面板）。
+func (s *Server) handleGlobalHistory() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		if s.database == nil {
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"success": true,
+				"history": []db.OperationRecord{},
+			})
+			return
+		}
+
+		records, err := s.database.ListOperations(limit)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

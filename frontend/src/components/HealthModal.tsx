@@ -20,9 +20,11 @@ import {
   Clock,
   Radio,
   SlidersHorizontal,
+  Code,
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { Modal } from './Modal';
+import { buildMarkdownImage } from '../utils/imageMeta';
 
 interface HealthModalProps {
   isOpen: boolean;
@@ -85,6 +87,7 @@ export const HealthModal: React.FC<HealthModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [copiedUrlIndex, setCopiedUrlIndex] = useState<number | null>(null);
+  const [copiedMdIndex, setCopiedMdIndex] = useState<number | null>(null);
   const [isCopiedAll, setIsCopiedAll] = useState(false);
 
   // 同步 posts 长度到 totalPosts
@@ -260,6 +263,15 @@ export const HealthModal: React.FC<HealthModalProps> = ({
       setCopiedUrlIndex(index);
       toast.success('已复制图片外链');
       setTimeout(() => setCopiedUrlIndex(null), 1500);
+    });
+  };
+
+  // 复制单张 Markdown 图片语法
+  const handleCopyMarkdown = (url: string, index: number) => {
+    navigator.clipboard.writeText(buildMarkdownImage(url, '配图')).then(() => {
+      setCopiedMdIndex(index);
+      toast.success('已复制 Markdown 图片语法');
+      setTimeout(() => setCopiedMdIndex(null), 1500);
     });
   };
 
@@ -639,6 +651,17 @@ export const HealthModal: React.FC<HealthModalProps> = ({
                               <Check size={13} className="text-success" />
                             ) : (
                               <Copy size={13} />
+                            )}
+                          </button>
+                          <button
+                            className="btn-icon-action"
+                            onClick={() => handleCopyMarkdown(b.url, idx)}
+                            title="复制 Markdown 图片语法: ![配图](URL)"
+                          >
+                            {copiedMdIndex === idx ? (
+                              <Check size={13} className="text-success" />
+                            ) : (
+                              <Code size={13} />
                             )}
                           </button>
                           <a

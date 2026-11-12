@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -90,6 +92,81 @@ func TestPostsStatusMatchesServiceFixture(t *testing.T) {
 		t.Fatalf("status mismatch: got last_modified=%d count=%d, want last_modified=%d count=%d",
 			got.LastModified, got.Count, want.LastModified, want.Count)
 	}
+}
+
+// TestUpdatePostUndoRestoresPreviousCover 覆盖「REST 更新封面 → 撤销」全链路。
+//
+// 关键回归点：审计日志的 old_value 必须在改文件之前捕获。
+// 若在写入之后才解析文章，old_value 会读到新写入的 URL，撤销就变成「恢复成新值」，
+// 等于没有撤销（E2E 主流程用例会命中这条路径）。
+func TestUpdatePostUndoRestoresPreviousCover(t *testing.T) {
+	fx := testfixtures.NewPostsBlog(t)
+	t.Setenv("HPIC_CONFIG_DIR", t.TempDir())
+	s := NewServer(fx.Config, fstest.MapFS{})
+	defer func() { _ = s.Close() }()
+
+	const newURL = "https://example.com/replaced.jpg"
+
+	// 场景一：覆盖已有封面 → 撤销必须恢复成旧封面
+	helloPath := fx.HelloPath()
+	body, _ := json.Marshal(map[string]interface{}{
+		"file_path":    helloPath,
+		"raw_url":      newURL,
+		"apply_fields": []string{"index_img"},
+	})
+	w := httptest.NewRecorder()
+	s.Mux.ServeHTTP(w, newLocalRequest(http.MethodPost, "/api/post/update", bytes.NewReader(body)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("update hello: expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if got := readPostFile(t, helloPath); !strings.Contains(got, "index_img: "+newURL) {
+		t.Fatalf("cover was not written, content:\n%s", got)
+	}
+
+	undoBody, _ := json.Marshal(map[string]interface{}{"file_path": helloPath})
+	undoW := httptest.NewRecorder()
+	s.Mux.ServeHTTP(undoW, newLocalRequest(http.MethodPost, "/api/post/undo", bytes.NewReader(undoBody)))
+	if undoW.Code != http.StatusOK {
+		t.Fatalf("undo hello: expected 200, got %d body=%s", undoW.Code, undoW.Body.String())
+	}
+	if got := readPostFile(t, helloPath); !strings.Contains(got, "index_img: https://example.com/hello.jpg") {
+		t.Fatalf("undo did not restore previous cover, content:\n%s", got)
+	}
+
+	// 场景二：给无封面文章新增封面 → 撤销必须把该字段清空
+	worldPath := fx.WorldPath()
+	body2, _ := json.Marshal(map[string]interface{}{
+		"file_path":    worldPath,
+		"raw_url":      newURL,
+		"apply_fields": []string{"index_img"},
+	})
+	w2 := httptest.NewRecorder()
+	s.Mux.ServeHTTP(w2, newLocalRequest(http.MethodPost, "/api/post/update", bytes.NewReader(body2)))
+	if w2.Code != http.StatusOK {
+		t.Fatalf("update world: expected 200, got %d body=%s", w2.Code, w2.Body.String())
+	}
+	if got := readPostFile(t, worldPath); !strings.Contains(got, "index_img: "+newURL) {
+		t.Fatalf("cover was not written to world.md, content:\n%s", got)
+	}
+
+	undoBody2, _ := json.Marshal(map[string]interface{}{"file_path": worldPath})
+	undoW2 := httptest.NewRecorder()
+	s.Mux.ServeHTTP(undoW2, newLocalRequest(http.MethodPost, "/api/post/undo", bytes.NewReader(undoBody2)))
+	if undoW2.Code != http.StatusOK {
+		t.Fatalf("undo world: expected 200, got %d body=%s", undoW2.Code, undoW2.Body.String())
+	}
+	if got := readPostFile(t, worldPath); strings.Contains(got, newURL) {
+		t.Fatalf("undo did not clear the newly added cover, content:\n%s", got)
+	}
+}
+
+func readPostFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read post %s: %v", path, err)
+	}
+	return string(data)
 }
 
 // TestUndoPostMatchesServiceFixture 用同一组夹具分别在 REST 与 service 上执行撤销，

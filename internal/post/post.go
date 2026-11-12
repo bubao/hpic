@@ -74,12 +74,13 @@ func parseCacheKey(filePath string, targetFields []string, dateOpts ...string) s
 
 // cachedParsePost 按文件指纹复用 ParsePost 结果：
 // mtime 与大小均未变化时直接返回缓存；写操作经原子改写会自然改变 mtime，缓存自动失效。
-func cachedParsePost(entry fs.DirEntry, filePath string, targetFields []string, dateOpts ...string) (*PostInfo, error) {
+//
+// info 由调用方在扫描阶段一并取得（见 scanOnce），避免解析时重复 lstat。
+// info 为 nil 时（stat 失败）跳过缓存，直接解析。
+func cachedParsePost(filePath string, fi fs.FileInfo, targetFields []string, dateOpts ...string) (*PostInfo, error) {
 	key := parseCacheKey(filePath, targetFields, dateOpts...)
 
-	var fi fs.FileInfo
-	if info, err := entry.Info(); err == nil {
-		fi = info
+	if fi != nil {
 		parseCacheMu.Lock()
 		cached, hit := parseCache[key]
 		parseCacheMu.Unlock()
@@ -112,57 +113,53 @@ func cachedParsePost(entry fs.DirEntry, filePath string, targetFields []string, 
 
 // ListPosts 扫描 Hexo 目录（同时覆盖 source/_posts 与 source/_drafts）并解析排序
 func ListPosts(baseDir string, keyword string, targetFields []string, sortBy string, dateOpts ...string) ([]PostInfo, error) {
+	posts, _, err := ListPostsWithStatus(baseDir, keyword, targetFields, sortBy, dateOpts...)
+	return posts, err
+}
+
+// ListPostsWithStatus 在 ListPosts 的基础上附带扫描状态（最新 mtime + 文件数）。
+//
+// 列表与状态来自同一次目录遍历（见 scanOnce），调用方无需再单独调用
+// GetPostsStatus，从而避免同一请求内对同一目录重复 WalkDir。
+func ListPostsWithStatus(baseDir string, keyword string, targetFields []string, sortBy string, dateOpts ...string) ([]PostInfo, PostsStatus, error) {
 	if baseDir == "" {
-		return nil, fmt.Errorf("hexo or posts directory is empty")
+		return nil, PostsStatus{}, fmt.Errorf("hexo or posts directory is empty")
 	}
 
-	// 1. 获取 Hexo 根目录（同时扫描 _posts 和 _drafts）或指定目录的扫描目标
-	scanTargets := GetScanTargets(baseDir)
+	// 1. 一次遍历同时拿到文件清单与目录变动状态
+	entries, status := scanOnce(GetScanTargets(baseDir))
 
 	var posts []PostInfo
 	kw := strings.ToLower(strings.TrimSpace(keyword))
 
-	for _, target := range scanTargets {
-		_ = filepath.WalkDir(target.Dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				// 忽略以点开头的隐藏目录（例如 .git, .trash 等）
-				if strings.HasPrefix(d.Name(), ".") && p != target.Dir {
-					return filepath.SkipDir
-				}
-				return nil
-			}
+	for _, entry := range entries {
+		info, err := cachedParsePost(entry.path, entry.info, targetFields, dateOpts...)
+		if err != nil {
+			continue
+		}
+		info.IsDraft = entry.target.IsDraft
 
-			nameLower := strings.ToLower(d.Name())
-			if !strings.HasSuffix(nameLower, ".md") && !strings.HasSuffix(nameLower, ".markdown") {
-				return nil
-			}
+		if kw != "" && !matchPostKeyword(info, kw) {
+			continue
+		}
 
-			info, err := cachedParsePost(d, p, targetFields, dateOpts...)
-			if err != nil {
-				return nil
-			}
-			info.IsDraft = target.IsDraft
-
-			if kw != "" {
-				matchTitle := strings.Contains(strings.ToLower(info.Title), kw)
-				matchFile := strings.Contains(strings.ToLower(info.FileName), kw)
-				matchCat := strings.Contains(strings.ToLower(info.Categories), kw)
-				matchTags := strings.Contains(strings.ToLower(info.Tags), kw)
-				if !matchTitle && !matchFile && !matchCat && !matchTags {
-					return nil
-				}
-			}
-
-			posts = append(posts, *info)
-			return nil
-		})
+		posts = append(posts, *info)
 	}
 
 	SortPosts(posts, sortBy)
-	return posts, nil
+	return posts, status, nil
+}
+
+// matchPostKeyword 判断文章是否命中关键词（标题 / 文件名 / 分类 / 标签，大小写不敏感）。
+func matchPostKeyword(info *PostInfo, kw string) bool {
+	kw = strings.ToLower(strings.TrimSpace(kw))
+	if kw == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(info.Title), kw) ||
+		strings.Contains(strings.ToLower(info.FileName), kw) ||
+		strings.Contains(strings.ToLower(info.Categories), kw) ||
+		strings.Contains(strings.ToLower(info.Tags), kw)
 }
 
 func isDirectory(p string) bool {

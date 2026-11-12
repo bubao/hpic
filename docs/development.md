@@ -228,6 +228,9 @@ make install
 # 执行全量自动化单元测试与竞态检测 (Go 后端 -race + 前端 Vitest 联合执行)
 make test
 
+# 执行 Playwright 端到端用例 (配图主流程；已包含在 make test 内，可单独运行)
+make e2e
+
 # 核心维护者交互式发版向导 (自动执行测试、版本推导、Changelog 归档与云端发布)
 make release
 
@@ -278,7 +281,7 @@ make release
 ```
 [make release] 
        ↓
-1. 全量自动化测试 (make test，Go -race + Vitest) ➔ 不通过立即阻断
+1. 全量自动化测试 (make test，Go -race + Vitest + Playwright E2E) ➔ 不通过立即阻断
        ↓
 2. 远程 Tag 同步与冲突校验 (git fetch --tags) ➔ 已发布过的 Tag 禁止重复发版
        ↓
@@ -295,7 +298,7 @@ make release
 
 ### 6.2 详细执行步骤说明
 
-1. **测试防线守门**：自动触发 `make test`（Go 后端 `-race` 竞态检测 + 前端 Vitest 单元测试），测试未 100% 通过直接终止发布；
+1. **测试防线守门**：自动触发 `make test`（Go 后端 `-race` 竞态检测 + 前端 Vitest 单元测试 + Playwright 端到端用例），测试未 100% 通过直接终止发布；
 2. **远程冲突排查**：自动拉取并核验本地与远程 Git Tags，杜绝覆盖发布历史已有版本；
 3. **多级版本推导**：基于最新 Tag 智能推导 Patch / Minor / Major 版本号供选择，并同步写入 `frontend/package.json`；
 4. **CHANGELOG 严格守门校验**：
@@ -304,3 +307,79 @@ make release
    - **合规放行**：检测到已有说明章节后，自动提取该章节内容作为 GitHub Releases 官方公告正文；
 5. **Git Tag 触发与云端构建**：创建 Annotated Tag 并推送到远程仓库，随后 GitHub Actions（`.github/workflows/release.yml`）自动接管全平台构建与正式发布。
 
+
+---
+
+## 7. 自动化测试
+
+项目采用三层测试防线，全部由 `make test` 统一驱动（任一环节失败即阻断发版）：
+
+| 层级 | 命令 | 覆盖范围 | 运行耗时 |
+| :--- | :--- | :--- | :--- |
+| **Go 单元测试** | `go test -race -v ./...` | 后端各包逻辑、并发竞态、API 契约一致性 | 约 10s |
+| **前端单元测试** | `cd frontend && npm run test` | Vitest + happy-dom，组件 / Hook / 工具函数 | 约 10s |
+| **端到端测试** | `make e2e` | Playwright + Chromium，配图主流程（真实后端与磁盘） | 约 60s |
+| **无障碍审计** | `make e2e`（a11y-audit 用例） | axe-core + Playwright，主壳 / 各弹窗 / 命令面板 | 约 10s |
+
+### 7.1 Playwright 端到端用例
+
+用例位于 `frontend/e2e/`，覆盖「配图主流程」：
+
+1. 夹具博文完整加载并可下钻选择；
+2. 侧边栏关键词实时过滤博文列表；
+3. 手动外链一键设为全部封面并真实落盘；
+4. 覆盖已有封面时弹出二次确认（取消不写入、确认才写入）；
+5. 撤销最近一次封面变更并回写磁盘；
+6. 关键词检索配图并仅应用单个封面字段；
+7. 收藏图片后在「我的收藏」中可见。
+
+#### 无障碍（a11y）审计
+
+`frontend/e2e/specs/a11y-audit.spec.ts` 用 axe-core 对配图主流程涉及的各个界面做自动化审计，断言不存在 `critical` / `serious` 级违规：
+
+- 主壳（侧边栏 + 博文列表 + 配图区）；
+- 手动外链弹窗、覆盖确认弹窗；
+- 设置弹窗（体检 Tab）；
+- 命令面板（⌘K）；
+- 文档语言与界面语言一致性（`<html lang>` 随 i18n 切换）。
+
+审计规则覆盖 `wcag2a` / `wcag2aa` / `wcag21a` / `wcag21aa` / `best-practice`。`minor` / `moderate` 级问题不阻断用例，但会随失败一并打印，便于渐进式改进。
+
+想一次性收集所有界面的待修项（不做断言）时：
+
+```bash
+cd frontend && A11Y_REPORT_ONLY=1 npx playwright test a11y-audit
+```
+
+> ⚠️ 审计前必须等 CSS 淡入动画结束。axe 在动画中间态采样会把半透明的前景/背景混合后当成真实配色，产生不稳定的对比度误报；用例内的 `waitForCssAnimations()` 已统一处理。
+
+#### 为什么不是直接启动 hpic 主程序
+
+`main.go` 的 `-headless` 模式会调用 `checkAndActivateExistingInstance(38120, 38125)`：当本机已有 hpic 实例在监听该端口时，进程会直接退出。开发机上通常会常驻一个实例，直接拉起主程序会让 E2E 随机失败。
+
+因此 `frontend/e2e/server/main.go` 是一个**薄辅助进程**：复用 `api.NewServer` 装配全部路由，但监听**随机端口**，并通过 `HPIC_CONFIG_DIR` 指向独立临时目录，从而：
+
+- 与用户正在运行的实例、真实博客目录、真实收藏夹完全隔离；
+- 保留真实 HTTP API、真实 SQLite、真实前端构建产物与真实文件读写。
+
+#### 外部图源的处置
+
+Unsplash / Wallhaven 需要真实网络与 API Key，因此用例通过 `page.route('**/api/unsplash/search**')` 拦截检索端点并返回固定夹具数据（`https://cdn.e2e.test/...`）。除该端点外，所有链路均为真实实现。
+
+#### 运行方式
+
+```bash
+make e2e                                  # 推荐：由 Makefile 统一驱动
+cd frontend && npm run e2e                # 等价写法
+cd frontend && npm run e2e:headed         # 显示浏览器窗口，便于观察
+cd frontend && npm run e2e:ui             # Playwright UI 模式，便于断点排查
+```
+
+前置条件：
+
+```bash
+cd frontend && npm install
+cd frontend && npx playwright install chromium
+```
+
+> 🧹 测试产物（`frontend/e2e/.work/`、`test-results/`、`playwright-report/`）已加入 `.gitignore`，不会污染工作区。

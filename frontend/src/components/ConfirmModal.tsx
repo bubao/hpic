@@ -159,13 +159,14 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       </div>
 
       <div className="confirm-actions">
-        <button type="button" className="btn btn-sm btn-ghost" onClick={onCancel}>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onCancel} data-testid="cancel-button">
           {cancelText}
         </button>
         <button
           type="button"
           className={`btn btn-sm ${danger ? 'btn-danger' : 'btn-primary'}`}
           onClick={onConfirm}
+          data-testid="confirm-button"
         >
           {danger && !diffPreview && <Trash2 size={12} style={{ marginRight: 4 }} />}
           {confirmText}

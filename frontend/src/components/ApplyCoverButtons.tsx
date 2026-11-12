@@ -33,6 +33,7 @@ export const ApplyCoverButtons: React.FC<ApplyCoverButtonsProps> = ({
         className={`${btnClass} btn-primary`}
         onClick={() => onApplyImage(url, coverFields)}
         title="将此图片一键应用到当前文章的所有封面字段"
+        data-testid="apply-all-button"
       >
         <Check size={size === 'xs' ? 11 : 12} style={{ marginRight: 2 }} />
         <span>{fullLabel ? '设为全部封面' : '设为全部'}</span>
@@ -45,6 +46,8 @@ export const ApplyCoverButtons: React.FC<ApplyCoverButtonsProps> = ({
           className={`${btnClass} btn-ghost`}
           onClick={() => onApplyImage(url, [field])}
           title={`将此图片仅应用到 ${field} 字段`}
+          data-testid="apply-field-button"
+          data-field={field}
         >
           {field}
         </button>

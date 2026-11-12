@@ -115,7 +115,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
     const s = status.trim();
     if (s === 'M') return <span style={{ color: '#f59e0b', fontSize: 11, fontWeight: 700, minWidth: 20 }}>修改</span>;
     if (s === '??' || s === 'A') return <span style={{ color: '#10b981', fontSize: 11, fontWeight: 700, minWidth: 20 }}>新增</span>;
-    if (s === 'D') return <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 700, minWidth: 20 }}>删除</span>;
+    if (s === 'D') return <span style={{ color: 'var(--danger-color)', fontSize: 11, fontWeight: 700, minWidth: 20 }}>删除</span>;
     return <span style={{ color: '#6366f1', fontSize: 11, fontWeight: 700, minWidth: 20 }}>{s}</span>;
   };
 
@@ -250,7 +250,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
                     )}
 
                     {!loadingFiles && fetchError && (
-                      <div style={{ padding: '14px 8px', color: '#ef4444', fontSize: 12 }}>
+                      <div style={{ padding: '14px 8px', color: 'var(--danger-color)', fontSize: 12 }}>
                         {fetchError}
                       </div>
                     )}
@@ -324,7 +324,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
                   gap: 8,
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ef4444', fontSize: 12, fontWeight: 600 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--danger-color)', fontSize: 12, fontWeight: 600 }}>
                   <AlertCircle size={14} />
                   <span>部署中断或失败</span>
                 </div>

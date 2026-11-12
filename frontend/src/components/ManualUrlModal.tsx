@@ -28,12 +28,17 @@ export const ManualUrlModal: React.FC<ManualUrlModalProps> = ({
   const [imgStatus, setImgStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [autoFav, setAutoFav] = useState(true);
 
-  useEffect(() => {
+  // 弹窗每次由关闭变为打开时，在「渲染期」同步重置表单状态。
+  // 不能改用 useEffect 重置：effect 在提交之后才执行，会和「打开后立刻发生的输入」竞态
+  // （用户粘贴、自动化填充），把刚写入的链接清空，导致「设为全部封面」按钮组整组消失。
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
     if (isOpen) {
       setUrl('');
       setImgStatus('idle');
     }
-  }, [isOpen]);
+  }
 
   useEffect(() => {
     const trimmed = url.trim();
@@ -119,6 +124,7 @@ export const ManualUrlModal: React.FC<ManualUrlModalProps> = ({
               value={url}
               onChange={e => setUrl(e.target.value)}
               autoFocus
+              data-testid="manual-url-input"
             />
           </div>
 
@@ -138,8 +144,9 @@ export const ManualUrlModal: React.FC<ManualUrlModalProps> = ({
             }}
           >
             {imgStatus === 'idle' && (
-              <div style={{ textAlign: 'center', opacity: 0.5, fontSize: 13 }}>
-                <ImageIcon size={32} style={{ margin: '0 auto 6px', display: 'block' }} />
+              // 无障碍：不再叠加 opacity（会把文字拉到 4.4:1 以下），颜色由 --text-muted 保证 AA
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                <ImageIcon size={32} style={{ margin: '0 auto 6px', display: 'block', opacity: 0.6 }} />
                 <span>输入链接后在此处实时验证大图</span>
               </div>
             )}
@@ -150,7 +157,7 @@ export const ManualUrlModal: React.FC<ManualUrlModalProps> = ({
               </div>
             )}
             {imgStatus === 'error' && (
-              <div style={{ textAlign: 'center', color: '#ef4444', fontSize: 13, padding: 12 }}>
+              <div style={{ textAlign: 'center', color: 'var(--danger-color)', fontSize: 13, padding: 12 }}>
                 <AlertCircle size={24} style={{ margin: '0 auto 6px', display: 'block' }} />
                 <span>无法加载该图片，请检查链接是否为直接图片直链或存在防盗链限制</span>
               </div>

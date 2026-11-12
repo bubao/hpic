@@ -1682,6 +1682,66 @@
           "omitempty": false
         }
       ]
+    },
+    {
+      "goType": "api.FavoriteDuplicateGroup",
+      "tsType": "FavoriteDuplicateGroup",
+      "fields": [
+        {
+          "name": "Hash",
+          "json": "hash",
+          "goKind": "string",
+          "ts": "string",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Items",
+          "json": "items",
+          "goKind": "slice",
+          "ts": "FavoriteItem[]",
+          "tsKind": "array-struct",
+          "omitempty": false
+        }
+      ]
+    },
+    {
+      "goType": "api.FavoriteDuplicatesResponse",
+      "tsType": "FavoriteDuplicatesResponse",
+      "fields": [
+        {
+          "name": "Success",
+          "json": "success",
+          "goKind": "bool",
+          "ts": "boolean",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Groups",
+          "json": "groups",
+          "goKind": "slice",
+          "ts": "FavoriteDuplicateGroup[]",
+          "tsKind": "array-struct",
+          "omitempty": false
+        },
+        {
+          "name": "Scanned",
+          "json": "scanned",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        },
+        {
+          "name": "Failed",
+          "json": "failed",
+          "goKind": "int",
+          "ts": "number",
+          "tsKind": "primitive",
+          "omitempty": false
+        }
+      ]
     }
   ],
   "endpoints": [
@@ -1735,6 +1795,12 @@
     {
       "method": "GET",
       "path": "/api/favorites/check"
+    },
+    {
+      "method": "GET",
+      "path": "/api/favorites/duplicates",
+      "response": "FavoriteDuplicateGroup",
+      "frontend": true
     },
     {
       "method": "POST",
@@ -1802,6 +1868,12 @@
       "method": "GET",
       "path": "/api/hexo/status",
       "response": "StatusResponse",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/history",
+      "response": "OperationRecord",
       "frontend": true
     },
     {
@@ -1908,6 +1980,11 @@
       "method": "GET",
       "path": "/api/posts/status",
       "response": "PostsStatus",
+      "frontend": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/search/history",
       "frontend": true
     },
     {

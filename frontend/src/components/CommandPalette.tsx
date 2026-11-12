@@ -134,7 +134,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       aria-modal="true"
       aria-label="命令面板"
     >
-      <div className="command-palette-dialog" onClick={(e) => e.stopPropagation()}>
+      <div className="command-palette-dialog" onClick={(e) => e.stopPropagation()} data-testid="command-palette">
         {/* 顶部搜索框 */}
         <div className="command-palette-search-wrap">
           <Search size={18} className="command-palette-search-icon" />
@@ -173,7 +173,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         </div>
 
         {/* 结果列表 */}
-        <div className="command-palette-results-wrap">
+        {/* tabIndex=0：该容器是可滚动区域（max-height + overflow-y），
+            无障碍要求滚动内容可被键盘聚焦，否则键盘用户无法触及溢出部分 */}
+        <div className="command-palette-results-wrap" tabIndex={0}>
           {filteredCommands.length === 0 ? (
             <div className="command-palette-empty">
               <p>未找到匹配的命令或设置项</p>
@@ -184,6 +186,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               ref={listRef}
               id="command-palette-results"
               role="listbox"
+              aria-label="命令列表"
               className="command-palette-list"
             >
               {filteredCommands.map((cmd, idx) => {

@@ -175,6 +175,17 @@ export const ModalsLayer: React.FC<ModalsLayerProps> = ({
         isOpen={modals.isHistoryModalOpen}
         onClose={() => modals.setIsHistoryModalOpen(false)}
         post={selectedPost}
+        mode="post"
+        onPostUpdated={onPostUpdated}
+        onHistoryChanged={onHistoryChanged}
+      />
+
+      {/* 全局操作历史：跨文章汇总，按批次分组并支持整批撤销 */}
+      <PostHistoryModal
+        isOpen={modals.isGlobalHistoryOpen}
+        onClose={() => modals.setIsGlobalHistoryOpen(false)}
+        post={selectedPost}
+        mode="global"
         onPostUpdated={onPostUpdated}
         onHistoryChanged={onHistoryChanged}
       />

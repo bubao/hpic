@@ -36,5 +36,7 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     setupFiles: ['./src/test-setup.ts'],
+    // E2E 用例由 Playwright 承载，不纳入 Vitest 单测范围
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 })

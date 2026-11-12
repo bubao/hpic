@@ -279,7 +279,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const currentCategoryMeta = CATEGORIES.find(c => c.id === activeCategory);
 
   return (
-    <div className="modal-overlay full-coverage" role="dialog" aria-modal="true">
+    <div className="modal-overlay full-coverage" role="dialog" aria-modal="true" aria-label="偏好设置">
       <div className="settings-page-container">
         {/* 顶部标题栏与全局快捷保存 */}
         <header className="settings-top-header">
@@ -342,6 +342,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         type="button"
                         className={`settings-nav-item ${isActive ? 'active' : ''}`}
                         onClick={() => handleRequestSwitchCategory(cat.id)}
+                        data-testid={`settings-tab-${cat.id}`}
                       >
                         <IconComponent size={18} className="settings-nav-icon" />
                         <div className="settings-nav-info">

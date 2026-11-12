@@ -1,7 +1,6 @@
 package post
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,6 +72,9 @@ func isDraftScanDir(p string) bool {
 }
 
 // GetPostsStatus 探测指定目录下的博文文件数量及最新的变动时间戳 (毫秒)
+//
+// 与列表扫描共用 scanOnce，保持两处口径完全一致（同样的隐藏目录规则、
+// 同样的扩展名过滤、同样的目录 mtime 参与比较）。
 func GetPostsStatus(baseDir string) (PostsStatus, error) {
 	if strings.TrimSpace(baseDir) == "" {
 		return PostsStatus{LastModified: 0, Count: 0}, nil
@@ -83,54 +85,8 @@ func GetPostsStatus(baseDir string) (PostsStatus, error) {
 		return PostsStatus{LastModified: 0, Count: 0}, nil
 	}
 
-	var maxMtime int64
-	var count int
-
-	for _, target := range targets {
-		if fi, err := os.Stat(target.Dir); err == nil {
-			m := fi.ModTime().UnixMilli()
-			if m > maxMtime {
-				maxMtime = m
-			}
-		}
-
-		_ = filepath.WalkDir(target.Dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				if strings.HasPrefix(d.Name(), ".") && p != target.Dir {
-					return filepath.SkipDir
-				}
-				if info, err := d.Info(); err == nil {
-					m := info.ModTime().UnixMilli()
-					if m > maxMtime {
-						maxMtime = m
-					}
-				}
-				return nil
-			}
-
-			nameLower := strings.ToLower(d.Name())
-			if !strings.HasSuffix(nameLower, ".md") && !strings.HasSuffix(nameLower, ".markdown") {
-				return nil
-			}
-
-			count++
-			if info, err := d.Info(); err == nil {
-				m := info.ModTime().UnixMilli()
-				if m > maxMtime {
-					maxMtime = m
-				}
-			}
-			return nil
-		})
-	}
-
-	return PostsStatus{
-		LastModified: maxMtime,
-		Count:        count,
-	}, nil
+	_, status := scanOnce(targets)
+	return status, nil
 }
 
 // PostsTracker 维护博文目录的变动追踪器，支持原子更新内部修改时间
@@ -173,6 +129,17 @@ func (t *PostsTracker) RecordChange() {
 		return
 	}
 	t.lastPostsChange.Store(time.Now().UnixMilli())
+}
+
+// LastChange 返回最近一次内部记录变动的时间戳（毫秒）；从未记录时返回 0。
+//
+// 供列表接口在「列表与状态同源」后补齐内部写入时间：磁盘 mtime 可能略早于
+// RecordChange 的时刻，而前端依赖 last_modified 判断是否需要刷新。
+func (t *PostsTracker) LastChange() int64 {
+	if t == nil {
+		return 0
+	}
+	return t.lastPostsChange.Load()
 }
 
 // GetStatus 获取当前博文目录状态（结合外部文件时间戳与内部变动标记）

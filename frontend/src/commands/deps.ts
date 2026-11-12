@@ -14,6 +14,7 @@ export interface CommandDeps {
   onCreatePost: () => void;
   onUndoSelectedPost: () => void;
   onOpenHistory: () => void;
+  onOpenGlobalHistory: () => void;
   onOpenManualUrl: () => void;
   onClearAll: () => void;
   onToggleServer: () => void;

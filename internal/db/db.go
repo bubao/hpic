@@ -410,6 +410,53 @@ func (d *Database) RecordOperation(filePath, postTitle, opType, field, oldValue,
 	return res.LastInsertId()
 }
 
+// RecordSearch 记录一次检索关键词。
+// 每次检索都留痕（不做去重合并），列表侧按 keyword 分组取最近使用，
+// 同时裁剪到最近 500 条避免长期增长。
+func (d *Database) RecordSearch(source, keyword string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if _, err := d.db.Exec(`
+		INSERT INTO search_history (source, keyword, created_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP);`, source, keyword); err != nil {
+		return err
+	}
+	_, _ = d.db.Exec(`
+		DELETE FROM search_history
+		WHERE id NOT IN (SELECT id FROM search_history ORDER BY id DESC LIMIT 500);`)
+	return nil
+}
+
+// ListSearchHistory 返回最近检索过的关键词（按最近使用倒序，keyword 去重）。
+func (d *Database) ListSearchHistory(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	rows, err := d.db.Query(`
+		SELECT keyword FROM search_history
+		GROUP BY keyword
+		ORDER BY MAX(id) DESC
+		LIMIT ?;`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	keywords := []string{}
+	for rows.Next() {
+		var kw string
+		if err := rows.Scan(&kw); err != nil {
+			return nil, err
+		}
+		keywords = append(keywords, kw)
+	}
+	return keywords, rows.Err()
+}
+
 // GetLastUndoable 获取指定文章最近一条未撤销的操作日志
 func (d *Database) GetLastUndoable(filePath string) (*OperationRecord, error) {
 	d.mu.RLock()
@@ -640,6 +687,47 @@ func (d *Database) GetBatchOperations(filePath string, createdAt time.Time, opTy
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate batch operation logs (file=%s): %w", filePath, err)
+	}
+	return records, nil
+}
+
+// ListOperations 返回全部文章的操作日志（按时间倒序），用于全局操作历史面板。
+// limit <= 0 时默认 100 条，避免一次拉取过多记录拖慢界面。
+func (d *Database) ListOperations(limit int) ([]OperationRecord, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `SELECT id, batch_id, file_path, post_title, operation_type, field, old_value, new_value, created_at, is_undone
+		FROM operation_logs
+		ORDER BY id DESC LIMIT ?;`
+	rows, err := d.db.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []OperationRecord
+	for rows.Next() {
+		var op OperationRecord
+		var isUndoneInt int
+		var batchID sql.NullInt64
+		if err := rows.Scan(
+			&op.ID, &batchID, &op.FilePath, &op.PostTitle, &op.OperationType, &op.Field,
+			&op.OldValue, &op.NewValue, &op.CreatedAt, &isUndoneInt,
+		); err != nil {
+			return nil, fmt.Errorf("scan operation log: %w", err)
+		}
+		if batchID.Valid {
+			op.BatchID = batchID.Int64
+		}
+		op.IsUndone = isUndoneInt == 1
+		records = append(records, op)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate operation logs: %w", err)
 	}
 	return records, nil
 }

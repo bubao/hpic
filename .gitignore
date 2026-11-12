@@ -39,6 +39,11 @@ frontend/dist/
 web/*
 !web/placeholder.txt
 
+# Playwright E2E 临时工作区与报告产物
+frontend/e2e/.work/
+frontend/e2e/test-results/
+frontend/e2e/playwright-report/
+
 # 自动衍生与构建的图标与桌面配置 (由 scripts/build-icons.mjs 与 scripts/generate-dmg-bg.mjs 动态生成)
 assets/icon.svg
 assets/dmg-background.svg

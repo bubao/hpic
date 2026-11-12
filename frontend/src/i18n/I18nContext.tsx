@@ -106,6 +106,12 @@ export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchBundle(language);
   }, [language, fetchBundle]);
 
+  // 无障碍：同步 <html lang>，让屏幕阅读器按界面真实语言发音
+  // （默认中文界面此前固定在 index.html 上写死为 lang="en"，属错误标注）
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+
   const setLanguage = (lang: SupportedLanguage) => {
     setLanguageState(lang);
     try {

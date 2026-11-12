@@ -11,6 +11,7 @@ interface HeaderProps {
   onDeploy: () => void;
   onOpenHealth: () => void;
   onOpenLogs: () => void;
+  onOpenGlobalHistory: () => void;
   onOpenSettings: () => void;
   onOpenCommandPalette?: () => void;
   isGenerating: boolean;
@@ -33,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   onDeploy,
   onOpenHealth,
   onOpenLogs,
+  onOpenGlobalHistory,
   onOpenSettings,
   onOpenCommandPalette,
   isGenerating,
@@ -175,6 +177,16 @@ export const Header: React.FC<HeaderProps> = ({
         <button className="btn btn-sm btn-ghost" onClick={onOpenLogs} title="查看 Hexo 终端实时运行日志">
           <Icon name="terminal" size="sm" />
           <span>日志</span>
+        </button>
+
+        {/* 全局操作历史（跨文章汇总，支持按批次撤销） */}
+        <button
+          className="btn btn-sm btn-ghost"
+          onClick={onOpenGlobalHistory}
+          title="查看全部文章的操作历史，支持按批次一键撤销"
+        >
+          <Icon name="history" size="sm" />
+          <span>历史</span>
         </button>
 
         {/* 软件更新 (常驻顶部，点击检查最新 Release 并一键升级) */}

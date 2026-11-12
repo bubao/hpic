@@ -9,7 +9,10 @@ import { PostInfo, OperationRecord } from '../types';
 vi.mock('../api', () => ({
   api: {
     getPostHistory: vi.fn(),
+    getGlobalHistory: vi.fn(),
     undoPostOperation: vi.fn(),
+    deletePostHistory: vi.fn(),
+    clearPostHistory: vi.fn(),
   },
 }));
 
@@ -89,6 +92,53 @@ describe('PostHistoryModal Component', () => {
       expect(screen.getByText('清空封面')).toBeDefined();
       expect(screen.getByText('生效中')).toBeDefined();
       expect(screen.getByText('已撤销')).toBeDefined();
+    });
+  });
+
+  it('global mode groups batch records and rolls back the whole batch', async () => {
+    const batchRecord: OperationRecord = {
+      ...mockRecords[0],
+      id: 201,
+      batch_id: 9001,
+    };
+    const batchRecord2: OperationRecord = {
+      ...mockRecords[0],
+      id: 202,
+      batch_id: 9001,
+      field: 'banner_img',
+    };
+    vi.mocked(api.getGlobalHistory).mockResolvedValue({
+      success: true,
+      history: [batchRecord, batchRecord2],
+    });
+    vi.mocked(api.undoPostOperation).mockResolvedValue({
+      success: true,
+      post: mockPost,
+    });
+
+    render(
+      <ToastProvider>
+        <PostHistoryModal
+          isOpen={true}
+          onClose={vi.fn()}
+          post={mockPost}
+          mode="global"
+          onPostUpdated={vi.fn()}
+        />
+      </ToastProvider>
+    );
+
+    expect(screen.getByText('全部文章操作历史')).toBeDefined();
+    await waitFor(() => {
+      expect(screen.getByText('批次 9001')).toBeDefined();
+      expect(screen.getByText('撤销整批')).toBeDefined();
+      expect(screen.getByText('2 条记录')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText('撤销整批'));
+
+    await waitFor(() => {
+      expect(api.undoPostOperation).toHaveBeenCalledWith(mockPost.file_path, 201);
     });
   });
 
